@@ -69,7 +69,7 @@ type flagRow struct {
 }
 
 // awardsFor loads a bucket's awards, advancing the local day: when the
-// stored day is not today the jar resets — earned minutes and coins do not
+// stored day is not today the jar resets; earned minutes and coins do not
 func (s *Service) awardsFor(kid, bucket string) (*Awards, error) {
 	var awDay string
 	var awEarned float64

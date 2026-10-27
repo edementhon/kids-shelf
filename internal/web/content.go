@@ -65,6 +65,7 @@ func init() {
 		m.HandleFunc("POST /api/admin/content/sources/remove", s.handleContentSourcesRemove)
 		m.HandleFunc("POST /api/admin/content/scan", s.handleContentScan)
 		m.HandleFunc("GET /api/admin/content/ingest", s.handleContentIngestList)
+		m.HandleFunc("GET /api/admin/content/fixes", s.handleContentFixes)
 		m.HandleFunc("GET /api/admin/content/kiwix/catalog", s.handleContentKiwixCatalog)
 		m.HandleFunc("GET /api/admin/content/kiwix/categories", s.handleContentKiwixCategories)
 		m.HandleFunc("GET /api/admin/content/kiwix/languages", s.handleContentKiwixLanguages)
@@ -499,6 +500,55 @@ func contentIngestTitle(j ingest.JobView) string {
 		return s
 	}
 	return j.File
+}
+
+// ─── fixing videos ───────────────────────────────────────────────────────────
+
+// contentFailedEpisode is one episode whose better copy failed, as the
+// "Fixing videos" card lists it. The page renders Issue into plain words.
+type contentFailedEpisode struct {
+	Show  string `json:"show"`
+	Title string `json:"title"`
+	Issue string `json:"issue"` // "sound", "picture" or "format"
+}
+
+// handleContentFixes reports the state behind the "Fixing videos" card:
+// how many episodes wait for a better copy per issue, how many could not
+// be fixed, and the newest failed ones (at most library.FixingListCap,
+// with FailedMore counting the rest for the "and N more" line).
+func (s *Server) handleContentFixes(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPIN(w, r) {
+		return
+	}
+	if s.deps.Library == nil {
+		writeError(w, http.StatusServiceUnavailable, msgContentLibraryDown)
+		return
+	}
+	sum, err := s.deps.Library.FixingSummary(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
+		return
+	}
+	out := struct {
+		Pending        map[string]int         `json:"pending"` // issue -> episodes waiting
+		Failed         int                    `json:"failed"`
+		FailedEpisodes []contentFailedEpisode `json:"failedEpisodes"`
+		FailedMore     int                    `json:"failedMore"`
+	}{
+		Pending: map[string]int{
+			core.IssueSound:   sum.PendingSound,
+			core.IssuePicture: sum.PendingPicture,
+			core.IssueFormat:  sum.PendingFormat,
+		},
+		Failed:     sum.Failed,
+		FailedMore: sum.FailedMore,
+	}
+	for _, ep := range sum.FailedEpisodes {
+		out.FailedEpisodes = append(out.FailedEpisodes, contentFailedEpisode{
+			Show: ep.Show, Title: ep.Title, Issue: ep.Issue,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // ─── Kiwix libraries ────────────────────────────────────────────────────────

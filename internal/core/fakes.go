@@ -53,7 +53,7 @@ func (f *FakeSourceRegistry) Sources() []SourceCall {
 
 // FakeIngestQueue records Enqueue and IngestStatus calls and returns a
 // fresh job id per Enqueue. A job finishes when the test marks it done with
-// Complete, or — when the queue was built with NewFakeIngestQueue — once a
+// Complete, or (when the queue was built with NewFakeIngestQueue) once a
 // published episode's source matches the job's enqueued provenance, exactly
 // how migrate observes the real pipeline.
 type FakeIngestQueue struct {
@@ -211,6 +211,36 @@ func (f *FakePublisher) Called() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.published)
+}
+
+// FakeFixRecorder records SetFixFailed calls.
+type FakeFixRecorder struct {
+	mu    sync.Mutex
+	calls []EpisodeID
+}
+
+var _ FixRecorder = (*FakeFixRecorder)(nil)
+
+// SetFixFailed implements FixRecorder.
+func (f *FakeFixRecorder) SetFixFailed(ctx context.Context, id EpisodeID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, id)
+	return nil
+}
+
+// Failed returns a copy of the recorded episode ids, in call order.
+func (f *FakeFixRecorder) Failed() []EpisodeID {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]EpisodeID(nil), f.calls...)
+}
+
+// Called reports how many SetFixFailed calls were recorded.
+func (f *FakeFixRecorder) Called() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
 }
 
 // CreditCall is one recorded Credit invocation that resulted in a credit.
@@ -448,8 +478,8 @@ type BinCall struct {
 }
 
 // FakeEpisodeLookup resolves sources through the provenance a
-// FakePublisher recorded — the same hand-off the real pipeline makes when
-// ingest publishes a verified episode with its source — and records every
+// FakePublisher recorded, the same hand-off the real pipeline makes when
+// ingest publishes a verified episode with its source, and records every
 // BySource and SetBin call. A lookup built without a publisher resolves
 // nothing.
 type FakeEpisodeLookup struct {
@@ -469,7 +499,7 @@ func NewFakeEpisodeLookup(pub *FakePublisher) *FakeEpisodeLookup {
 }
 
 // BySource implements EpisodeLookup. It matches the source's kind and
-// path — for legacy data the path is the "show/file" key.
+// path; for legacy data the path is the "show/file" key.
 func (f *FakeEpisodeLookup) BySource(ctx context.Context, src Source) (EpisodeRef, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

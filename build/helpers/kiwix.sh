@@ -478,11 +478,21 @@ EOF
     # install leaves shared libs behind, which would hijack the static link)
     rm -f "$P"/lib/libicu* "$P"/lib/pkgconfig/icu-*.pc
     cp -a "$S/icu" "$S/icu-$KEY"
+    # ICU builds its data archive only when tools are enabled or the build
+    # is a cross build (configure.ac: DATA conditional). With --host alone,
+    # autoconf decides "cross or not" by running a test program, and zig's
+    # static musl binaries run fine on this glibc host, so a linux/amd64
+    # build came out "not cross" and the data shrank to the 28 KB stubdata
+    # placeholder (hidden while out/ was only ever built incrementally).
+    # Naming the build machine too makes autoconf mark the build as cross
+    # without running anything (build and host triples differ); for the
+    # other targets it changes nothing.
+    ICU_BUILD_TRIPLE=$(sh "$S/icu/source/config.guess")
     log "  icu: configure ($LABEL)"
     ( cd "$S/icu-$KEY/source" \
         && CC="$WRAP" CXX="$CXXW" AR="$ZIG ar" RANLIB="$ZIG ranlib" \
            CFLAGS=-O2 CXXFLAGS=-O2 CPPFLAGS="${EXTRA_INC:+-I$EXTRA_INC}" \
-           ./configure --host="$XHOST" --prefix="$P" \
+           ./configure --build="$ICU_BUILD_TRIPLE" --host="$XHOST" --prefix="$P" \
            --with-cross-build="$S/icu/source" \
            --with-data-packaging=static \
            --disable-shared --enable-static \

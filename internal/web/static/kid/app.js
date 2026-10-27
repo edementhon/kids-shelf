@@ -302,7 +302,7 @@ function render() {
       const durMin = it.duration / 60 || 0;
       const left = Math.max(0, durMin - it.pos / 60);
       const sub = durMin ? fmtMin(left) + ' min left' : 'at ' + fmtPos(it.pos);
-      row.appendChild(recItem(it.thumb, it.title, sub, () => { location.href = '/watch/' + encodeURIComponent(it.episode); }));
+      row.appendChild(recItem(it.thumb, it.title, sub, () => { location.href = '/watch/' + encodeURIComponent(it.episode); }, it.issue, it.fix));
     }
     sec.appendChild(row);
     app.appendChild(sec);
@@ -314,7 +314,7 @@ function render() {
     sec.appendChild(el('h2', null, state.me && state.me.grownup ? 'Recently watched on this shelf' : 'Recently watched'));
     const row = el('div', 'row');
     for (const it of state.recent) {
-      row.appendChild(recItem(it.thumb, it.title, it.showName || '', () => { location.href = '/watch/' + encodeURIComponent(it.episode); }));
+      row.appendChild(recItem(it.thumb, it.title, it.showName || '', () => { location.href = '/watch/' + encodeURIComponent(it.episode); }, it.issue, it.fix));
     }
     sec.appendChild(row);
     app.appendChild(sec);
@@ -324,8 +324,9 @@ function render() {
   app.appendChild(grid);
 }
 
-function recItem(thumb, title, meta, onClick) {
-  const b = el('button', 'rec-item');
+function recItem(thumb, title, meta, onClick, issue, fix) {
+  const pending = fix === 'pending';
+  const b = el('button', 'rec-item' + (pending ? ' pending' : ''));
   const img = el('img');
   img.alt = '';
   img.loading = 'lazy';
@@ -338,7 +339,12 @@ function recItem(thumb, title, meta, onClick) {
   b.appendChild(img);
   b.appendChild(el('div', 't', title));
   if (meta) b.appendChild(el('div', 'm', meta));
-  b.addEventListener('click', onClick);
+  const l = issueLabel(issue, fix);
+  if (l) b.appendChild(l);
+  b.addEventListener('click', () => {
+    if (pending) { gettingReadyPanel(); return; }
+    onClick();
+  });
   return b;
 }
 
@@ -357,8 +363,47 @@ function showCard(s) {
   return b;
 }
 
+function issueLabel(issue, fix) {
+  // A pending episode (any issue) is still being made: nothing to play yet.
+  // A failed one plays its original, with a label only for the two problems
+  // that hide sound or picture in a browser. "format" fails nothing the
+  // browser here sees, so it gets no label. Undefined fields read as "".
+  if (fix === 'pending') {
+    const l = el('span', 'issue');
+    l.textContent = '⏳ Getting ready';
+    return l;
+  }
+  if (fix === 'failed' && issue === 'sound') {
+    const l = el('span', 'issue failed');
+    l.textContent = '🔇 No sound';
+    return l;
+  }
+  if (fix === 'failed' && issue === 'picture') {
+    const l = el('span', 'issue failed');
+    l.textContent = '🚫 May not play';
+    return l;
+  }
+  return null;
+}
+
+// gettingReadyPanel explains a pending episode on the shelf. The video is
+// not playable yet, so the card never starts it: this panel is the whole
+// answer, with one way back.
+function gettingReadyPanel() {
+  if ($('getting-ready')) return;
+  const p = el('div', 'chunk');
+  p.id = 'getting-ready';
+  p.appendChild(el('h2', null, '⏳ Still getting ready'));
+  p.appendChild(el('p', null, 'This one is still getting ready. kids-shelf is working on it. Pick another one for now.'));
+  const b = el('button', null, 'Back to the shelf');
+  b.addEventListener('click', () => p.remove());
+  p.appendChild(b);
+  document.body.appendChild(p);
+}
+
 function episodeCard(e) {
-  const c = el('div', 'ep-card');
+  const pending = e.fix === 'pending';
+  const c = el('div', 'ep-card' + (pending ? ' pending' : ''));
   const img = el('img');
   img.alt = '';
   img.loading = 'lazy';
@@ -366,6 +411,8 @@ function episodeCard(e) {
   img.addEventListener('error', () => { img.src = '/static/kid/icons/poster.svg'; });
   c.appendChild(img);
   c.appendChild(el('div', 't', e.title));
+  const l = issueLabel(e.issue, e.fix);
+  if (l) c.appendChild(l);
   const meta = el('div', 'meta');
   const durMin = Math.max(0.5, e.durationSec / 60);
   meta.appendChild(el('span', 'len', fmtMin(durMin) + ' min'));
@@ -376,8 +423,11 @@ function episodeCard(e) {
   price.textContent = e.free ? 'Free' : e.bin === 'learning' ? 'Half price' : 'Costs: ' + fmtMin(e.cost) + ' min';
   meta.appendChild(price);
   c.appendChild(meta);
-  const w = el('button', 'watch-btn', 'Watch');
-  w.addEventListener('click', () => { location.href = '/watch/' + encodeURIComponent(e.id); });
+  const w = el('button', 'watch-btn' + (pending ? ' gray' : ''), 'Watch');
+  w.addEventListener('click', () => {
+    if (pending) { gettingReadyPanel(); return; }
+    location.href = '/watch/' + encodeURIComponent(e.id);
+  });
   c.appendChild(w);
   return c;
 }

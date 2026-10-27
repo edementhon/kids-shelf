@@ -16,7 +16,7 @@ import (
 // Media sources and the periodic scan live here. A source is one root
 // directory (a local folder or a mounted NAS share); each of its top-level
 // directories is one show, and episodes are found recursively inside. The
-// scanner only ever enqueues files into the ingest pipeline — originals are
+// scanner only ever enqueues files into the ingest pipeline. Originals are
 // never touched, moved or rewritten.
 
 // MediaSource is one scanned media root. Kind is core.SourceFolder or
@@ -134,14 +134,14 @@ func titleFor(path string) string {
 // in the scan_dirs table, and a directory whose mtime is unchanged skips
 // re-listing its own files (children are still descended into, each tracking
 // its own mtime), so an untouched tree costs one stat and one readdir per
-// directory. Files are matched by their Source{Kind, Path} — Path is the
+// directory. Files are matched by their Source{Kind, Path}, where Path is the
 // original file's canonical absolute path (core.CanonicalPath), the same
-// provenance BySource resolves — and a file already enqueued (its ingest job
+// provenance BySource resolves; a file already enqueued (its ingest job
 // may still be running) is tracked in scan_enqueued keyed on (kind, canonical
 // path), so nothing is enqueued twice.
 //
-// Filesystem errors — a source root that vanished (an unmounted NAS), an
-// unreadable directory — are tolerated so a transient mount problem does not
+// Filesystem errors, like a source root that vanished (an unmounted NAS) or an
+// unreadable directory, are tolerated so a transient mount problem does not
 // fail the periodic pass; database errors are returned.
 func (l *Library) Scan(ctx context.Context, q core.IngestQueue) error {
 	srcs, err := l.Sources(ctx)

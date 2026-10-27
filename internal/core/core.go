@@ -70,6 +70,35 @@ type SourceRegistry interface {
 	AddSource(ctx context.Context, path string, kind SourceKind, allowlist []string) error
 }
 
+// Issue values: what is wrong with the episode's current file for the
+// players, decided from the plan at the show-phase publish and kept until
+// the better copy lands.
+const (
+	// IssueNone means the file plays everywhere.
+	IssueNone = ""
+	// IssueSound is a Dolby/DTS audio track the browsers play silent.
+	IssueSound = "sound"
+	// IssuePicture is a video (HEVC or 10-bit) some browsers may not show.
+	IssuePicture = "picture"
+	// IssueFormat is a container (MKV) Safari cannot open.
+	IssueFormat = "format"
+)
+
+// Fix values: the state of the better copy a folder/NAS episode may be
+// getting in the background.
+const (
+	// FixNone means nothing is pending or needed: the file plays as
+	// recorded.
+	FixNone = ""
+	// FixPending means a better copy is queued or being made. The episode
+	// is on the shelf but does not play until the copy lands; playback
+	// answers 409 "getting ready".
+	FixPending = "pending"
+	// FixFailed means kids-shelf could not make the better copy, so the
+	// current file keeps playing as it is.
+	FixFailed = "failed"
+)
+
 // Episode is a published, playable video.
 type Episode struct {
 	ID          EpisodeID
@@ -87,6 +116,17 @@ type Episode struct {
 	// modify, move or delete and which may be temporarily unavailable when
 	// the NAS or drive is down.
 	Owned bool
+
+	// Issue is what is wrong with File for the players: IssueNone when it
+	// plays everywhere, else IssueSound, IssuePicture or IssueFormat. The
+	// show-phase publish sets it from the plan; when the improved copy is
+	// published it returns to IssueNone.
+	Issue string
+	// Fix is the state of the better copy: FixNone (final) or FixPending
+	// (a better copy is queued or being made) after the show-phase
+	// publish, FixNone again once the improved copy is published, and
+	// FixFailed when the improvement failed and the current file stays.
+	Fix string
 }
 
 // IngestQueue hands a media file to the ingest pipeline and returns the
@@ -103,7 +143,7 @@ type IngestQueue interface {
 
 	// IngestStatus reports how far an ingest job has run. done is false
 	// while the job is still running. Once it has finished, done is true
-	// and id is the published episode id — or the zero EpisodeID if the
+	// and id is the published episode id, or the zero EpisodeID if the
 	// job failed or produced no episode, which callers must report rather
 	// than drop silently. err is non-nil only when the status itself
 	// could not be determined.
@@ -114,6 +154,14 @@ type IngestQueue interface {
 // library, indexed by its stable id.
 type Publisher interface {
 	Publish(ctx context.Context, ep Episode) error
+}
+
+// FixRecorder marks a published episode's fix state without republishing
+// it: ingest records that the queued better copy could not be made, so the
+// pages can explain why the episode plays badly. The issue stays as the
+// show phase published it and fix becomes FixFailed.
+type FixRecorder interface {
+	SetFixFailed(ctx context.Context, id EpisodeID) error
 }
 
 // Crediter gives a kid credit on a counter (parents can point practice
@@ -267,7 +315,7 @@ type Awards struct {
 // Flag is one legacy mathfacts state flag. Keys embed the legacy kid name:
 // "promo_bonus:<kid>" (bool: whether the once-ever promo bonus was paid)
 // and "best:<kid>:<mode>" (float: best round median response time in ms, the
-// round's median — fractional when the round had an even number of correct
+// round's median, fractional when the round had an even number of correct
 // answers).
 type Flag struct {
 	Key   string

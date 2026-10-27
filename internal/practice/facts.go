@@ -324,7 +324,7 @@ func factWeight(f *FactStats, cfg Config) float64 {
 }
 
 // SampleQuestions draws n distinct questions weighted toward unmastered and
-// rarely-seen facts, in random order — the legacy sample_questions verbatim.
+// rarely-seen facts, in random order, the legacy sample_questions verbatim.
 // The mode must be open for the kid.
 func (s *Service) SampleQuestions(kid, mode string, n int) ([]Question, error) {
 	if !validMode(mode) {
@@ -393,7 +393,7 @@ func isMastered(f *FactStats, cfg Config) bool {
 }
 
 // hasFastRecord reports whether the fact has any personal-best time at or
-// under the speed bar — softer than mastery: no accuracy requirement.
+// under the speed bar, softer than mastery: no accuracy requirement.
 func hasFastRecord(f *FactStats) bool {
 	return f != nil && f.BestMS != nil && *f.BestMS <= fastRecordMS
 }
@@ -407,7 +407,7 @@ type Gate struct {
 }
 
 // ModeUnlockStatus reports the unlock gates: mul needs fast records on 30%
-// of the add+sub pool, div on 30% of the current mul pool — the legacy
+// of the add+sub pool, div on 30% of the current mul pool, the legacy
 // mode_unlock_status ladder.
 func (s *Service) ModeUnlockStatus(kid string) (map[string]Gate, error) {
 	cfg, err := s.ConfigFor(kid)
@@ -579,7 +579,7 @@ type AnswerOutcome struct {
 // RecordAnswer grades and records one answer: per-fact stats (asked, correct,
 // the 12-entry response window, median and best), a coin for a new fast
 // record and a credited minute for every banked jar. The daily cap gates the
-// coin payout only — personal-best records keep improving after the cap. A
+// coin payout only; personal-best records keep improving after the cap. A
 // credit failure applies nothing, so the caller can retry; the award id is
 // derived from the state that a retry would replay, so it never
 // double-credits (core.Crediter idempotency).
@@ -794,7 +794,7 @@ func (s *Service) FinishRound(ctx context.Context, kid, mode string, checkup boo
 
 	// Times-table ladder: widen when 80% of the current mul pool is mastered.
 	// Promotion needs the mul pool to grow (div follows implicitly), and only
-	// from practice rounds — check-ups never promote.
+	// from practice rounds; check-ups never promote.
 	newTop := 0
 	if mode == ModeMul && !checkup {
 		label, top, err := s.promoteTablesLocked(kid, cfg)
@@ -880,7 +880,7 @@ func (s *Service) promoteTablesLocked(kid string, cfg Config) (string, int, erro
 		}
 	}
 	if nxt != cur {
-		return fmt.Sprintf("×tables widened to 1–%d!", nxt), nxt, nil
+		return fmt.Sprintf("×tables widened to 1 to %d!", nxt), nxt, nil
 	}
 	return "", 0, nil
 }

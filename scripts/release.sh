@@ -246,7 +246,14 @@ for TARGET in "${TARGETS[@]}"; do
 
 	rm -rf "$BUNDLE_DIR"
 	mkdir -p "$BUNDLE_DIR"
-	for HELPER in ffmpeg ffprobe qjs kiwix-serve; do
+	HELPERS=(ffmpeg ffprobe qjs kiwix-serve)
+	# linux/amd64 also ships ffmpeg-hw, the dynamically linked glibc build
+	# with the VAAPI/NVENC/QSV encoders (build/helpers/build.sh); the other
+	# targets carry their hardware encoders inside the regular ffmpeg.
+	if [ "$KEY" = "linux_amd64" ]; then
+		HELPERS+=(ffmpeg-hw)
+	fi
+	for HELPER in "${HELPERS[@]}"; do
 		[ -f "$HELPERS_SRC/$HELPER$EXT" ] || die "$HELPERS_SRC/$HELPER$EXT is missing"
 		cp "$HELPERS_SRC/$HELPER$EXT" "$BUNDLE_DIR/"
 	done

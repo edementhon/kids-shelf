@@ -298,7 +298,7 @@ func TestSuperviseTrialHangTimesOut(t *testing.T) {
 	if reason := failedReason.Load().(string); !strings.Contains(reason, "did not become healthy") {
 		t.Errorf("Failed reason = %q, want a never-healthy mention", reason)
 	}
-	// The supervisor restarted the child (a hang again — its mode is
+	// The supervisor restarted the child (a hang again, its mode is
 	// inherited); stopping the launch forwards the stop signal and the
 	// hang child exits 0.
 	cancel()

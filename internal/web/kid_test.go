@@ -183,6 +183,35 @@ func (e *kidEnv) publishWithFile(showID, showName, epID, title string, file stri
 	}
 }
 
+// publishWithStatus files an episode carrying the given fix status with a
+// real, servable file, like the show phase does for a folder/NAS episode.
+func (e *kidEnv) publishWithStatus(showID, showName, epID, title string, issue, fix string) {
+	e.t.Helper()
+	if err := e.lib.SetShowBin(e.ctx, showName, library.BinFree); err != nil {
+		e.t.Fatalf("SetShowBin(%s): %v", showName, err)
+	}
+	dir := e.t.TempDir()
+	file := filepath.Join(dir, epID+".mp4")
+	if err := os.WriteFile(file, []byte("MP4TESTDATA\n"), 0o644); err != nil {
+		e.t.Fatalf("write media file: %v", err)
+	}
+	ep := core.Episode{
+		ID:          core.EpisodeID(epID),
+		ShowID:      showID,
+		Title:       title,
+		File:        file,
+		DurationSec: 120,
+		Thumb:       file + ".jpg",
+		Source:      core.Source{Kind: core.SourceFolder, Path: showName + "/" + epID + ".mp4", Title: title, Show: showName},
+		Owned:       true,
+		Issue:       issue,
+		Fix:         fix,
+	}
+	if err := e.lib.Publish(e.ctx, ep); err != nil {
+		e.t.Fatalf("Publish(%s): %v", epID, err)
+	}
+}
+
 // TestMediaInPlaceRangeAndMissing pins the in-place serving contract: an
 // episode whose file is a folder/NAS original serves Range/206 from the
 // recorded path, a missing original answers a player-visible 503 with the
@@ -1167,5 +1196,152 @@ func TestShowsListed(t *testing.T) {
 	thumbResp.Body.Close()
 	if thumbResp.StatusCode != http.StatusOK {
 		t.Errorf("poster URL status = %d, want 200", thumbResp.StatusCode)
+	}
+}
+
+// TestKidAPIAndWatchDataCarryIssueFix checks the two places the Contract
+// puts the fix status: the episode objects the catalog API returns and
+// the embedded player data the watch page loads.
+func TestKidAPIAndWatchDataCarryIssueFix(t *testing.T) {
+	e := newKidEnv(t)
+	e.publishWithStatus("s1", "Fix Show", "ep1", "No Sound", core.IssueSound, core.FixPending)
+	e.publishWithStatus("s1", "Fix Show", "ep2", "Fine", core.IssueNone, core.FixNone)
+
+	resp, m := e.do("GET", "/api/shows/s1/episodes", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("episodes: status %d body %v", resp.StatusCode, m)
+	}
+	eps, _ := m["episodes"].([]any)
+	if len(eps) != 2 {
+		t.Fatalf("episodes = %d, want 2", len(eps))
+	}
+	byID := map[string]map[string]any{}
+	for _, ep := range eps {
+		em := ep.(map[string]any)
+		byID[em["id"].(string)] = em
+	}
+	if got := byID["ep1"]; got["issue"] != "sound" || got["fix"] != "pending" {
+		t.Errorf("ep1 issue/fix = %v/%v, want sound/pending", got["issue"], got["fix"])
+	}
+	if got := byID["ep2"]; got["issue"] != "" || got["fix"] != "" {
+		t.Errorf("ep2 issue/fix = %v/%v, want empty", got["issue"], got["fix"])
+	}
+
+	// The player page embeds window.KS = {...}; parse it back out. The
+	// page is HTML, so it is fetched through the cookie-jar client
+	// directly (do() would consume the body as JSON).
+	e.unlockAda()
+	req, _ := http.NewRequest("GET", e.ts.URL+"/watch/ep1", nil)
+	pageResp, err := e.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET watch: %v", err)
+	}
+	body, _ := io.ReadAll(pageResp.Body)
+	pageResp.Body.Close()
+	if pageResp.StatusCode != http.StatusOK {
+		t.Fatalf("watch page: status %d", pageResp.StatusCode)
+	}
+	idx := strings.Index(string(body), "window.KS = ")
+	if idx < 0 {
+		t.Fatalf("watch page has no embedded KS data: %s", body)
+	}
+	start := idx + len("window.KS = ")
+	end := strings.Index(string(body)[start:], ";")
+	if end < 0 {
+		t.Fatalf("watch page KS data not terminated")
+	}
+	var wd watchData
+	if err := json.Unmarshal([]byte(string(body)[start:start+end]), &wd); err != nil {
+		t.Fatalf("decode watch data: %v", err)
+	}
+	if wd.Issue != core.IssueSound || wd.Fix != core.FixPending {
+		t.Errorf("watch data issue/fix = %q/%q, want sound/pending", wd.Issue, wd.Fix)
+	}
+}
+
+// TestPendingRefusesPlayback pins the "getting ready" contract: a pending
+// episode answers 409 with the plain message from /media and from
+// /api/kid/started (no minutes charged, no watch-log row). Failed and
+// clean episodes play exactly as before.
+func TestPendingRefusesPlayback(t *testing.T) {
+	e := newKidEnv(t)
+	e.publishWithStatus("s1", "Fix Show", "ep-pending", "Waiting", core.IssueSound, core.FixPending)
+	e.publishWithStatus("s1", "Fix Show", "ep-failed", "Broken Fix", core.IssuePicture, core.FixFailed)
+	e.publishWithStatus("s1", "Fix Show", "ep-clean", "Fine", core.IssueNone, core.FixNone)
+	e.importToday(e.ada, 10, 0)
+	e.unlockAda()
+
+	resp, m := e.do("GET", "/media/ep-pending.mp4", nil)
+	if resp.StatusCode != http.StatusConflict || m["error"] != msgGettingReady {
+		t.Errorf("pending media = %d %v, want 409 %q", resp.StatusCode, m, msgGettingReady)
+	}
+	resp, m = e.do("POST", "/api/kid/started", map[string]any{"episode": "ep-pending"})
+	if resp.StatusCode != http.StatusConflict || m["error"] != msgGettingReady {
+		t.Errorf("pending started = %d %v, want 409 %q", resp.StatusCode, m, msgGettingReady)
+	}
+	if log, err := e.lib.WatchLog(e.ctx); err != nil || len(log) != 0 {
+		t.Errorf("watch log after refused pending start = %d entries (err %v), want 0", len(log), err)
+	}
+	if rec, err := e.lib.Recent(e.ctx); err != nil || len(rec) != 0 {
+		t.Errorf("recent after refused pending start = %d entries (err %v), want 0", len(rec), err)
+	}
+
+	// Failed and clean episodes keep playing: /media serves them, and
+	// /api/kid/started records the watch.
+	for _, id := range []string{"ep-failed", "ep-clean"} {
+		resp, _ := e.do("GET", "/media/"+id+".mp4", nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s media status = %d, want 200", id, resp.StatusCode)
+		}
+	}
+	if resp, m := e.do("POST", "/api/kid/started", map[string]any{"episode": "ep-failed"}); resp.StatusCode != http.StatusOK {
+		t.Errorf("failed-fix started = %d %v, want 200", resp.StatusCode, m)
+	}
+	if log, err := e.lib.WatchLog(e.ctx); err != nil || len(log) != 1 {
+		t.Errorf("watch log after a real start = %d entries (err %v), want 1", len(log), err)
+	}
+}
+
+// TestWatchNextSkipsPending: the watch page's Next/NextTitle must resolve
+// past pending episodes, so the "Next episode" button never leads into a
+// "getting ready" panel.
+func TestWatchNextSkipsPending(t *testing.T) {
+	e := newKidEnv(t)
+	e.publishWithStatus("s1", "Fix Show", "ep-1", "1", core.IssueNone, core.FixNone)
+	e.publishWithStatus("s1", "Fix Show", "ep-2", "2", core.IssueSound, core.FixPending)
+	e.publishWithStatus("s1", "Fix Show", "ep-3", "3", core.IssueNone, core.FixNone)
+	e.unlockAda()
+
+	nextOf := func(id string) (string, string) {
+		t.Helper()
+		req, _ := http.NewRequest("GET", e.ts.URL+"/watch/"+id, nil)
+		resp, err := e.client.Do(req)
+		if err != nil {
+			t.Fatalf("GET watch %s: %v", id, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("watch %s: status %d", id, resp.StatusCode)
+		}
+		idx := strings.Index(string(body), "window.KS = ")
+		if idx < 0 {
+			t.Fatalf("watch %s has no embedded KS data", id)
+		}
+		start := idx + len("window.KS = ")
+		end := strings.Index(string(body)[start:], ";")
+		var wd watchData
+		if err := json.Unmarshal([]byte(string(body)[start:start+end]), &wd); err != nil {
+			t.Fatalf("decode watch data: %v", err)
+		}
+		return wd.Next, wd.NextTitle
+	}
+	// ep-1's next is ep-3: the pending ep-2 is skipped.
+	if next, title := nextOf("ep-1"); next != "ep-3" || title != "3" {
+		t.Errorf("ep-1 next = %q/%q, want ep-3/3 (pending ep-2 skipped)", next, title)
+	}
+	// The last episode has no next.
+	if next, title := nextOf("ep-3"); next != "" || title != "" {
+		t.Errorf("ep-3 next = %q/%q, want empty", next, title)
 	}
 }

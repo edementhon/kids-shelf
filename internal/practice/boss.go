@@ -31,12 +31,12 @@ var Bosses = []Boss{
 	{ID: "diver", Name: "Splitzo", Emoji: "🐙", Topic: "div", Desc: "Division facts"},
 	{ID: "buzzle", Name: "Buzzle", Emoji: "🐝", Topic: "mul6", Desc: "The ×6 bumblebee"},
 	{ID: "times7", Name: "Lucky", Emoji: "🦄", Topic: "mul7", Desc: "The ×7 unicorn"},
-	{ID: "alienfish", Name: "Alien Fish", Emoji: "🐟", Topic: "fish", Desc: "Its tail whacks you — 3 misses and you're out!", Lethal: true, PlayerHearts: 3},
+	{ID: "alienfish", Name: "Alien Fish", Emoji: "🐟", Topic: "fish", Desc: "Its tail whacks you: 3 misses and you're out!", Lethal: true, PlayerHearts: 3},
 	{ID: "ogre", Name: "Doom Ogre", Emoji: "👹", Topic: "ogre", Desc: "Subtraction + division gauntlet"},
 	{ID: "tofu", Name: "Giant Tofu", Emoji: "🧊", Topic: "tofu", Desc: "Big 2-digit sums and differences"},
-	{ID: "cavebeast", Name: "Cave Beast", Emoji: "🦇", Topic: "cave", Desc: "Lurks in the dark — everything, harder", Lethal: true, PlayerHearts: 4},
+	{ID: "cavebeast", Name: "Cave Beast", Emoji: "🦇", Topic: "cave", Desc: "Lurks in the dark: everything, harder", Lethal: true, PlayerHearts: 4},
 	{ID: "mixed", Name: "Chaos King", Emoji: "👾", Topic: "mixed", Desc: "A bit of everything"},
-	{ID: "wyrm", Name: "Dread Wyrm", Emoji: "🐲", Topic: "wyrm", Desc: "Big subtraction, ×, ÷ — the final serpent"},
+	{ID: "wyrm", Name: "Dread Wyrm", Emoji: "🐲", Topic: "wyrm", Desc: "Big subtraction, ×, ÷: the final serpent"},
 }
 
 // BossHearts is the life bar of every boss fight (legacy BOSS_HEARTS).
@@ -84,7 +84,7 @@ func bossByID(id string) *Boss {
 
 // bossQuestion draws one question for a boss topic, exactly as the legacy
 // boss_question did: ×-bosses always draw the other factor from the full
-// 1-10 tables — the boss IS the stretch — so every themed fight has at
+// 1-10 tables (the boss IS the stretch), so every themed fight has at
 // least 10 unique questions. Must be called with s.mu held (uses s.rng).
 func (s *Service) bossQuestion(topic string) Question {
 	switch topic {
@@ -287,7 +287,7 @@ func (s *Service) BossState(kid string) (core.BossState, error) {
 
 // BossRound starts a fresh fight with the current undefeated boss: marks the
 // fight in pending_bid (stale-tab guard), resets the boss to full hearts and
-// draws 8 questions — unique within the fight, never back-to-back repeats
+// draws 8 questions, unique within the fight, never back-to-back repeats
 // when the themed pool runs dry. Any in-flight fight is replaced.
 func (s *Service) BossRound(kid string) (BossFight, []Question, error) {
 	cfg, err := s.ConfigFor(kid)
@@ -402,8 +402,8 @@ func (s *Service) BossStatus(kid string) (BossFight, error) {
 
 // BossAnswer grades one boss answer and moves the fight: a correct answer
 // takes a heart (wrong answers give one back), lethal bosses whack the
-// player per miss. Clearing the boss's hearts defeats it once — the boss
-// coins (3) go to the math jar — and a lethal boss whose player hearts hit
+// player per miss. Clearing the boss's hearts defeats it once, the boss
+// coins (3) go to the math jar, and a lethal boss whose player hearts hit
 // zero refills instead. Answers only count while the round's pending fight
 // matches the current boss; a stale tab gets ErrBossChanged.
 func (s *Service) BossAnswer(ctx context.Context, kid string, a, b int, op string, given int) (BossAnswerMsg, error) {
@@ -465,7 +465,7 @@ func (s *Service) BossAnswer(ctx context.Context, kid string, a, b int, op strin
 		}
 	}
 
-	if hp <= 0 { // VICTORY — the boss falls, once
+	if hp <= 0 { // VICTORY: the boss falls, once
 		bs.Defeated = append(bs.Defeated, bid)
 		delete(bs.HP, bid)
 		delete(bs.PHP, bid)
@@ -497,7 +497,7 @@ func (s *Service) BossAnswer(ctx context.Context, kid string, a, b int, op strin
 		msg.NextBoss = currentBoss(bs)
 		return msg, nil
 	}
-	if lethal && php <= 0 { // KILLED — boss refills, retry later
+	if lethal && php <= 0 { // KILLED: boss refills, retry later
 		bs.HP[bid] = BossHearts
 		bs.PHP[bid] = phearts
 		msg.Kind = "killed"

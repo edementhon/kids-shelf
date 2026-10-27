@@ -206,6 +206,23 @@ ALTER TABLE episodes ADD COLUMN app_owned INTEGER NOT NULL DEFAULT 1
 	CHECK (app_owned IN (0, 1));
 `,
 	},
+	{
+		Owner:   "library",
+		Version: 6,
+		SQL: `
+-- issue and fix tell the pages why an episode is not playing well: issue
+-- is what is wrong with the current file ("" when it plays everywhere,
+-- else 'sound', 'picture' or 'format') and fix is the state of the better
+-- copy ("" when nothing is pending, 'pending' while one is queued or
+-- being made, 'failed' when kids-shelf could not make it). Ingest sets
+-- both at the show-phase publish, clears them when the improved copy is
+-- published, and marks fix 'failed' when the improvement fails.
+ALTER TABLE episodes ADD COLUMN issue TEXT NOT NULL DEFAULT ''
+	CHECK (issue IN ('', 'sound', 'picture', 'format'));
+ALTER TABLE episodes ADD COLUMN fix TEXT NOT NULL DEFAULT ''
+	CHECK (fix IN ('', 'pending', 'failed'));
+`,
+	},
 }
 
 // Library is the catalog over a store.
@@ -250,6 +267,15 @@ type Episode struct {
 	// outside the media folder, is never deleted or moved by the app, and
 	// may be unavailable while its NAS or drive is down.
 	Owned bool
+
+	// Issue is what is wrong with File for the players: "" when it plays
+	// everywhere, else "sound", "picture" or "format". Fix is the state
+	// of the better copy: "" (final), "pending" (a better copy is queued
+	// or being made; the episode does not play until it lands) or
+	// "failed" (kids-shelf could not make one, the current file keeps
+	// playing). Ingest writes both; see core.Issue* and core.Fix*.
+	Issue string
+	Fix   string
 }
 
 // SearchResults is what Search returns: shows whose name matches and episodes
@@ -261,7 +287,7 @@ type SearchResults struct {
 
 const selectEpisode = `
 SELECT e.id, e.show_id, s.name, e.title, e.file, e.duration_sec, e.thumb,
-       e.src_kind, e.src_path, e.app_owned, e.added
+       e.src_kind, e.src_path, e.app_owned, e.issue, e.fix, e.added
 FROM episodes e
 JOIN shows s ON s.id = e.show_id`
 
@@ -273,7 +299,7 @@ func scanEpisode(row scanner) (Episode, error) {
 	var added string
 	err := row.Scan(&ep.ID, &ep.Show, &ep.ShowName, &ep.Title, &ep.File,
 		&ep.DurationSec, &ep.Thumb, &ep.Source.Kind, &ep.Source.Path,
-		&ep.Owned, &added)
+		&ep.Owned, &ep.Issue, &ep.Fix, &added)
 	if err != nil {
 		return Episode{}, err
 	}
@@ -327,8 +353,8 @@ func (l *Library) Publish(ctx context.Context, ep core.Episode) error {
 	}
 
 	_, err = tx.ExecContext(ctx, `
-INSERT INTO episodes (id, show_id, title, file, duration_sec, thumb, src_kind, src_path, app_owned, added)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO episodes (id, show_id, title, file, duration_sec, thumb, src_kind, src_path, app_owned, issue, fix, added)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	show_id     = excluded.show_id,
 	title       = excluded.title,
@@ -337,9 +363,11 @@ ON CONFLICT(id) DO UPDATE SET
 	thumb       = excluded.thumb,
 	src_kind    = excluded.src_kind,
 	src_path    = excluded.src_path,
-	app_owned   = excluded.app_owned`,
+	app_owned   = excluded.app_owned,
+	issue       = excluded.issue,
+	fix         = excluded.fix`,
 		ep.ID, showID, ep.Title, ep.File, ep.DurationSec, ep.Thumb,
-		ep.Source.Kind, ep.Source.Path, boolInt(ep.Owned), formatTime(l.now()))
+		ep.Source.Kind, ep.Source.Path, boolInt(ep.Owned), ep.Issue, ep.Fix, formatTime(l.now()))
 	if err != nil {
 		return err
 	}
@@ -611,6 +639,93 @@ WHERE e.id = ?`, ep).Scan(&bin)
 	return BinRateOf(bin), nil
 }
 
+// SetFixFailed marks an episode's fix state "failed" without republishing
+// it: ingest calls it when a queued better copy could not be made, and the
+// current file keeps playing. The issue stays as the show phase published
+// it; an episode with no issue is left alone (there is nothing to explain)
+// and ErrNotFound is returned either way.
+func (l *Library) SetFixFailed(ctx context.Context, id core.EpisodeID) error {
+	res, err := l.s.DB().ExecContext(ctx,
+		`UPDATE episodes SET fix = 'failed' WHERE id = ? AND issue != ''`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// FixingListCap is how many failed episodes the parent dashboard's
+// "Fixing videos" card lists; the rest are summed up as "and N more".
+const FixingListCap = 10
+
+// FailedEpisode is one episode whose better copy failed, as the parent
+// dashboard lists it: the show and title a parent recognises, and the
+// issue code the plain-words explanation is rendered from.
+type FailedEpisode struct {
+	Show  string
+	Title string
+	Issue string
+}
+
+// FixingSummary is the state behind the parent dashboard's "Fixing
+// videos" card: how many episodes wait for a better copy per issue (fix
+// pending), how many improvements failed, and the newest failed episodes.
+type FixingSummary struct {
+	PendingSound   int
+	PendingPicture int
+	PendingFormat  int
+	Failed         int
+	FailedEpisodes []FailedEpisode // newest first, at most FixingListCap
+	FailedMore     int             // failed episodes beyond the list cap
+}
+
+// FixingSummary counts every episode whose fix is pending (grouped by its
+// issue) or failed, and lists the newest failed ones, ordered by when the
+// episode was added (shown), newest first. Nothing here touches the jobs
+// table: the pending and failed flags are the episodes' own, written by
+// ingest as the improvement runs.
+func (l *Library) FixingSummary(ctx context.Context) (FixingSummary, error) {
+	var sum FixingSummary
+	err := l.s.DB().QueryRowContext(ctx, `
+SELECT
+	SUM(CASE WHEN fix = 'pending' AND issue = 'sound' THEN 1 ELSE 0 END),
+	SUM(CASE WHEN fix = 'pending' AND issue = 'picture' THEN 1 ELSE 0 END),
+	SUM(CASE WHEN fix = 'pending' AND issue = 'format' THEN 1 ELSE 0 END),
+	SUM(CASE WHEN fix = 'failed' THEN 1 ELSE 0 END)
+FROM episodes`).Scan(
+		&sum.PendingSound, &sum.PendingPicture, &sum.PendingFormat, &sum.Failed)
+	if err != nil {
+		return FixingSummary{}, err
+	}
+	rows, err := l.s.DB().QueryContext(ctx, `
+SELECT s.name, e.title, e.issue
+FROM episodes e
+JOIN shows s ON s.id = e.show_id
+WHERE e.fix = 'failed'
+ORDER BY e.added DESC, e.id DESC
+LIMIT ?`, FixingListCap)
+	if err != nil {
+		return FixingSummary{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ep FailedEpisode
+		if err := rows.Scan(&ep.Show, &ep.Title, &ep.Issue); err != nil {
+			return FixingSummary{}, err
+		}
+		sum.FailedEpisodes = append(sum.FailedEpisodes, ep)
+	}
+	if err := rows.Err(); err != nil {
+		return FixingSummary{}, err
+	}
+	if sum.Failed > len(sum.FailedEpisodes) {
+		sum.FailedMore = sum.Failed - len(sum.FailedEpisodes)
+	}
+	return sum, nil
+}
+
 // newID returns a random 128-bit id, hex-encoded.
 func newID() (string, error) {
 	var b [16]byte
@@ -693,4 +808,5 @@ var (
 	_ core.EpisodeLookup    = (*Library)(nil)
 	_ core.PlaybackImporter = (*Library)(nil)
 	_ core.SourceRegistry   = (*Library)(nil)
+	_ core.FixRecorder      = (*Library)(nil)
 )

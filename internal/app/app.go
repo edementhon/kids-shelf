@@ -65,6 +65,7 @@ var allMigrations = func() []store.Migration {
 	ms = append(ms, practice.Migrations()...)
 	ms = append(ms, kiwix.Migrations...)
 	ms = append(ms, update.Migrations...)
+	ms = append(ms, appMigrations...) // last: may read every package's tables
 	return ms
 }()
 
@@ -328,8 +329,12 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	reservations := disk.NewReservations(queue)
 	helpers := a.setupHelpers(ctx, dataDir, reservations, bundle.FS(), bundle.Manifest())
 	ingestWorker := ingest.NewWorker(queue, helpers, lib, mediaDir)
+	ingestWorker.WithFixRecorder(lib)
 	ingestWorker.WithSafariSetting(func(ctx context.Context) (bool, error) {
 		return b.SafariScreens(ctx)
+	})
+	ingestWorker.WithHardwareSetting(func(ctx context.Context) (bool, error) {
+		return b.HWEncode(ctx)
 	})
 
 	updater := youtube.NewUpdater(dataDir, "")
@@ -445,6 +450,12 @@ func (a *App) Deps() web.Deps {
 	// HelpersProblem is the parent page's plain-words view of the helper
 	// programs, recorded by setupHelpers from the background self-test.
 	d.HelpersProblem = a.helpersProblemFunc
+	// VideoEncoder is the parent page's "Video conversion uses:" name,
+	// read from the ingest worker's cached hardware selection; it never
+	// probes anything.
+	if a.worker != nil {
+		d.VideoEncoder = a.worker.EncoderLabel
+	}
 	// InTrial reads the durable update journal: a Trying entry means the
 	// supervisor is still health-checking an update, and the web server
 	// must refuse Quit and Remove until it settles (the expiration timer

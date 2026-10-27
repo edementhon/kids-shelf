@@ -188,7 +188,7 @@ func TestCrediterErrorAppliesNothing(t *testing.T) {
 	e := newEnv(t, 14)
 	kid := "k1"
 	// Jar at 9 coins, so the next fast record banks a minute and the credit
-	// path actually runs — its failure must apply nothing.
+	// path actually runs, so its failure must apply nothing.
 	if err := e.svc.ImportAwards(ctx(), core.KidID(kid), core.Awards{Day: "2026-10-26", Earned: 0, Coins: 9}); err != nil {
 		t.Fatalf("ImportAwards: %v", err)
 	}

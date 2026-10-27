@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -58,17 +59,50 @@ const (
 // stages lists the pipeline in order; tests kill jobs at each one.
 var stages = []string{StageProbe, StagePlan, StageShow, StageConvert, StageVerify, StageThumbnail, StagePublish}
 
-// Improvement priorities on the jobs table: Claim hands out the lowest
-// priority first, so every not-yet-shown job (0) runs before any conversion
-// of an already-visible episode. Among conversions, audio-only re-encodes
-// come first (they fix episodes that play silent in Chromium), then full
-// re-encodes, then remuxes.
+// Claim ordering on the jobs table. Show-phase work (probe, plan, show)
+// claims at prioShow, so a newly added file is published before any
+// conversion of an already-visible episode. Improvements claim on the fix
+// lane by fixPriority: the cheapest fix first (remux, a byte copy, before
+// audio re-encodes before full re-encodes) and, within a class, the
+// shortest video first.
 const (
-	prioShow  = 0
-	prioAudio = 1
-	prioFull  = 2
-	prioRemux = 3
+	prioShow = 0
+
+	prioClassRemux = 1
+	prioClassAudio = 2
+	prioClassFull  = 3
+	// prioClassBase scales a class into the priority itself:
+	// class*1_000_000 + min(duration_sec, 999999), so every remux claims
+	// before every audio before every full, and durations sort within a
+	// class without ever reaching the next class.
+	prioClassBase = 1_000_000
+	// prioDurCap keeps a very long video from overflowing into the next
+	// class: the longest possible improvement priority is 3,999,999.
+	prioDurCap = 999_999
 )
+
+// fixPriority is the fix-lane claim order of an improvement: the cheaper
+// the fix and the shorter the video, the sooner it claims. New jobs are
+// requeued with this, and jobs migration v6 rewrites queued pre-change
+// rows to the same values, so the whole fix lane runs in one order.
+func fixPriority(action Action, durationSec int64) int {
+	class := map[Action]int{
+		ActionRemux: prioClassRemux,
+		ActionAudio: prioClassAudio,
+		ActionFull:  prioClassFull,
+	}[action]
+	if class == 0 {
+		class = prioClassRemux // unknown plans fall back to the cheapest fix
+	}
+	d := durationSec
+	if d < 0 {
+		d = 0
+	}
+	if d > prioDurCap {
+		d = prioDurCap
+	}
+	return class*prioClassBase + int(d)
+}
 
 // Words a parent sees in the dashboard when a job cannot finish. Every job
 // failure ends in one of these; internal errors are never shown raw.
@@ -101,6 +135,14 @@ type payload struct {
 	AudioIndex  int            `json:"audio_index"` // -1 when the file has no audio
 	Output      string         `json:"output,omitempty"`
 	Thumb       string         `json:"thumb,omitempty"`
+	// EncHw marks the successful conversion as hardware-encoded, so the
+	// verify stage can tell a hardware output from a software one: a
+	// hardware output that fails verification is redone once with
+	// libx264 in the same job.
+	EncHw bool `json:"enc_hw,omitempty"`
+	// HwRetried marks the conversion already fell back to software after
+	// a hardware failure; the retry never tries hardware again.
+	HwRetried bool `json:"hw_retried,omitempty"`
 	// Shown marks the show phase finished: the episode is published
 	// playing its original (or was final in place), so any convert-stage
 	// work left is an improvement. Jobs from before the show-first change
@@ -277,12 +319,14 @@ func showIDFor(show string) string {
 }
 
 // Worker claims ingest jobs and runs them through the pipeline, one at a
-// time (concurrency 1, the default: a family server is small and re-encodes
-// are CPU-heavy).
+// time per lane: a sort lane for show-phase work (priority 0) and a fix
+// lane for improvements, running concurrently so a long conversion never
+// delays a newly added file from reaching the shelf (see Run).
 type Worker struct {
 	q        *jobs.Queue
 	dir      *tools.Dir
 	pub      core.Publisher
+	fixer    core.FixRecorder
 	resv     *disk.Reservations
 	mediaDir string
 	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -290,6 +334,19 @@ type Worker struct {
 	// nil means on (the default). When it is off, remux-only plans are
 	// final in place and never grow an improvement job.
 	safari func(ctx context.Context) (bool, error)
+	// hw is the process-wide hardware encoder selection: probed lazily
+	// before the first full re-encode, cached, and cut off after three
+	// consecutive failures (see hwenc.go).
+	hw *hwState
+}
+
+// WithFixRecorder wires the library's fix-status setter: when an
+// improvement fails (the original stays on the shelf), the worker marks
+// the episode's fix "failed" so the pages can explain why it plays badly.
+// internal/app passes the library; tests pass a fake or leave it nil.
+func (w *Worker) WithFixRecorder(f core.FixRecorder) *Worker {
+	w.fixer = f
+	return w
 }
 
 // NewWorker returns a worker over q using the helper binaries in dir,
@@ -303,6 +360,7 @@ func NewWorker(q *jobs.Queue, dir *tools.Dir, pub core.Publisher, mediaDir strin
 		resv:     disk.NewReservations(q),
 		mediaDir: mediaDir,
 		runCmd:   runCombined,
+		hw:       newHWState(),
 	}
 }
 
@@ -321,27 +379,51 @@ func (w *Worker) WithSafariSetting(safari func(ctx context.Context) (bool, error
 	return w
 }
 
-// Run claims and processes jobs of kind "ingest" until ctx is done. A job
-// being processed when ctx ends is left running with its stage persisted;
-// jobs.Recover at the next launch requeues it from that stage.
+// Run claims and processes jobs of kind "ingest" until ctx is done, on
+// two lanes: a sort lane that claims only show-phase work (priority 0),
+// so a newly added file is probed, planned and published within seconds
+// even while a long conversion runs, and a fix lane that claims only
+// improvements (priority 1 and up), cheapest fix first. Each lane handles
+// one job at a time; the two run concurrently. A job being processed when
+// ctx ends is left running with its stage persisted; jobs.Recover at the
+// next launch requeues it from that stage.
 func (w *Worker) Run(ctx context.Context) error {
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		w.runLane(ctx, prioShow, prioShow)
+	}()
+	go func() {
+		defer wg.Done()
+		w.runLane(ctx, 1, math.MaxInt)
+	}()
+	wg.Wait()
+	return nil
+}
+
+// runLane claims jobs whose priority lies in [minP, maxP] and runs each
+// to a terminal state, one at a time, until ctx ends. A lane with nothing
+// to claim waits a second before asking again; a claim error (the
+// database is transiently busy) backs off the same way instead of killing
+// the other lane.
+func (w *Worker) runLane(ctx context.Context, minP, maxP int) {
 	for {
 		if ctx.Err() != nil {
-			return nil
+			return
 		}
-		job, err := w.q.Claim(JobKind)
+		job, err := w.q.ClaimRange(JobKind, minP, maxP)
 		if err != nil {
-			return fmt.Errorf("ingest: claim: %w", err)
-		}
-		if job == nil {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(time.Second):
-			}
+			log.Printf("ingest: claim: %v", err)
+		} else if job != nil {
+			w.process(ctx, job)
 			continue
 		}
-		w.process(ctx, job)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
 	}
 }
 
@@ -409,7 +491,7 @@ func (w *Worker) processOne(ctx context.Context, jobID string) (done bool) {
 		// Persist the stage's final payload (conversions released their
 		// disk reservation, etc.) before pausing or failing.
 		if aerr := w.q.Advance(job.ID, stage, pl); aerr == nil {
-			w.stageErr(job.ID, err)
+			w.stageErr(ctx, job.ID, &pl, err)
 		} else {
 			w.q.Fail(job.ID, errors.New(msgGeneric))
 		}
@@ -455,7 +537,7 @@ func (w *Worker) runStage(ctx context.Context, jobID, stage string, pl *payload)
 	case StageConvert:
 		return w.stageConvert(ctx, jobID, pl)
 	case StageVerify:
-		return w.stageVerify(ctx, pl)
+		return w.stageVerify(ctx, jobID, pl)
 	case StageThumbnail:
 		return w.stageThumb(ctx, pl)
 	case StagePublish:
@@ -474,14 +556,24 @@ const requeuedStage = "requeued"
 // stageErr records how a stage failed: a pauseError pauses the job with its
 // parent-readable reason (a full disk is something the parent can fix), any
 // other error fails the job with the error's message, and stages keep their
-// messages in plain words.
-func (w *Worker) stageErr(jobID string, err error) {
+// messages in plain words. A failed improvement keeps the episode playing
+// its original file, so the fix is marked "failed" (the issue stays) and
+// the pages can explain why the video plays badly.
+func (w *Worker) stageErr(ctx context.Context, jobID string, pl *payload, err error) {
 	var pe *pauseError
 	if errors.As(err, &pe) {
 		w.q.Pause(jobID, pe.reason)
 		return
 	}
 	w.q.Fail(jobID, err)
+	// Only improvements mark anything: a paused job (a full disk) resumes
+	// and keeps its pending fix, and a job that never reached the show
+	// phase published nothing to mark.
+	if pl.Shown && w.fixer != nil {
+		if ferr := w.fixer.SetFixFailed(ctx, pl.EpisodeID); ferr != nil {
+			log.Printf("ingest: mark fix failed for %s: %v", pl.EpisodeID, ferr)
+		}
+	}
 }
 
 // pauseError pauses a job instead of failing it: the work is blocked on
@@ -565,12 +657,15 @@ func (w *Worker) stagePlan(pl *payload) (string, error) {
 // original file (real path, Owned false, thumbnail from the original) and
 // then either finishes the job - the plan needs nothing more, or the
 // household turned the Safari remux off - or requeues it at convert with
-// the improvement priority for its plan's action. The publish is persisted
-// before the requeue, so a kill anywhere in the stage resumes without
-// publishing twice, and library.Publish upserts by episode id, so resume
-// positions and watch-log rows stay attached when the improvement later
-// replaces the file.
+// the fix-lane priority for its plan's action. The publish carries the
+// fix status: the issue the queued improvement will fix and fix
+// "pending", or "" / "" when the plan is final in place. The publish is
+// persisted before the requeue, so a kill anywhere in the stage resumes
+// without publishing twice, and library.Publish upserts by episode id, so
+// resume positions and watch-log rows stay attached when the improvement
+// later replaces the file.
 func (w *Worker) stageShow(ctx context.Context, jobID string, pl *payload) (string, error) {
+	improve, action := w.improvement(ctx, pl)
 	if !pl.Published {
 		real, err := filepath.EvalSymlinks(pl.File)
 		if err != nil {
@@ -579,6 +674,7 @@ func (w *Worker) stageShow(ctx context.Context, jobID string, pl *payload) (stri
 		pl.Output = real
 		// The thumbnail is cosmetic: stageThumb never fails the job.
 		w.stageThumb(ctx, pl)
+		issue, fix := issueFixFor(action)
 		ep := core.Episode{
 			ID:          pl.EpisodeID,
 			ShowID:      showIDFor(pl.Source.Show),
@@ -588,6 +684,8 @@ func (w *Worker) stageShow(ctx context.Context, jobID string, pl *payload) (stri
 			Thumb:       pl.Thumb,
 			Source:      pl.Source,
 			Owned:       false,
+			Issue:       issue,
+			Fix:         fix,
 		}
 		if err := w.pub.Publish(ctx, ep); err != nil {
 			return "", errors.New(msgGeneric)
@@ -598,39 +696,58 @@ func (w *Worker) stageShow(ctx context.Context, jobID string, pl *payload) (stri
 			return "", errors.New(msgGeneric)
 		}
 	}
-	if improve, prio := w.improvement(ctx, pl); !improve {
+	if !improve {
 		// Shown and final in place: the job is done.
 		return "", nil
-	} else if err := w.q.Requeue(jobID, StageConvert, prio); err != nil {
+	} else if err := w.q.Requeue(jobID, StageConvert, fixPriority(action, pl.DurationSec)); err != nil {
 		return "", errors.New(msgGeneric)
 	}
 	return requeuedStage, nil
 }
 
 // improvement decides whether an already-shown folder/NAS job still needs
-// its conversion, and with which priority. In-place plans are final; a
-// remux-only plan is final too when the "some screens use Safari" setting
-// is off (the setting applies to videos processed after the change); audio
-// re-encodes run before full re-encodes before remuxes.
-func (w *Worker) improvement(ctx context.Context, pl *payload) (bool, int) {
+// its conversion, and which action the fix lane will apply. In-place
+// plans are final; a remux-only plan is final too when the "some screens
+// use Safari" setting is off (the setting applies to videos processed
+// after the change); audio re-encodes run before full re-encodes before
+// remuxes.
+func (w *Worker) improvement(ctx context.Context, pl *payload) (bool, Action) {
 	switch pl.Action {
 	case ActionInplace, ActionKeep:
-		return false, 0
+		return false, ""
 	case ActionRemux:
 		if w.safari != nil {
 			// An unreadable setting falls back to on (convert): a failed
 			// read must not leave an episode that Safari cannot play.
 			if on, err := w.safari(ctx); err == nil && !on {
-				return false, 0
+				return false, ""
 			}
 		}
-		return true, prioRemux
+		return true, ActionRemux
 	case ActionAudio:
-		return true, prioAudio
+		return true, ActionAudio
 	case ActionFull:
-		return true, prioFull
+		return true, ActionFull
 	default:
-		return true, prioRemux
+		return true, ActionRemux
+	}
+}
+
+// issueFixFor is the fix-status pair a show-phase publish records for its
+// plan: "" / "" when nothing is queued (the plan is final in place),
+// otherwise the issue the queued improvement will fix plus fix "pending".
+// Pending episodes stay on the shelf but do not play until the better
+// copy is published; the web layer answers their playback 409.
+func issueFixFor(action Action) (issue, fix string) {
+	switch action {
+	case ActionAudio:
+		return core.IssueSound, core.FixPending
+	case ActionFull:
+		return core.IssuePicture, core.FixPending
+	case ActionRemux:
+		return core.IssueFormat, core.FixPending
+	default:
+		return core.IssueNone, core.FixNone
 	}
 }
 
@@ -671,12 +788,7 @@ func (w *Worker) stageConvert(ctx context.Context, jobID string, pl *payload) (s
 			"-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-ac", "2",
 			"-movflags", "+faststart", tmp)...)
 	case ActionFull:
-		out, err = w.run(ctx, w.dir.FFmpeg, w.streamArgs(pl,
-			"-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
-			"-maxrate", "8M", "-bufsize", "16M", "-pix_fmt", "yuv420p", "-profile:v", "high",
-			"-vf", scaleFilter(pl.Probe),
-			"-c:a", "aac", "-b:a", "160k", "-ac", "2",
-			"-movflags", "+faststart", tmp)...)
+		out, err = w.fullConvert(ctx, pl, tmp)
 	default:
 		return fail(errors.New(msgGeneric))
 	}
@@ -852,35 +964,70 @@ func isDiskFullErr(err error, out []byte) bool {
 // The codec checks run on the streams selectStreams picks, not blindly the
 // first video stream: a kept file keeps the input's own numbering, cover
 // art included, so its output must still have its real H.264 video
-// accepted. A failed verification fails the job with the keep-as-is words
-// when the episode is already shown; it is never unpublished.
-func (w *Worker) stageVerify(ctx context.Context, pl *payload) (string, error) {
+// accepted.
+//
+// A hardware-encoded output that fails verification is redone once with
+// libx264 in the same job (the graphics chip made a copy the players
+// reject), and the failure counts toward the process-wide hardware cutoff;
+// the redo is verified again and only then, if it also fails, does the job
+// fail with the keep-as-is words when the episode is already shown. A
+// software output is never retried.
+func (w *Worker) stageVerify(ctx context.Context, jobID string, pl *payload) (string, error) {
+	if err := w.verifyOutput(ctx, pl); err != nil {
+		if pl.EncHw && !pl.HwRetried {
+			w.hw.noteFailure()
+			pl.HwRetried = true
+			pl.EncHw = false
+			next, cErr := w.stageConvert(ctx, jobID, pl)
+			if cErr != nil {
+				return "", cErr
+			}
+			if next != StageVerify {
+				return "", errors.New(convertMsg(pl.Shown))
+			}
+			if vErr := w.verifyOutput(ctx, pl); vErr != nil {
+				return "", vErr
+			}
+			return StageThumbnail, nil
+		}
+		return "", err
+	}
+	if pl.EncHw {
+		// A hardware output that passed verification proves the encoder
+		// works: the consecutive-failure count starts over.
+		w.hw.noteSuccess()
+	}
+	return StageThumbnail, nil
+}
+
+// verifyOutput runs the conversion checks on pl.Output.
+func (w *Worker) verifyOutput(ctx context.Context, pl *payload) error {
 	info, err := ProbeFile(ctx, w.dir.FFprobe, pl.Output)
 	if err != nil {
-		return "", errors.New(convertMsg(pl.Shown))
+		return errors.New(convertMsg(pl.Shown))
 	}
 	vIdx, aIdx := info.selectStreams()
 	if vIdx < 0 {
-		return "", errors.New(convertMsg(pl.Shown))
+		return errors.New(convertMsg(pl.Shown))
 	}
 	v := &info.Streams[vIdx]
 	if v.CodecName != "h264" || !eightBitYUV420P(v.PixFmt) {
-		return "", errors.New(convertMsg(pl.Shown))
+		return errors.New(convertMsg(pl.Shown))
 	}
 	if aIdx >= 0 && info.Streams[aIdx].CodecName != "aac" {
-		return "", errors.New(convertMsg(pl.Shown))
+		return errors.New(convertMsg(pl.Shown))
 	}
 	front, err := moovBeforeMdat(pl.Output)
 	if err != nil || !front {
-		return "", errors.New(convertMsg(pl.Shown))
+		return errors.New(convertMsg(pl.Shown))
 	}
 	// Decode through the end on the same chosen streams: remux and
 	// re-encodes renumber them (video 0, audio 1), while a kept file keeps
 	// the input's own numbering, cover art included.
 	if err := w.decodeCheck(ctx, pl.Output, vIdx, aIdx, float64(info.Duration)); err != nil {
-		return "", errors.New(convertMsg(pl.Shown))
+		return errors.New(convertMsg(pl.Shown))
 	}
-	return StageThumbnail, nil
+	return nil
 }
 
 // decodeCheck makes ffmpeg decode every byte of the chosen streams' media
@@ -999,6 +1146,10 @@ func (w *Worker) stagePublish(ctx context.Context, jobID string, pl *payload) (s
 		Thumb:       pl.Thumb,
 		Source:      pl.Source,
 		Owned:       true,
+		// The improved copy plays everywhere: Issue and Fix stay empty,
+		// which clears the pending status the show-phase publish set.
+		Issue: core.IssueNone,
+		Fix:   core.FixNone,
 	}
 	if err := w.pub.Publish(ctx, ep); err != nil {
 		return "", errors.New(msgGeneric)

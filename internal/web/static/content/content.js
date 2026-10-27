@@ -354,6 +354,60 @@ async function loadIngest() {
   }
 }
 
+// ── fixing videos ────────────────────────────────────────────────────────────
+
+// FIX_ISSUE puts each issue code into plain words a parent understands.
+// The sentences stay in sync with the kid pages' explanations.
+const FIX_ISSUE = {
+  sound: 'No sound in most browsers (Dolby or DTS sound)',
+  picture: 'Picture may not show (HEVC or 10-bit video)',
+  format: 'Will not open on iPads, iPhones or Safari (MKV file)',
+};
+
+function renderFixing() {
+  const wrap = $('fixing');
+  const f = store.fixing || { pending: { sound: 0, picture: 0, format: 0 }, failed: 0, failedEpisodes: [], failedMore: 0 };
+  const waiting = f.pending.sound + f.pending.picture + f.pending.format;
+  if (!waiting && !f.failed) {
+    wrap.innerHTML = '<div class="empty">No videos are being fixed right now.</div>';
+    return;
+  }
+  let html = '';
+  if (waiting) {
+    const parts = [];
+    if (f.pending.sound) parts.push(`${f.pending.sound} with no sound`);
+    if (f.pending.picture) parts.push(`${f.pending.picture} with no picture`);
+    if (f.pending.format) parts.push(`${f.pending.format} that iPad or iPhone cannot open`);
+    html += `<div class="fixingline">⏳ ${waiting} video${waiting === 1 ? '' : 's'} being fixed: ${esc(parts.join(', '))}.</div>`;
+  }
+  if (f.failed) {
+    html += `<div class="fixingline">❌ ${f.failed} video${f.failed === 1 ? '' : 's'} could not be fixed and ${f.failed === 1 ? 'plays' : 'play'} as they are:</div>`;
+    html += (f.failedEpisodes || []).map(e => `<div class="job">
+        <div class="jobhead">
+          <span class="jobtitle">${esc(e.title)}</span>
+          <span class="jobsub">${esc(e.show)}</span>
+        </div>
+        <div class="jobmsg">${esc(FIX_ISSUE[e.issue] || e.issue)}</div>
+      </div>`).join('');
+    if (f.failedMore) {
+      html += `<div class="fixingline">and ${f.failedMore} more</div>`;
+    }
+  }
+  wrap.innerHTML = html;
+}
+
+async function loadFixes() {
+  try {
+    const d = await api('/api/admin/content/fixes');
+    store.fixing = d;
+    renderFixing();
+  } catch (e) {
+    if (e.message !== 'PIN needed') {
+      $('fixing').innerHTML = `<div class="jobmsg">${esc(e.message)}</div>`;
+    }
+  }
+}
+
 // ── libraries (Kiwix) ───────────────────────────────────────────────────────
 
 // langName turns the catalog's comma-separated ISO 639-3 codes into display
@@ -584,12 +638,13 @@ async function loadCatalogMeta() {
 // ── loading ─────────────────────────────────────────────────────────────────
 
 async function loadAll() {
-  await Promise.all([loadYouTube(), loadSources(), loadIngest(), loadKiwix(), loadCatalogMeta()]);
+  await Promise.all([loadYouTube(), loadSources(), loadIngest(), loadFixes(), loadKiwix(), loadCatalogMeta()]);
 }
 
 function poll() {
   loadYouTube();
   loadIngest();
+  loadFixes();
   loadKiwix();
 }
 

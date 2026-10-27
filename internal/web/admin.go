@@ -139,6 +139,7 @@ func init() {
 		m.HandleFunc("POST /api/admin/settings/default", s.handleAdminDefaultMinutes)
 		m.HandleFunc("POST /api/admin/settings/budgets", s.handleAdminBudgets)
 		m.HandleFunc("POST /api/admin/settings/safari", s.handleAdminSafariScreens)
+		m.HandleFunc("POST /api/admin/settings/hwencode", s.handleAdminHWEncode)
 		m.HandleFunc("POST /api/admin/update/restart", s.handleAdminUpdateRestart)
 		m.HandleFunc("GET /api/admin/remove", s.handleAdminRemoveInfo)
 		m.HandleFunc("POST /api/admin/remove", s.handleAdminRemove)
@@ -410,6 +411,12 @@ type adminSettings struct {
 	// Safari" setting: while on, remux-only files are converted to MP4 in
 	// the background after they appear on the shelf.
 	SafariScreens bool `json:"safari_screens"`
+	// HWEncode is the "use the graphics chip to convert videos" setting.
+	HWEncode bool `json:"hw_encode"`
+	// VideoEncoder is the parent page's "Video conversion uses:" name:
+	// the chosen hardware encoder, "this computer's processor" for
+	// software, or "not checked yet" before the first selection.
+	VideoEncoder string `json:"video_encoder"`
 }
 
 type adminUpdate struct {
@@ -512,6 +519,12 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 	}
 	if on, err := b.SafariScreens(ctx); err == nil {
 		st.Settings.SafariScreens = on
+	}
+	if on, err := b.HWEncode(ctx); err == nil {
+		st.Settings.HWEncode = on
+	}
+	if s.deps.VideoEncoder != nil {
+		st.Settings.VideoEncoder = s.deps.VideoEncoder()
 	}
 	// Updates (may be nil: plain words tell the parent this copy has none).
 	st.Updates.Message = msgUpdatesOff
@@ -1030,6 +1043,32 @@ func (s *Server) handleAdminSafariScreens(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := b.SetSafariScreens(r.Context(), req.On); err != nil {
+		writeError(w, http.StatusInternalServerError, msgSaveFailed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleAdminHWEncode sets the household "use the graphics chip to convert
+// videos" switch. Off forces the processor for every conversion; the
+// processor also takes over whenever the graphics chip fails.
+func (s *Server) handleAdminHWEncode(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPIN(w, r) {
+		return
+	}
+	b := s.deps.Budget
+	if b == nil {
+		writeError(w, http.StatusServiceUnavailable, msgAdminServiceDown)
+		return
+	}
+	var req struct {
+		On bool `json:"on"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "That didn't look right. Try again.")
+		return
+	}
+	if err := b.SetHWEncode(r.Context(), req.On); err != nil {
 		writeError(w, http.StatusInternalServerError, msgSaveFailed)
 		return
 	}

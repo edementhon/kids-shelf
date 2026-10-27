@@ -165,7 +165,7 @@ func TestFakeKidsCreateKidIdempotentByName(t *testing.T) {
 		t.Fatalf("CreateKid: %v", err)
 	}
 	// Re-creating the same name returns the same id without a duplicate
-	// registration — a re-run of migrate must be safe.
+	// registration; a re-run of migrate must be safe.
 	id2, err := f.CreateKid(ctx, "Alex", "1234")
 	if err != nil {
 		t.Fatalf("CreateKid duplicate: %v", err)
@@ -211,7 +211,7 @@ func TestFakeEpisodeLookupBySourceRoundTrip(t *testing.T) {
 	}
 	lookup := NewFakeEpisodeLookup(pub)
 	// The source the publisher filed as provenance round-trips to the
-	// episode id — the same resolution migration performs for every legacy
+	// episode id, the same resolution migration performs for every legacy
 	// "show/file" key.
 	ref, found, err := lookup.BySource(ctx, key)
 	if err != nil || !found || ref.Episode != "ep-1" || ref.Show != "show-1" {

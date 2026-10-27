@@ -33,6 +33,7 @@ type StreamInfo struct {
 	Height      int               `json:"height"`
 	Channels    int               `json:"channels"`
 	BitRate     bitrate           `json:"bit_rate"`
+	NbFrames    frames            `json:"nb_frames"`
 	Disposition Disposition       `json:"disposition"`
 	SideData    []SideData        `json:"side_data_list,omitempty"`
 	Tags        map[string]string `json:"tags,omitempty"`
@@ -62,6 +63,25 @@ func (b *bitrate) UnmarshalJSON(data []byte) error {
 	}
 	n, _ = strconv.ParseInt(strings.TrimSpace(s), 10, 64)
 	*b = bitrate(n)
+	return nil
+}
+
+// frames is a frame count ffprobe prints as a JSON string ("30", or "N/A"
+// when it is unknown); accept a bare number too. An unknown count is 0.
+type frames int
+
+func (f *frames) UnmarshalJSON(data []byte) error {
+	var n int64
+	if err := json.Unmarshal(data, &n); err == nil {
+		*f = frames(n)
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	n, _ = strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	*f = frames(n)
 	return nil
 }
 

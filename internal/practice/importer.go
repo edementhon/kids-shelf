@@ -135,7 +135,7 @@ func (s *Service) ImportBosses(ctx context.Context, kid core.KidID, b core.BossS
 
 // ImportConfig imports the legacy config: global defaults plus per-kid
 // overrides, stored under "global.<key>" and "kids.<kid>.<key>". Kid keys
-// are stored as given — migrate resolves legacy names to KidIDs when it
+// are stored as given; migrate resolves legacy names to KidIDs when it
 // wants overrides to apply to a specific profile.
 //
 // Two per-kid keys are profile settings rather than numeric config and are

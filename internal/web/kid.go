@@ -232,14 +232,19 @@ func (s *Server) handleKidIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 // watchData is the per-episode state the player page embeds. Next/NextTitle
-// hold the following episode of the same show in shelf order, for the
-// "Next episode" button on the end screen ("" when there is none).
+// hold the following playable episode of the same show in shelf order, for
+// the "Next episode" button on the end screen ("" when there is none).
+// Pending episodes are skipped: the button must never lead into a
+// "getting ready" panel. Issue/Fix tell the player why the episode does
+// not play yet (see the 409 player contract).
 type watchData struct {
 	Episode   string `json:"Episode"`
 	Title     string `json:"Title"`
 	Free      bool   `json:"Free"`
 	Next      string `json:"Next"`
 	NextTitle string `json:"NextTitle"`
+	Issue     string `json:"Issue"`
+	Fix       string `json:"Fix"`
 }
 
 // playerPage is the player template; each request substitutes __KS_DATA__.
@@ -276,15 +281,25 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	nextID, nextTitle := "", ""
 	if eps, err := s.deps.Library.ShowEpisodes(r.Context(), rec.Show); err == nil {
 		for i, e := range eps {
-			if e.ID == rec.ID && i+1 < len(eps) {
-				nextID, nextTitle = string(eps[i+1].ID), eps[i+1].Title
-				break
+			if e.ID != rec.ID {
+				continue
 			}
+			// The next episode must be playable: skip the pending ones,
+			// whose better copy is not made yet, so the "Next episode"
+			// button never leads into a "getting ready" panel.
+			for _, n := range eps[i+1:] {
+				if n.Fix != core.FixPending {
+					nextID, nextTitle = string(n.ID), n.Title
+					break
+				}
+			}
+			break
 		}
 	}
 	data, err := json.Marshal(watchData{
 		Episode: string(rec.ID), Title: rec.Title, Free: free,
 		Next: nextID, NextTitle: nextTitle,
+		Issue: rec.Issue, Fix: rec.Fix,
 	})
 	if err != nil {
 		writeError(w, 500, "Something went wrong. Try again.")
@@ -320,6 +335,11 @@ func (s *Server) handleStarted(w http.ResponseWriter, r *http.Request) {
 	rec, err := s.deps.Library.Episode(r.Context(), core.EpisodeID(req.Episode))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "We couldn't find that video.")
+		return
+	}
+	if rec.Fix == core.FixPending {
+		// The better copy is not made yet: no minutes, no watch-log row.
+		writeError(w, http.StatusConflict, msgGettingReady)
 		return
 	}
 	free := sess.grownup
@@ -361,6 +381,12 @@ func (s *Server) handleStarted(w http.ResponseWriter, r *http.Request) {
 // not reachable (NAS unmounted, drive unplugged).
 const mediaUnavailableMsg = "This video's file is not available right now. Is the video drive or NAS connected?"
 
+// msgGettingReady is what a pending episode answers when its playback is
+// asked for: the better copy is not made yet, so the better copy's video
+// does not play. The player shows a "getting ready" panel; nothing is
+// charged and no watch is recorded.
+const msgGettingReady = "This one is still getting ready. Pick another one for now."
+
 // handleMedia serves the converted MP4 of a known episode with Range
 // support. The file path comes from the library row, never from the
 // request, so "/media/<id>.mp4" can never reach the filesystem directly.
@@ -394,6 +420,12 @@ func (s *Server) serveEpisodeFile(w http.ResponseWriter, r *http.Request, id cor
 	rec, err := s.deps.Library.Episode(r.Context(), id)
 	if err != nil {
 		http.NotFound(w, r)
+		return
+	}
+	if rec.Fix == core.FixPending {
+		// The better copy is not made yet: the episode is on the shelf
+		// but does not play, whatever file it currently points at.
+		writeError(w, http.StatusConflict, msgGettingReady)
 		return
 	}
 	if !rec.Owned {
@@ -604,6 +636,8 @@ type episodeJSON struct {
 	Bin         string  `json:"bin"`  // "fun", "learning" or "free"
 	Cost        float64 `json:"cost"` // whole-episode cost in minutes; 0 when free
 	Free        bool    `json:"free"`
+	Issue       string  `json:"issue"` // "" when the file plays everywhere
+	Fix         string  `json:"fix"`   // "" when the fix is final; "pending" or "failed"
 }
 
 // handleKids lists the kid profiles for the picker. Names are not secrets
@@ -697,6 +731,8 @@ func episodeView(ep library.Episode, binByShow map[string]string) episodeJSON {
 		Bin:         bin,
 		Cost:        cost,
 		Free:        free,
+		Issue:       ep.Issue,
+		Fix:         ep.Fix,
 	}
 }
 

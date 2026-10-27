@@ -69,7 +69,7 @@ func pinLockDuration(failures int) time.Duration {
 }
 
 // pinClientKey identifies one client's failure counters: the realm, the
-// client IP and — where a realm has accounts, as the kid unlock does — the
+// client IP and (where a realm has accounts, as the kid unlock does) the
 // account id. Realms without accounts (watch-together, dashboard) use "".
 type pinClientKey struct {
 	realm   pinRealm
@@ -220,7 +220,7 @@ func (s *Server) trustedProxyPeer(r *http.Request) bool {
 }
 
 // pinLocked writes the 429 plain-message response and reports true when
-// this client is locked out in `realm` — the per-client hard gate. Call it
+// this client is locked out in `realm`: the per-client hard gate. Call it
 // right before verifying a PIN.
 func (s *Server) pinLocked(w http.ResponseWriter, r *http.Request, realm pinRealm, account string) bool {
 	waitSec, locked := pinThrottle.checkLocked(realm, s.clientIP(r), account, s.now())
@@ -232,7 +232,7 @@ func (s *Server) pinLocked(w http.ResponseWriter, r *http.Request, realm pinReal
 }
 
 // pinWrong records one wrong PIN try, unless the realm's per-minute budget
-// across all IPs is spent — then it writes the 429 that slows guessing and
+// across all IPs is spent, then it writes the 429 that slows guessing and
 // reports true. Call it after a PIN failed to verify, so the budget slows
 // brute force without ever refusing a correct PIN from a fresh device.
 func (s *Server) pinWrong(w http.ResponseWriter, realm pinRealm, ip, account string) bool {

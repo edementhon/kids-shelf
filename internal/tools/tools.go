@@ -7,7 +7,10 @@
 // fs.FS and tests use fstest.MapFS. kiwix-serve (the offline-library
 // server) lives in the same helper directory and is located here too,
 // though it is a separate binary built from the libkiwix sources rather
-// than the embedded bundle.
+// than the embedded bundle. ffmpeg-hw, the optional hardware-encoder
+// helper (only shipped for linux/amd64), is picked up the same way when it
+// is present and never required: a machine without it simply has no
+// hardware encode path.
 package tools
 
 import (
@@ -56,12 +59,16 @@ type ManifestFile struct {
 
 // Dir holds the resolved paths of the helper binaries. Some (yt-dlp) may not
 // exist yet on a fresh install; SelfTest reports which ones actually run.
+// FFmpegHW is the optional hardware-encoder helper ("" when the machine has
+// none: it is never present on Windows, and absent wherever the bundle or
+// the helper directory does not carry it).
 type Dir struct {
 	FFmpeg     string
 	FFprobe    string
 	Qjs        string
 	YtDlp      string
 	KiwixServe string
+	FFmpegHW   string
 }
 
 // Extract copies the files of fsys listed in m into <dataDir>/helpers/
@@ -186,14 +193,21 @@ func Locate(explicit string, bundled fs.FS, m Manifest, dataDir string) (*Dir, e
 
 // dirAt builds the helper paths under base, adding the .exe suffix on
 // Windows. The extracted bundle's manifest names match (phase 4 embeds
-// per-OS names such as ffmpeg.exe).
+// per-OS names such as ffmpeg.exe). FFmpegHW is resolved only when the
+// file is actually there: ffmpeg-hw.exe never exists, and a machine
+// without the helper simply has no hardware path.
 func dirAt(base string) *Dir {
+	hw := filepath.Join(base, helperName("ffmpeg-hw"))
+	if _, err := os.Stat(hw); err != nil {
+		hw = ""
+	}
 	return &Dir{
 		FFmpeg:     filepath.Join(base, helperName("ffmpeg")),
 		FFprobe:    filepath.Join(base, helperName("ffprobe")),
 		Qjs:        filepath.Join(base, helperName("qjs")),
 		YtDlp:      filepath.Join(base, helperName("yt-dlp")),
 		KiwixServe: filepath.Join(base, helperName("kiwix-serve")),
+		FFmpegHW:   hw,
 	}
 }
 
@@ -212,8 +226,8 @@ type SelfTestResult struct {
 	KiwixServe bool
 }
 
-// SelfTest runs each helper once under a timeout — `ffmpeg -version`,
-// `ffprobe -version`, `qjs -e '1'`, `kiwix-serve --version` — and reports
+// SelfTest runs each helper once under a timeout, `ffmpeg -version`,
+// `ffprobe -version`, `qjs -e '1'`, `kiwix-serve --version`, and reports
 // which worked. A missing or broken binary is a false, never an error, so
 // startup can show a plain "video conversion is unavailable" message instead
 // of crashing.

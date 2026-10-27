@@ -16,7 +16,7 @@ The Go module sources are the ones go.sum pins.
 
 | Component | Version | Licence | Upstream |
 | --- | --- | --- | --- |
-| FFmpeg (ffmpeg, ffprobe) | 9.0.2 | GPL-2.0-or-later as built: configured with `--enable-gpl` and libx264 (stock FFmpeg without the GPL parts is LGPL-2.1-or-later; LICENSE.md in the sources explains the split) | https://ffmpeg.org/ |
+| FFmpeg (ffmpeg, ffprobe, plus ffmpeg-hw on linux/amd64) | 9.0.2 | GPL-2.0-or-later as built: configured with `--enable-gpl` and libx264 (stock FFmpeg without the GPL parts is LGPL-2.1-or-later; LICENSE.md in the sources explains the split). ffmpeg-hw is the same build linked against glibc (2.28 symbol baseline) with the h264_vaapi, h264_nvenc and h264_qsv encoders; it loads libva/libva-drm from the user's system at run time | https://ffmpeg.org/ |
 | x264 | b35605ace3ddf7c1a5d67a2eb553f034aef41d55 | GPL-2.0-or-later | https://code.videolan.org/videolan/x264 |
 | QuickJS-NG (qjs) | 0.17.0 | MIT | https://github.com/quickjs-ng/quickjs |
 | kiwix-tools (kiwix-serve) | 3.8.2 | GPL-3.0-or-later | https://github.com/kiwix/kiwix-tools |
@@ -32,6 +32,12 @@ The Go module sources are the ones go.sum pins.
 | libcurl | 8.4.0 | curl licence (MIT-style ISC with the curl exceptions) | https://curl.se/ |
 | libmicrohttpd | 0.9.76 | LGPL-2.1-or-later (dual-licensed with the eCos exception; this build enables no TLS, so the LGPL path applies) | https://www.gnu.org/software/libmicrohttpd/ |
 | mustache.hpp (kainjow/Mustache) | 4.1 | BSL-1.0 (per the pinned archive's LICENSE) | https://dev.kiwix.org/kiwix-build/mustache-4.1.tar.gz (upstream https://github.com/kainjow/Mustache) |
+| NVIDIA Codec SDK headers (ffnvcodec: h264_nvenc on windows and ffmpeg-hw) | 13.0.19.0 | NVIDIA permissive licence (MIT-style text in every header; FFmpeg's configure has not required `--enable-nonfree` for nvenc since 4.0) | https://github.com/FFmpeg/nv-codec-headers |
+| AMF headers (h264_amf, windows) | 1.5.3 | MIT | https://github.com/GPUOpen-LibrariesAndSDKs/AMF |
+| oneVPL / libvpl (h264_qsv, windows and ffmpeg-hw) | 2.17.0 | MIT | https://github.com/intel/libvpl |
+| libva (h264_vaapi headers and link stubs for ffmpeg-hw; never bundled) | 2.24.1 | MIT | https://github.com/intel/libva |
+| libdrm (libva-drm build dependency for ffmpeg-hw; never bundled) | 2.4.122 | MIT | https://dri.freedesktop.org/libdrm/ |
+| macOS SDK (h264_videotoolbox framework headers and .tbd link stubs, darwin) | 11.3 | Apple SDK licence (see DECISIONS.md 2026-10-26 "macOS helpers cross-build here with osxcross"; extracted once under the build toolchain, only VideoToolbox, CoreMedia, CoreVideo, CoreFoundation and their header closure are linked) | https://github.com/phracker/MacOSX-SDKs |
 
 ## Go module dependencies (linked into the kids-shelf binaries)
 

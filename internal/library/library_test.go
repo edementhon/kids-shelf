@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -652,5 +653,96 @@ func TestMigrationConvertsLegacyTimesAndDedupesWatchLog(t *testing.T) {
 	}
 	if raw != "2026-10-26T12:00:00.050000000Z" {
 		t.Errorf("recent.at after migration = %q, want fixed width", raw)
+	}
+}
+
+// TestIssueFixRoundTripAndSetFixFailed pins the fix-status columns: the
+// show-phase values survive Publish and Episode, an improvement publish
+// clears them, SetFixFailed marks an episode failed with its issue kept,
+// and an episode with no issue is left alone.
+func TestIssueFixRoundTripAndSetFixFailed(t *testing.T) {
+	lib := newTestLibrary(t)
+	ep := tmpEpisode("e1", "s1", "Bluey", "Keepy Uppy", "a.mp4")
+	ep.Issue = core.IssueSound
+	ep.Fix = core.FixPending
+	mustPublish(t, lib, ep)
+	got, err := lib.Episode(context.Background(), "e1")
+	if err != nil {
+		t.Fatalf("Episode: %v", err)
+	}
+	if got.Issue != core.IssueSound || got.Fix != core.FixPending {
+		t.Errorf("round trip = %q/%q, want sound/pending", got.Issue, got.Fix)
+	}
+	// The improvement publish clears both fields.
+	ep.Issue, ep.Fix = core.IssueNone, core.FixNone
+	mustPublish(t, lib, ep)
+	if got, _ := lib.Episode(context.Background(), "e1"); got.Issue != "" || got.Fix != "" {
+		t.Errorf("after the improved publish = %q/%q, want cleared", got.Issue, got.Fix)
+	}
+	// A failed improvement marks the fix failed, keeping the issue.
+	ep2 := tmpEpisode("e2", "s1", "Bluey", "Dusty", "b.mp4")
+	ep2.Issue = core.IssueFormat
+	mustPublish(t, lib, ep2)
+	if err := lib.SetFixFailed(context.Background(), "e2"); err != nil {
+		t.Fatalf("SetFixFailed: %v", err)
+	}
+	if got, _ := lib.Episode(context.Background(), "e2"); got.Fix != core.FixFailed || got.Issue != core.IssueFormat {
+		t.Errorf("after SetFixFailed = %q/%q, want failed/format (issue kept)", got.Fix, got.Issue)
+	}
+	// An episode with no issue is never marked: there is nothing to explain.
+	if err := lib.SetFixFailed(context.Background(), "e1"); err != ErrNotFound {
+		t.Errorf("SetFixFailed on an issue-free episode = %v, want ErrNotFound", err)
+	}
+	if err := lib.SetFixFailed(context.Background(), "nope"); err != ErrNotFound {
+		t.Errorf("SetFixFailed on an unknown episode = %v, want ErrNotFound", err)
+	}
+}
+
+// TestFixingSummary counts the pending and failed episodes for the parent
+// dashboard's card, lists the newest failed ones first up to the cap, and
+// reports the rest as FailedMore.
+func TestFixingSummary(t *testing.T) {
+	lib := newTestLibrary(t)
+	pub := func(id, issue, fix string) {
+		t.Helper()
+		ep := tmpEpisode(id, "s"+id, "Show "+id, "Ep "+id, id+".mp4")
+		ep.Issue, ep.Fix = issue, fix
+		mustPublish(t, lib, ep)
+	}
+	pub("pending-sound", core.IssueSound, core.FixPending)
+	pub("pending-picture", core.IssuePicture, core.FixPending)
+	pub("pending-format", core.IssueFormat, core.FixPending)
+	pub("pending-format2", core.IssueFormat, core.FixPending)
+	pub("fine", core.IssueNone, core.FixNone)
+	for i := range FixingListCap + 2 {
+		pub(fmt.Sprintf("failed-%02d", i), core.IssueSound, core.FixFailed)
+	}
+	sum, err := lib.FixingSummary(context.Background())
+	if err != nil {
+		t.Fatalf("FixingSummary: %v", err)
+	}
+	if sum.PendingSound != 1 || sum.PendingPicture != 1 || sum.PendingFormat != 2 {
+		t.Errorf("pending counts = sound %d picture %d format %d, want 1/1/2",
+			sum.PendingSound, sum.PendingPicture, sum.PendingFormat)
+	}
+	if sum.Failed != FixingListCap+2 {
+		t.Errorf("failed = %d, want %d", sum.Failed, FixingListCap+2)
+	}
+	if len(sum.FailedEpisodes) != FixingListCap {
+		t.Errorf("failed list = %d entries, want the cap %d", len(sum.FailedEpisodes), FixingListCap)
+	}
+	if sum.FailedMore != 2 {
+		t.Errorf("FailedMore = %d, want 2", sum.FailedMore)
+	}
+	// Newest first: failed-11 was published last and leads; every entry
+	// carries the show and title a parent recognises.
+	if got := sum.FailedEpisodes[0].Show; got != "Show failed-11" {
+		t.Errorf("newest failed = %q, want Show failed-11 (newest first)", got)
+	}
+	if sum.FailedEpisodes[0].Title != "Ep failed-11" || sum.FailedEpisodes[0].Issue != core.IssueSound {
+		t.Errorf("newest failed entry = %+v", sum.FailedEpisodes[0])
+	}
+	if got := sum.FailedEpisodes[len(sum.FailedEpisodes)-1].Show; got != "Show failed-02" {
+		t.Errorf("oldest listed = %q, want Show failed-02", got)
 	}
 }

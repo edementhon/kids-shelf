@@ -108,7 +108,7 @@ func TestManyFailuresKeepFifteenMinuteLockout(t *testing.T) {
 	}
 	waitSec, locked := th.checkLocked(realmKidUnlock, ip, ada, now)
 	if !locked {
-		t.Fatal("200 failures left the client unlocked — the lockout wrapped")
+		t.Fatal("200 failures left the client unlocked: the lockout wrapped")
 	}
 	if want := int(pinThrottleMax / time.Second); waitSec != want {
 		t.Errorf("wait after 200 failures = %ds, want the %ds cap", waitSec, want)

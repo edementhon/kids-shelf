@@ -373,7 +373,7 @@ func TestOpenerFor(t *testing.T) {
 // TestRunSimultaneousFirstLaunch starts two Run helpers against a fresh
 // data dir at the same instant (both wait for a barrier file the test
 // drops only after both announced they are ready). Neither helper can find
-// a published instance.json at first — the winner has not written it yet —
+// a published instance.json at first (the winner has not written it yet),
 // so the loser must wait inside joinRunning for the winner to publish and
 // pass /healthz instead of reporting the app as starting or stuck. Exactly
 // one helper must become the server and the other must join it.

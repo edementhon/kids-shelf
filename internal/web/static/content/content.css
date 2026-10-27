@@ -171,6 +171,7 @@ code { background: var(--chip); padding: 2px 6px; border-radius: 6px; font-size:
   background: var(--card);
 }
 .empty { color: var(--muted); font-size: .9rem; padding: 8px 0; }
+.fixingline { color: var(--muted); margin: 8px 0; }
 
 /* ── catalog ── */
 .filters { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }

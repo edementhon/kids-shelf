@@ -16,6 +16,27 @@
   <p id="chunkMsg">You used all your minutes for today. Ask a grown-up to watch together :)</p>
   <button type="button" id="chunkBtn">Close</button>
 </div>
+<div class="chunk" id="pending" hidden>
+  <h2>⏳ Still getting ready</h2>
+  <p>This one is still getting ready. kids-shelf is working on it. Pick another one for now.</p>
+  <button type="button" id="pendingBack">Back to the shelf</button>
+</div>
+<div class="chunk" id="playIssue" hidden>
+  <h2 id="playIssueTitle"></h2>
+  <p id="playIssueMsg"></p>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:8px">
+    <button type="button" id="playIssueNext" hidden>Next episode</button>
+    <button type="button" id="playIssueBack">Back to the shelf</button>
+  </div>
+</div>
+<div class="chunk" id="sound" hidden>
+  <h2 id="soundTitle"></h2>
+  <p>This video has no sound on this screen.</p>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:8px">
+    <button type="button" id="soundMute">Watch without sound</button>
+    <button type="button" id="soundBack">Pick another</button>
+  </div>
+</div>
 <div class="chunk" id="end" hidden>
   <h2>Done!</h2>
   <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:8px">

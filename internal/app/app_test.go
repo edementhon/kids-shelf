@@ -382,6 +382,88 @@ func TestIngestWorkerHonorsSafariSettingFromBudget(t *testing.T) {
 	}
 }
 
+// TestIngestWorkerHonorsHardwareSettingFromBudget proves the wiring from
+// internal/app: the ingest worker reads the household "use the graphics
+// chip" setting from the budget store. Off forces software, but a file
+// that needs a full re-encode is still converted and published (the
+// setting only decides whether hardware is tried, never whether the job
+// runs). The helpers and the fixture ffmpeg come from the same
+// environment the ingest pipeline tests use.
+func TestIngestWorkerHonorsHardwareSettingFromBudget(t *testing.T) {
+	if os.Getenv(tools.EnvHelpersDir) == "" || os.Getenv("KS_FIXTURE_FFMPEG") == "" {
+		t.Skip("needs KS_HELPERS_DIR and KS_FIXTURE_FFMPEG (ffmpeg/ffprobe plus a full ffmpeg)")
+	}
+	full := os.Getenv("KS_FIXTURE_FFMPEG")
+	src := filepath.Join(t.TempDir(), "clip.mpeg4.mp4")
+	cmd := exec.Command(full,
+		"-y", "-loglevel", "error",
+		"-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24",
+		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+		"-c:v", "mpeg4", "-q:v", "3", "-c:a", "aac", "-b:a", "128k",
+		"-t", "4", "-movflags", "+faststart", src)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %v\n%s", err, b)
+	}
+
+	dataDir := t.TempDir()
+	a := openTest(t, dataDir)
+	if a.worker == nil {
+		t.Fatal("Open wired no ingest worker")
+	}
+	ctx := context.Background()
+	if err := a.budget.SetHWEncode(ctx, false); err != nil {
+		t.Fatalf("SetHWEncode(false): %v", err)
+	}
+	if got := a.worker.EncoderLabel(); got != "this computer's processor" {
+		t.Errorf("EncoderLabel = %q, want the processor with the setting off", got)
+	}
+	id, err := a.ingestQ.Enqueue(ctx, src, core.Source{
+		Kind:  core.SourceFolder,
+		Path:  src,
+		Title: "Clip",
+		Show:  "Clips",
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	runDone := make(chan struct{})
+	go func() {
+		a.worker.Run(runCtx)
+		close(runDone)
+	}()
+	deadline := time.After(120 * time.Second)
+	for {
+		j, gerr := a.queue.Get(id)
+		if gerr == nil && (j.State == jobs.StateDone || j.State == jobs.StateFailed) {
+			break
+		}
+		select {
+		case <-deadline:
+			cancel()
+			<-runDone
+			t.Fatal("job did not finish in time")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	cancel()
+	<-runDone
+	job, err := a.queue.Get(id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if job.State != jobs.StateDone {
+		t.Fatalf("state = %s (error %q), want done (software conversion)", job.State, job.Error)
+	}
+	ep, err := a.library.Episode(ctx, mustEpisodeID(t, job))
+	if err != nil {
+		t.Fatalf("Episode: %v", err)
+	}
+	if !ep.Owned {
+		t.Errorf("episode = %+v, want the app-owned converted copy (a full re-encode still runs)", ep)
+	}
+}
+
 func mustEpisodeID(t *testing.T, job *jobs.Job) core.EpisodeID {
 	t.Helper()
 	var p struct {

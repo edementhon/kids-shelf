@@ -5,11 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -386,6 +389,7 @@ type harness struct {
 	iq       *Queue
 	w        *Worker
 	pub      *core.FakePublisher
+	fix      *core.FakeFixRecorder
 	q        *jobs.Queue
 	mediaDir string
 }
@@ -406,11 +410,13 @@ func newHarness(t *testing.T, helpers string) harness {
 		t.Fatalf("tools.Locate: %v", err)
 	}
 	pub := &core.FakePublisher{}
+	fix := &core.FakeFixRecorder{}
 	mediaDir := t.TempDir()
 	return harness{
 		iq:       NewQueue(q),
-		w:        NewWorker(q, dir, pub, mediaDir),
+		w:        NewWorker(q, dir, pub, mediaDir).WithFixRecorder(fix),
 		pub:      pub,
+		fix:      fix,
 		q:        q,
 		mediaDir: mediaDir,
 	}
@@ -1108,6 +1114,11 @@ func TestNoSpaceBeforeConvertPauses(t *testing.T) {
 	}
 	if h.pub.Called() != 1 {
 		t.Errorf("published %d times, want 1 (the show phase)", h.pub.Called())
+	}
+	// A pause is not a failure: the fix stays pending and nothing is
+	// marked failed (the job resumes when space frees up).
+	if h.fix.Called() != 0 {
+		t.Errorf("fix failed marks = %v, want none for a paused job", h.fix.Failed())
 	}
 	assertIntact(t, f.remuxMKV, before)
 	assertLibraryClean(t, h.mediaDir)
@@ -1986,6 +1997,14 @@ func TestFailedImprovementKeepsEpisode(t *testing.T) {
 			if ep := h.pub.Published()[0]; ep.File != f.remuxMKV || ep.Owned {
 				t.Errorf("episode after the failed improvement = %+v, want the original %q, unowned", ep, f.remuxMKV)
 			}
+			// The show publish carried the pending fix status, and the
+			// failure marked it failed with the issue kept.
+			if ep := h.pub.Published()[0]; ep.Issue != core.IssueFormat || ep.Fix != core.FixPending {
+				t.Errorf("show publish fix status = %q/%q, want format/pending", ep.Issue, ep.Fix)
+			}
+			if got := h.fix.Failed(); len(got) != 1 || got[0] != h.payloadOf(t, id).EpisodeID {
+				t.Errorf("fix failed marks = %v, want exactly [%s]", got, h.payloadOf(t, id).EpisodeID)
+			}
 			if tc.noOutput {
 				if _, err := os.Stat(filepath.Join(h.mediaDir, "library", string(h.payloadOf(t, id).EpisodeID)+".mp4")); !os.IsNotExist(err) {
 					t.Errorf("converted output left for a failed conversion (err %v)", err)
@@ -2012,8 +2031,8 @@ func TestClaimShowsBeforeImprovements(t *testing.T) {
 	// convert, waiting for its (remux) improvement.
 	b := h.enqueue(t, f.remuxMKV)
 	h.runStages(t, b, 3) // probe, plan, show: requeued for its remux improvement
-	if j, _ := h.q.Get(b); j.Priority != prioRemux {
-		t.Fatalf("B priority = %d, want %d", j.Priority, prioRemux)
+	if j, _ := h.q.Get(b); j.Priority != fixPriority(ActionRemux, h.payloadOf(t, b).DurationSec) {
+		t.Fatalf("B priority = %d, want the fix-lane remux priority %d", j.Priority, fixPriority(ActionRemux, h.payloadOf(t, b).DurationSec))
 	}
 	// A and C are fresh show jobs enqueued after B. They must be distinct
 	// files: Enqueue is idempotent per source, so three jobs enqueued for
@@ -2041,19 +2060,19 @@ func TestClaimShowsBeforeImprovements(t *testing.T) {
 }
 
 // TestImprovementPriorityOrder pins the ordering among improvements: audio
-// re-encodes first, then full re-encodes, then remuxes.
+// re-encodes first, then full re-encodes, then remuxes: each requeued
+// improvement carries its fix-lane priority (class*1_000_000 + duration).
 func TestImprovementPriorityOrder(t *testing.T) {
 	helpers, _ := fixtureEnv(t)
 	f := makeFixtures(t)
 	for _, tc := range []struct {
-		name         string
-		in           string
-		wantAction   Action
-		wantPriority int
+		name       string
+		in         string
+		wantAction Action
 	}{
-		{"audio", f.ac3MKV, ActionAudio, prioAudio},
-		{"full", f.rotatedMP4, ActionFull, prioFull},
-		{"remux", f.remuxMKV, ActionRemux, prioRemux},
+		{"audio", f.ac3MKV, ActionAudio},
+		{"full", f.rotatedMP4, ActionFull},
+		{"remux", f.remuxMKV, ActionRemux},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t, helpers)
@@ -2066,8 +2085,9 @@ func TestImprovementPriorityOrder(t *testing.T) {
 			if j.State != jobs.StateQueued || j.Stage != StageConvert {
 				t.Fatalf("after show: state=%s stage=%s, want queued at convert", j.State, j.Stage)
 			}
-			if j.Priority != tc.wantPriority {
-				t.Errorf("priority = %d, want %d for %s", j.Priority, tc.wantPriority, tc.wantAction)
+			want := fixPriority(tc.wantAction, h.payloadOf(t, id).DurationSec)
+			if j.Priority != want {
+				t.Errorf("priority = %d, want %d for %s", j.Priority, want, tc.wantAction)
 			}
 		})
 	}
@@ -2110,8 +2130,8 @@ func TestSafariSettingRemux(t *testing.T) {
 		h := newHarness(t, helpers)
 		id := h.enqueue(t, f.remuxMKV)
 		h.runStages(t, id, 3)
-		if j, _ := h.q.Get(id); j.Priority != prioRemux {
-			t.Fatalf("improvement priority = %d, want %d", j.Priority, prioRemux)
+		if j, _ := h.q.Get(id); j.Priority != fixPriority(ActionRemux, h.payloadOf(t, id).DurationSec) {
+			t.Fatalf("improvement priority = %d, want the fix-lane remux priority", j.Priority)
 		}
 		h.runToEnd(t, id)
 		suitImprove(t, h, id, f.remuxMKV)
@@ -2205,5 +2225,304 @@ func TestYouTubeRecoveredAfterPublishPublishesOnce(t *testing.T) {
 	ep, _ := suit(t, h, id)
 	if !ep.Owned {
 		t.Error("YouTube episode Owned = false, want true")
+	}
+}
+
+// TestShowPhaseIssueFix pins the fix status the show-phase publish writes:
+// audio plans publish format/pending, full picture/pending, remux
+// format/pending (the Safari setting is on by default), in-place plans
+// publish ""/"" and a remux with the Safari setting off is final in place.
+// The improvement publish clears both fields.
+func TestShowPhaseIssueFix(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	t.Run("audio", func(t *testing.T) {
+		h := newHarness(t, helpers)
+		id := h.enqueue(t, f.ac3MKV)
+		h.runToEnd(t, id)
+		ep, _ := suitImprove(t, h, id, f.ac3MKV)
+		show := h.pub.Published()[0]
+		if show.Issue != core.IssueSound || show.Fix != core.FixPending {
+			t.Errorf("show publish = %q/%q, want sound/pending", show.Issue, show.Fix)
+		}
+		if ep.Issue != core.IssueNone || ep.Fix != core.FixNone {
+			t.Errorf("improved publish = %q/%q, want cleared", ep.Issue, ep.Fix)
+		}
+	})
+	t.Run("full", func(t *testing.T) {
+		h := newHarness(t, helpers)
+		id := h.enqueue(t, f.rotatedMP4)
+		h.runToEnd(t, id)
+		ep, _ := suitImprove(t, h, id, f.rotatedMP4)
+		show := h.pub.Published()[0]
+		if show.Issue != core.IssuePicture || show.Fix != core.FixPending {
+			t.Errorf("show publish = %q/%q, want picture/pending", show.Issue, show.Fix)
+		}
+		if ep.Issue != core.IssueNone || ep.Fix != core.FixNone {
+			t.Errorf("improved publish = %q/%q, want cleared", ep.Issue, ep.Fix)
+		}
+	})
+	t.Run("remux", func(t *testing.T) {
+		h := newHarness(t, helpers)
+		id := h.enqueue(t, f.remuxMKV)
+		h.runStages(t, id, 3)
+		show := h.pub.Published()[0]
+		if show.Issue != core.IssueFormat || show.Fix != core.FixPending {
+			t.Errorf("show publish = %q/%q, want format/pending", show.Issue, show.Fix)
+		}
+		h.runToEnd(t, id)
+		if ep, _ := suitImprove(t, h, id, f.remuxMKV); ep.Issue != core.IssueNone || ep.Fix != core.FixNone {
+			t.Errorf("improved publish = %q/%q, want cleared", ep.Issue, ep.Fix)
+		}
+	})
+	t.Run("inplace", func(t *testing.T) {
+		h := newHarness(t, helpers)
+		id := h.enqueue(t, f.keep)
+		h.runToEnd(t, id)
+		ep, _ := suit(t, h, id)
+		if ep.Issue != core.IssueNone || ep.Fix != core.FixNone {
+			t.Errorf("in-place publish = %q/%q, want cleared", ep.Issue, ep.Fix)
+		}
+	})
+	t.Run("remux safari off", func(t *testing.T) {
+		h := newHarness(t, helpers)
+		h.w.WithSafariSetting(func(context.Context) (bool, error) { return false, nil })
+		id := h.enqueue(t, f.remuxMKV)
+		h.runToEnd(t, id)
+		ep, _ := suit(t, h, id)
+		if ep.Issue != core.IssueNone || ep.Fix != core.FixNone {
+			t.Errorf("safari-off publish = %q/%q, want cleared", ep.Issue, ep.Fix)
+		}
+	})
+}
+
+// TestFixLaneClaimOrder pins the fix lane's claim order: class remux
+// before audio before full, and within a class the shorter video first.
+// The priorities come from the real show-stage requeue, so the order is
+// exactly what a live queue asks the lane for.
+func TestFixLaneClaimOrder(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	h := newHarness(t, helpers)
+	// Three fixtures whose plans are remux (MKV, H.264+AAC), audio (AC3)
+	// and full (MPEG-4), plus a second remux file the test can give a
+	// shorter duration than the first.
+	remuxLong, remuxShort := f.remuxMKV, filepath.Join(t.TempDir(), "short.mkv")
+	if b, err := os.ReadFile(f.remuxMKV); err != nil {
+		t.Fatalf("read remux fixture: %v", err)
+	} else if err := os.WriteFile(remuxShort, b, 0o644); err != nil {
+		t.Fatalf("write short remux: %v", err)
+	}
+	// Run probe and plan for the two remux jobs, then hand each show stage
+	// a payload with the duration this test wants, so the real stageShow
+	// requeue computes the priority from it (it reads pl.DurationSec).
+	showWithDuration := func(id string, dur int64) {
+		t.Helper()
+		h.runStages(t, id, 2) // probe, plan; the job is left running at show
+		pl := h.payloadOf(t, id)
+		pl.DurationSec = dur
+		if err := h.q.Advance(id, StageShow, pl); err != nil {
+			t.Fatalf("Advance %s: %v", id, err)
+		}
+		// The job is still claimed from runStages; run its show stage,
+		// which publishes and requeues with the patched duration.
+		h.w.processOne(context.Background(), id)
+	}
+	remuxLongID := h.enqueue(t, remuxLong)
+	shortID := h.enqueue(t, remuxShort)
+	showWithDuration(remuxLongID, 60)
+	showWithDuration(shortID, 12)
+	audioID := h.enqueue(t, f.ac3MKV)
+	fullID := h.enqueue(t, f.rotatedMP4)
+	for _, id := range []string{audioID, fullID} {
+		h.runStages(t, id, 3) // probe, plan, show: requeued at its fix priority
+	}
+	want := []string{shortID, remuxLongID, audioID, fullID}
+	for i, wantID := range want {
+		job, err := h.q.ClaimRange(JobKind, 1, math.MaxInt)
+		if err != nil {
+			t.Fatalf("ClaimRange %d: %v", i, err)
+		}
+		if job == nil || job.ID != wantID {
+			t.Fatalf("fix lane claim %d = %+v, want %s", i, job, wantID)
+		}
+	}
+	// Nothing else waits in the fix lane.
+	if job, err := h.q.ClaimRange(JobKind, 1, math.MaxInt); err != nil || job != nil {
+		t.Fatalf("fix lane has a fifth claim %+v (err %v), want none", job, err)
+	}
+}
+
+// TestSortLaneCompletesWhileFixLaneConverts runs the two lanes at once:
+// an improvement's conversion is blocked in the fix lane, and a brand-new
+// in-place file is still published by the sort lane while the conversion
+// sits stuck, exactly the "appears within seconds" contract.
+func TestSortLaneCompletesWhileFixLaneConverts(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	h := newHarness(t, helpers)
+	longID := h.enqueue(t, f.remuxMKV)
+	h.runStages(t, longID, 3) // probe, plan, show: queued at its fix priority
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var enteredOnce sync.Once
+	h.w.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		// The improvement's convert is the only helper call whose output
+		// path ends in .mp4 (decodeCheck ends "-f null -", thumbnails end
+		// .tmp.jpg); the helper name is the full path to ffmpeg.
+		if filepath.Base(name) == "ffmpeg" && len(args) > 0 && strings.HasSuffix(args[len(args)-1], ".mp4") {
+			enteredOnce.Do(func() { close(entered) })
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return runCombined(ctx, name, args...)
+	}
+
+	fixDone := make(chan struct{})
+	go func() {
+		defer close(fixDone)
+		job, err := h.q.ClaimRange(JobKind, 1, math.MaxInt)
+		if err != nil {
+			t.Errorf("fix lane ClaimRange: %v", err)
+			return
+		}
+		if job == nil {
+			t.Error("fix lane claimed nothing")
+			return
+		}
+		h.w.process(context.Background(), job)
+	}()
+	<-entered // the conversion is running and blocked
+
+	// A new in-place file: the sort lane must take it to the shelf while
+	// the conversion above is still stuck.
+	shortID := h.enqueue(t, f.keep)
+	job, err := h.q.ClaimRange(JobKind, 0, 0)
+	if err != nil || job == nil {
+		t.Fatalf("sort lane claim: %v %+v", err, job)
+	}
+	h.w.process(context.Background(), job)
+	j2, err := h.q.Get(shortID)
+	if err != nil || j2.State != jobs.StateDone {
+		t.Fatalf("sort-lane job after its run: %+v (err %v), want done", j2, err)
+	}
+	if ep := h.pub.Published(); len(ep) != 2 || ep[1].ID != core.EpisodeID(h.payloadOf(t, shortID).EpisodeID) {
+		t.Fatalf("published %+v, want the sort-lane episode on the shelf while the fix lane converts", ep)
+	}
+	j1, err := h.q.Get(longID)
+	if err != nil || j1.State != jobs.StateRunning || j1.Stage != StageConvert {
+		t.Fatalf("fix-lane job while converting: %+v (err %v), want running at convert", j1, err)
+	}
+
+	close(release)
+	<-fixDone
+	if j1, err := h.q.Get(longID); err != nil || j1.State != jobs.StateDone {
+		t.Fatalf("fix-lane job after release: %+v (err %v), want done", j1, err)
+	}
+	if ep := h.pub.Published(); len(ep) != 3 || !ep[2].Owned {
+		t.Fatalf("final publishes = %d, want the improvement's app-owned copy", len(ep))
+	}
+}
+
+// TestReprioritizeQueuedImprovements drives jobs migration v6 over rows a
+// pre-change database would hold: improvement jobs queued under the old
+// priorities (audio 1, full 2, remux 3) whose payloads were written by
+// the real ingest payload marshalling. The migration rewrites their
+// priority to the fix-lane formula, leaves done and failed jobs alone,
+// and re-running changes nothing.
+func TestReprioritizeQueuedImprovements(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "prechange.sqlite"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	// The database as it was before this change: only jobs migrations v1
+	// through v5 recorded.
+	if err := s.Migrate(jobs.Migrations[:5]...); err != nil {
+		t.Fatalf("pre-change migrations: %v", err)
+	}
+	// Build the rows the way the pre-change pipeline persisted them: the
+	// payload is json.Marshal of the real payload struct (the exact
+	// encoding jobs.Queue.Advance writes), and the old priorities come
+	// from the pre-change requeue (audio 1, full 2, remux 3). The rows
+	// are inserted by hand because jobs.New would apply version 6 on top
+	// of a database that predates this change.
+	oldPrio := map[Action]int{ActionAudio: 1, ActionFull: 2, ActionRemux: 3}
+	insert := func(action Action, dur int64, state string) string {
+		t.Helper()
+		pl := payload{
+			File: "/media/folder/a.mkv", Source: core.Source{
+				Kind: core.SourceFolder, Path: "/media/folder/a.mkv",
+				Title: "A", Show: "Show",
+			},
+			EpisodeID:   core.EpisodeID("ep-" + string(action) + "-" + strconv.FormatInt(dur, 10)),
+			DurationSec: dur, Action: action, Shown: true, Published: true,
+		}
+		raw, err := json.Marshal(pl)
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+		id := strings.TrimPrefix(string(pl.EpisodeID), "ep-")
+		now := "2026-10-26T12:00:00Z"
+		if _, err := s.DB().Exec(`
+INSERT INTO jobs (id, kind, stage, state, payload, priority, reserved_bytes, attempts, error, created, updated, seq)
+VALUES (?, 'ingest', 'convert', ?, ?, ?, 0, 1, '', ?, ?, ?)`,
+			"job-"+id, state, string(raw), oldPrio[action], now, now, 1); err != nil {
+			t.Fatalf("insert %s: %v", action, err)
+		}
+		return "job-" + id
+	}
+	remuxID := insert(ActionRemux, 61, jobs.StateQueued)
+	audioID := insert(ActionAudio, 2400, jobs.StateQueued)
+	fullID := insert(ActionFull, 7, jobs.StateQueued)
+	queuedRemuxID := insert(ActionRemux, 3, jobs.StateQueued)
+	// A done and a failed improvement stay untouched: nothing claims them.
+	doneID := insert(ActionAudio, 5, jobs.StateDone)
+	failedID := insert(ActionFull, 9, jobs.StateFailed)
+
+	if err := s.Migrate(jobs.Migrations...); err != nil {
+		t.Fatalf("v6 migration: %v", err)
+	}
+	q, err := jobs.New(s) // records nothing new; only used to read rows back
+	if err != nil {
+		t.Fatalf("jobs.New: %v", err)
+	}
+	want := map[string]int{
+		remuxID:       fixPriority(ActionRemux, 61),
+		audioID:       fixPriority(ActionAudio, 2400),
+		fullID:        fixPriority(ActionFull, 7),
+		queuedRemuxID: fixPriority(ActionRemux, 3),
+	}
+	for id, wantPrio := range want {
+		j, err := q.Get(id)
+		if err != nil {
+			t.Fatalf("Get %s: %v", id, err)
+		}
+		if j.Priority != wantPrio {
+			t.Errorf("job %s priority = %d, want %d", id, j.Priority, wantPrio)
+		}
+	}
+	for _, id := range []string{doneID, failedID} {
+		if j, _ := q.Get(id); j.Priority != 1 && j.Priority != 2 && j.Priority != 3 {
+			t.Errorf("terminal job %s priority = %d, want its old priority kept (1-3)", id, j.Priority)
+		}
+	}
+	// A second launch applies nothing: Migrate records version 6.
+	before := map[string]int{}
+	for id := range want {
+		j, _ := q.Get(id)
+		before[id] = j.Priority
+	}
+	if err := s.Migrate(jobs.Migrations...); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	for id, prio := range before {
+		if j, _ := q.Get(id); j.Priority != prio {
+			t.Errorf("second run changed job %s priority to %d", id, j.Priority)
+		}
 	}
 }

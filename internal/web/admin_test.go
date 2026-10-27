@@ -737,6 +737,48 @@ func TestAdminSafariScreens(t *testing.T) {
 	}
 }
 
+// TestAdminHWEncode: the admin state carries the household "use the
+// graphics chip" setting and the encoder name, and the settings checkbox
+// endpoint toggles the setting.
+func TestAdminHWEncode(t *testing.T) {
+	ts, _, _ := newTestAdmin(t, func(d *Deps) {
+		d.VideoEncoder = func() string { return "Intel or AMD graphics (VA-API)" }
+	})
+	settings := state(t, ts)["settings"].(map[string]any)
+	if on := settings["hw_encode"]; on != true {
+		t.Errorf("hw_encode = %v, want the default true", on)
+	}
+	if name := settings["video_encoder"]; name != "Intel or AMD graphics (VA-API)" {
+		t.Errorf("video_encoder = %v, want the wired encoder name", name)
+	}
+	if resp, _ := post(t, ts.URL+"/api/admin/settings/hwencode", map[string]any{"on": false}); resp.StatusCode != http.StatusOK {
+		t.Errorf("hwencode off: status %d, want 200", resp.StatusCode)
+	}
+	if on := state(t, ts)["settings"].(map[string]any)["hw_encode"]; on != false {
+		t.Error("hw_encode should be false after the toggle")
+	}
+	if resp, _ := post(t, ts.URL+"/api/admin/settings/hwencode", map[string]any{"on": true}); resp.StatusCode != http.StatusOK {
+		t.Errorf("hwencode on: status %d, want 200", resp.StatusCode)
+	}
+	if on := state(t, ts)["settings"].(map[string]any)["hw_encode"]; on != true {
+		t.Error("hw_encode should be true after the toggle back")
+	}
+}
+
+// TestAdminHWEncodeWithoutVideoEncoder: without a wired encoder name the
+// state still carries the setting, and the name stays absent (the parent
+// page's JS then shows "not checked yet").
+func TestAdminHWEncodeWithoutVideoEncoder(t *testing.T) {
+	ts, _, _ := newTestAdmin(t)
+	settings := state(t, ts)["settings"].(map[string]any)
+	if on := settings["hw_encode"]; on != true {
+		t.Errorf("hw_encode = %v, want the default true", on)
+	}
+	if name := settings["video_encoder"]; name != "" {
+		t.Errorf("video_encoder = %v, want empty without a VideoEncoder func", name)
+	}
+}
+
 func TestAdminDefaultMinutes(t *testing.T) {
 	ts, _, _ := newTestAdmin(t)
 	if m := state(t, ts)["default_minutes"]; m != float64(10) {

@@ -79,8 +79,8 @@ func TestListKidsSortedByName(t *testing.T) {
 	}
 }
 
-// TestRenameKid: the display name changes but the stable id — and everything
-// keyed on it — stays.
+// TestRenameKid: the display name changes but the stable id (and everything
+// keyed on it) stays.
 func TestRenameKid(t *testing.T) {
 	b, _ := newTestBudget(t, at(nowOct26))
 	id := mustCreateKid(t, b, "alex", "1111")
@@ -186,7 +186,7 @@ func TestVerifyKidPIN(t *testing.T) {
 	}
 }
 
-// TestVerifyGrownupPIN: an unset grown-up PIN never verifies — not even
+// TestVerifyGrownupPIN: an unset grown-up PIN never verifies, not even
 // against an empty pin; once set it verifies and survives a restart.
 func TestVerifyGrownupPIN(t *testing.T) {
 	b, s := newTestBudget(t, at(nowOct26))
@@ -214,7 +214,7 @@ func TestVerifyGrownupPIN(t *testing.T) {
 	}
 }
 
-// TestPinsEqual: the constant-time comparator itself — equal only for
+// TestPinsEqual: the constant-time comparator itself, equal only for
 // identical strings, and length differences do not match.
 func TestPinsEqual(t *testing.T) {
 	if !pinsEqual("1234", "1234") {

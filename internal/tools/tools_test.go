@@ -214,6 +214,44 @@ func TestLocateOrder(t *testing.T) {
 	}
 }
 
+// TestLocatePicksUpOptionalFFmpegHW: the hardware helper is resolved when
+// it sits in the helper directory and left empty when it does not, without
+// ever being required.
+func TestLocatePicksUpOptionalFFmpegHW(t *testing.T) {
+	t.Setenv(EnvHelpersDir, "") // Locate prefers the environment's folder
+	base := t.TempDir()
+	writeExec(t, base, "ffmpeg", "#!/bin/sh\nexit 0\n")
+	d := dirAt(base)
+	if d.FFmpegHW != "" {
+		t.Errorf("FFmpegHW = %q, want empty without the helper", d.FFmpegHW)
+	}
+	writeExec(t, base, "ffmpeg-hw", "#!/bin/sh\nexit 0\n")
+	d = dirAt(base)
+	if want := filepath.Join(base, helperName("ffmpeg-hw")); d.FFmpegHW != want {
+		t.Errorf("FFmpegHW = %q, want %q", d.FFmpegHW, want)
+	}
+	// Extract pulls ffmpeg-hw from the bundle when the manifest names it,
+	// exactly like the other helpers.
+	dataDir := t.TempDir()
+	fsys := fstest.MapFS{
+		"ffmpeg":    {Data: []byte("a")},
+		"ffprobe":   {Data: []byte("a")},
+		"ffmpeg-hw": {Data: []byte("a")},
+	}
+	m := Manifest{Version: "v9", Files: []ManifestFile{
+		{Name: "ffmpeg", SHA256: sha("a")},
+		{Name: "ffprobe", SHA256: sha("a")},
+		{Name: "ffmpeg-hw", SHA256: sha("a")},
+	}}
+	d, err := Locate("", fsys, m, dataDir)
+	if err != nil {
+		t.Fatalf("Locate with ffmpeg-hw: %v", err)
+	}
+	if want := filepath.Join(wantDir(dataDir, "v9"), helperName("ffmpeg-hw")); d.FFmpegHW != want {
+		t.Errorf("extracted FFmpegHW = %q, want %q", d.FFmpegHW, want)
+	}
+}
+
 func TestSelfTest(t *testing.T) {
 	dir := t.TempDir()
 	writeExec(t, dir, "ffmpeg", "#!/bin/sh\nexit 0\n")

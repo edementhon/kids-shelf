@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -873,6 +874,72 @@ func TestContentServiceDown503(t *testing.T) {
 		}
 		if msg := contentTestError(t, body); !strings.Contains(msg, "not running") {
 			t.Errorf("GET %s error = %q, want 'not running'", path, msg)
+		}
+	}
+}
+
+// TestContentFixes drives the "Fixing videos" card endpoint: pending
+// counts per issue, the failed count, the newest failed episodes up to
+// the list cap and the "and N more" remainder, all from real library
+// rows.
+func TestContentFixes(t *testing.T) {
+	s := contentTestStore(t)
+	lib, err := library.New(s)
+	if err != nil {
+		t.Fatalf("library.New: %v", err)
+	}
+	ts := contentTestServer(t, Deps{Library: lib, DataDir: t.TempDir()})
+	ctx := context.Background()
+	pub := func(id, show, title string, issue, fix string) {
+		t.Helper()
+		ep := core.Episode{
+			ID: core.EpisodeID(id), ShowID: "s-" + id, Title: title,
+			File: "/out/" + id + ".mp4", DurationSec: 100,
+			Source: core.Source{Kind: core.SourceFolder, Path: show + "/" + id + ".mp4", Title: title, Show: show},
+			Issue:  issue, Fix: fix,
+		}
+		if err := lib.Publish(ctx, ep); err != nil {
+			t.Fatalf("Publish %s: %v", id, err)
+		}
+	}
+	pub("ps", "Sound Show", "Silent One", core.IssueSound, core.FixPending)
+	pub("pp", "Picture Show", "Dark One", core.IssuePicture, core.FixPending)
+	pub("pf", "Format Show", "MKV One", core.IssueFormat, core.FixPending)
+	for i := range library.FixingListCap + 2 {
+		pub(fmt.Sprintf("f%02d", i), "Failed Show", fmt.Sprintf("Episode %02d", i), core.IssueSound, core.FixFailed)
+	}
+
+	for _, path := range []string{"/api/admin/content/fixes"} {
+		code, body := contentTestGet(t, ts, path)
+		if code != http.StatusOK {
+			t.Fatalf("GET %s = %d, body %s", path, code, body)
+		}
+		var out struct {
+			Pending        map[string]int `json:"pending"`
+			Failed         int            `json:"failed"`
+			FailedEpisodes []struct {
+				Show  string `json:"show"`
+				Title string `json:"title"`
+				Issue string `json:"issue"`
+			} `json:"failedEpisodes"`
+			FailedMore int `json:"failedMore"`
+		}
+		contentTestDecode(t, body, &out)
+		if out.Pending["sound"] != 1 || out.Pending["picture"] != 1 || out.Pending["format"] != 1 {
+			t.Errorf("pending = %v, want sound 1, picture 1, format 1", out.Pending)
+		}
+		if out.Failed != library.FixingListCap+2 {
+			t.Errorf("failed = %d, want %d", out.Failed, library.FixingListCap+2)
+		}
+		if len(out.FailedEpisodes) != library.FixingListCap {
+			t.Errorf("failedEpisodes = %d, want the cap %d", len(out.FailedEpisodes), library.FixingListCap)
+		}
+		if out.FailedMore != 2 {
+			t.Errorf("failedMore = %d, want 2", out.FailedMore)
+		}
+		newest := out.FailedEpisodes[0]
+		if newest.Show != "Failed Show" || newest.Title != "Episode 11" || newest.Issue != core.IssueSound {
+			t.Errorf("newest failed = %+v, want Failed Show / Episode 11 / sound", newest)
 		}
 	}
 }

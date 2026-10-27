@@ -99,6 +99,10 @@ type Deps struct {
 	// helper programs (ffmpeg, ffprobe, qjs, kiwix-serve) for the parent
 	// page, or "" when they are fine (nil: nothing to report).
 	HelpersProblem func() string
+	// VideoEncoder returns the parent page's "Video conversion uses:"
+	// name from the ingest worker's cached hardware selection (nil: the
+	// parent page says the conversion has not been checked yet).
+	VideoEncoder func() string
 	// ProxyToken is the secret the supervisor's proxy presents with the
 	// real client address (X-KS-Token, X-KS-Client). Empty: requests are
 	// never proxied, so client addresses come from the connection only.

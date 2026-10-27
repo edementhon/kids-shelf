@@ -163,7 +163,7 @@ func TestScannerFindsDeeplyAddedFileWithoutShowDirChange(t *testing.T) {
 	}
 
 	// A file two levels below the show's root appears. Only Season 1's mtime
-	// changes — the show directory's does not — so a shortcut that returns at
+	// changes (the show directory's does not), so a shortcut that returns at
 	// the unchanged show directory would miss it. Restore the show directory's
 	// mtime explicitly so the test does not depend on filesystem behavior.
 	showDir := filepath.Join(root, "Bluey")
@@ -366,8 +366,8 @@ func TestScannerSameShowInTwoRootsDoesNotCollide(t *testing.T) {
 	root1, root2 := t.TempDir(), t.TempDir()
 	writeFile(t, filepath.Join(root1, "Show", "ep.mp4"), "v")
 	writeFile(t, filepath.Join(root2, "Show", "ep.mp4"), "v")
-	// Both roots use the same kind, so only the canonical path — not the
-	// "Show/ep.mp4" key — tells the two files apart.
+	// Both roots use the same kind, so only the canonical path, not the
+	// "Show/ep.mp4" key, tells the two files apart.
 	if err := lib.AddSource(context.Background(), root1, core.SourceFolder, nil); err != nil {
 		t.Fatalf("AddSource: %v", err)
 	}

@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Spelling words: the merged grade-level bank from the legacy app — easy
+// Spelling words: the merged grade-level bank from the legacy app, easy
 // (CVC, grade 1) through hard (grade 3+), one shared bank every kid works
 // up through. Each entry is (word, hint sentence), copied verbatim.
 type Word struct {
@@ -190,7 +190,7 @@ ON CONFLICT (kid, word) DO UPDATE SET
 }
 
 // SampleSpellWords draws n distinct words weighted toward unrecorded and
-// miss-streak words — the legacy sample_spell_words. pool, when non-empty,
+// miss-streak words; the legacy sample_spell_words. pool, when non-empty,
 // limits the draw to those words (tier rounds).
 func (s *Service) SampleSpellWords(kid string, n int, pool []string) ([]string, error) {
 	inPool := make(map[string]bool, len(pool))
@@ -256,7 +256,7 @@ func (s *Service) spellRecordsMap(kid string) (map[string]SpellRecord, error) {
 }
 
 // spellCheck grades a spelling answer: exact match wins, case-insensitive
-// fallback — the legacy spell_check.
+// fallback, the legacy spell_check.
 func spellCheck(given, word string) bool {
 	return given == word || strings.ToLower(given) == strings.ToLower(word)
 }
@@ -395,8 +395,8 @@ func (s *Service) SpellingSessions(kid string) ([]SpellSessionView, error) {
 	return out, rows.Err()
 }
 
-// AudioPath returns the path of the pre-generated clip for a word —
-// <ClipsDir>/<word>.wav — and whether the file exists. The bundled clips
+// AudioPath returns the path of the pre-generated clip for a word
+// (<ClipsDir>/<word>.wav) and whether the file exists. The bundled clips
 // are written there by InstallClips; a missing clip reports false instead
 // of synthesizing speech.
 func (s *Service) AudioPath(word string) (string, bool) {

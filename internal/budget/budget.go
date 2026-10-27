@@ -108,6 +108,16 @@ CREATE TABLE credits (
 	Version: 2,
 	SQL: `
 ALTER TABLE household ADD COLUMN safari_screens INTEGER NOT NULL DEFAULT 1;`,
+}, {
+	// hw_encode is the household's "use the graphics chip to convert
+	// videos" setting, default on: while it is on, full re-encodes may
+	// use an opportunistic hardware H.264 encoder when one works; the
+	// processor remains the fallback everywhere, so the setting only
+	// decides whether hardware is tried at all.
+	Owner:   "budget",
+	Version: 3,
+	SQL: `
+ALTER TABLE household ADD COLUMN hw_encode INTEGER NOT NULL DEFAULT 1;`,
 }}
 
 // Budget owns the kid profiles and their screen-time accounts, backed by the
@@ -305,7 +315,7 @@ func (b *Budget) Adjust(ctx context.Context, kid core.KidID, counter string, del
 
 // Consume meters `seconds` of watched playback on counter at the bin's rate
 // (RateFun, RateLearning or RateFree; the caller passes the rate of the bin
-// the episode is in) and returns the resulting (today, saved) plus cutOff —
+// the episode is in) and returns the resulting (today, saved) plus cutOff,
 // whether the balance hit zero, in which case the player should cut playback.
 // The seconds are clamped to MaxConsumeSeconds per call (the legacy player's
 // 1s ticks and 5s flush) and charged as seconds/60*rate minutes, saved
@@ -407,8 +417,8 @@ func (b *Budget) Credit(ctx context.Context, kid string, counter string, minutes
 }
 
 // ImportAccount implements core.BudgetImporter: it sets the legacy portal
-// account exactly as stored — today's balance, the saved bank and the day
-// they were last rolled over — so the budget resumes its day-boundary
+// account exactly as stored: today's balance, the saved bank and the day
+// they were last rolled over, so the budget resumes its day-boundary
 // rollover from the legacy state. The legacy portal had one account per kid
 // (its only counter), so the import lands on DefaultCounter. No rollover is
 // applied: the stored day is authoritative until the next local midnight.
@@ -497,6 +507,39 @@ func (b *Budget) SafariScreens(ctx context.Context) (bool, error) {
 	}
 	if err != nil {
 		return false, fmt.Errorf("budget: read safari screens: %w", err)
+	}
+	return v != 0, nil
+}
+
+// SetHWEncode switches the household's "use the graphics chip to convert
+// videos" setting, which decides whether full re-encodes may use an
+// opportunistic hardware H.264 encoder. Off forces the processor for every
+// conversion; the processor also takes over whenever a hardware attempt
+// fails. It applies to videos processed after the change, never
+// retroactively. Default is on.
+func (b *Budget) SetHWEncode(ctx context.Context, on bool) error {
+	onInt := 0
+	if on {
+		onInt = 1
+	}
+	if _, err := b.store.DB().ExecContext(ctx,
+		`UPDATE household SET hw_encode = ? WHERE id = 1`, onInt); err != nil {
+		return fmt.Errorf("budget: set hardware encode: %w", err)
+	}
+	return nil
+}
+
+// HWEncode reports whether the household setting "use the graphics chip to
+// convert videos" is on.
+func (b *Budget) HWEncode(ctx context.Context) (bool, error) {
+	var v int
+	err := b.store.DB().QueryRowContext(ctx,
+		`SELECT hw_encode FROM household WHERE id = 1`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil // default on
+	}
+	if err != nil {
+		return false, fmt.Errorf("budget: read hardware encode: %w", err)
 	}
 	return v != 0, nil
 }

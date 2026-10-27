@@ -184,7 +184,7 @@ func TestConsume(t *testing.T) {
 	}
 }
 
-// TestConsumeMaxTickBoundary: the clamp is inclusive — exactly 5 seconds is
+// TestConsumeMaxTickBoundary: the clamp is inclusive: exactly 5 seconds is
 // the largest single tick.
 func TestConsumeMaxTickBoundary(t *testing.T) {
 	b, _ := newTestBudget(t, at(nowOct26))

@@ -63,6 +63,33 @@ func TestSafariScreensDefaultTrueAndToggle(t *testing.T) {
 	}
 }
 
+// TestHWEncodeDefaultTrueAndToggle: the household "use the graphics chip
+// to convert videos" setting starts on and flips both ways.
+func TestHWEncodeDefaultTrueAndToggle(t *testing.T) {
+	b, _ := newTestBudget(t, at(nowOct26))
+	on, err := b.HWEncode(ctx)
+	if err != nil {
+		t.Fatalf("HWEncode: %v", err)
+	}
+	if !on {
+		t.Error("HWEncode = false, want true")
+	}
+	if err := b.SetHWEncode(ctx, false); err != nil {
+		t.Fatalf("SetHWEncode(false): %v", err)
+	}
+	on, err = b.HWEncode(ctx)
+	if err != nil || on {
+		t.Errorf("HWEncode = %v, %v; want false, nil", on, err)
+	}
+	if err := b.SetHWEncode(ctx, true); err != nil {
+		t.Fatalf("SetHWEncode(true): %v", err)
+	}
+	on, _ = b.HWEncode(ctx)
+	if !on {
+		t.Error("HWEncode = false after re-enabling, want true")
+	}
+}
+
 // TestBudgetsOffChargesNothingAndNeverCutsOff: with the switch off, Consume
 // charges nothing and reports no cut-off, even at a zero balance with a Fun
 // rate that would otherwise cut off.
@@ -225,7 +252,7 @@ func TestDailyMinutesRejectsNegativeAndUnknownKid(t *testing.T) {
 }
 
 // TestDayBoundarySpringForward: the day key is the clock's local date, so a
-// 23-hour DST day rolls exactly once — at the local date change, never at an
+// 23-hour DST day rolls exactly once, at the local date change, never at an
 // arbitrary elapsed-time horizon.
 func TestDayBoundarySpringForward(t *testing.T) {
 	clock := &fakeClock{t: atZone(2026, 3, 7, 23, 59, 0, est)}
@@ -252,7 +279,7 @@ func TestDayBoundarySpringForward(t *testing.T) {
 		t.Errorf("Balance = (%v, %v), want (10, 3)", today, saved)
 	}
 
-	// spring forward: 03:00 EDT is still March 8 — no second rollover
+	// spring forward: 03:00 EDT is still March 8, so no second rollover
 	clock.t = atZone(2026, 3, 8, 3, 0, 0, edt)
 	today, saved, err = b.Balance(ctx, kid, DefaultCounter)
 	if err != nil {
@@ -299,7 +326,7 @@ func TestDayBoundaryFallBack(t *testing.T) {
 		t.Errorf("Balance = (%v, %v), want (10, 1)", today, saved)
 	}
 
-	// fall back: the 01:00 hour repeats in EST, same local date — no roll
+	// fall back: the 01:00 hour repeats in EST, same local date, so no roll
 	clock.t = atZone(2026, 11, 1, 1, 30, 0, est)
 	today, saved, err = b.Balance(ctx, kid, DefaultCounter)
 	if err != nil {

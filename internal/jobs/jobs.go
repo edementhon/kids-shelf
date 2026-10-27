@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/edementhon/kids-shelf/internal/store"
@@ -111,6 +112,35 @@ SET state = 'queued', stage = '', error = '', attempts = 0, priority = 0,
 WHERE kind = 'ingest' AND state = 'failed'
   AND json_extract(payload, '$.source.Kind') IN ('folder', 'nas')
   AND COALESCE(json_extract(payload, '$.shown'), 0) = 0;`,
+}, {
+	// Live databases queued their improvements under the old scheme
+	// (audio 1, full 2, remux 3). The fix lane claims by the new formula
+	// instead - cheapest fix first, remux (a byte copy) before audio
+	// re-encodes before full re-encodes, and within a class the shortest
+	// video first - so rows that predate the change must be re-prioritised
+	// to the same order new jobs are queued with:
+	// class*1_000_000 + min(duration_sec, 999999). Only rows that can
+	// still run are touched; done and failed jobs keep their old priority,
+	// which nothing claims ever again. The action and duration_sec come
+	// from the job's own payload column (the ingest payload's JSON keys;
+	// core.Source inside it has no tags, so its keys are capitalised, but
+	// this migration only reads action and duration_sec, which are lower
+	// case). Like v5 this runs once: Migrate records the owner and
+	// version, so a second launch changes nothing.
+	Owner:   "jobs",
+	Version: 6,
+	SQL: `
+UPDATE jobs
+SET priority = (CASE json_extract(payload, '$.action')
+		WHEN 'remux' THEN 1000000
+		WHEN 'audio' THEN 2000000
+		ELSE 3000000 END)
+	+ MIN(COALESCE(json_extract(payload, '$.duration_sec'), 0), 999999),
+    updated = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE kind = 'ingest'
+  AND state IN ('queued', 'running', 'paused')
+  AND priority BETWEEN 1 AND 3
+  AND json_extract(payload, '$.action') IN ('remux', 'audio', 'full');`,
 }}
 
 // ErrNotFound is returned by Get when no job has the requested id.
@@ -192,6 +222,16 @@ func (q *Queue) Enqueue(kind string, payload any) (string, error) {
 // internal/store), so two concurrent Claim calls can never hand out the same
 // job: the loser sees it already running and picks the next one, if any.
 func (q *Queue) Claim(kind string) (*Job, error) {
+	return q.ClaimRange(kind, math.MinInt, math.MaxInt)
+}
+
+// ClaimRange claims the oldest queued job of kind whose priority lies in
+// [minP, maxP], or (nil, nil) when none is queued. The ingest worker runs
+// one claimer per lane over the same kind: the sort lane claims only
+// show-phase work (priority 0) with minP = maxP = 0, and the fix lane
+// claims only improvements. Claiming is atomic like Claim: concurrent
+// ClaimRange calls can never hand out the same job.
+func (q *Queue) ClaimRange(kind string, minP, maxP int) (*Job, error) {
 	for {
 		tx, err := q.store.DB().BeginTx(context.Background(), nil)
 		if err != nil {
@@ -199,8 +239,9 @@ func (q *Queue) Claim(kind string) (*Job, error) {
 		}
 		var id string
 		err = tx.QueryRow(
-			`SELECT id FROM jobs WHERE kind = ? AND state = 'queued' ORDER BY priority, seq LIMIT 1`,
-			kind,
+			`SELECT id FROM jobs WHERE kind = ? AND state = 'queued' AND priority BETWEEN ? AND ?
+			 ORDER BY priority, seq LIMIT 1`,
+			kind, minP, maxP,
 		).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
 			tx.Rollback()

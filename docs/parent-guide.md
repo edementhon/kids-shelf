@@ -142,16 +142,22 @@ On the parent page, click **Add videos & libraries**:
 - **Add from YouTube**: paste a link to a video, a playlist or a channel and click **Add**.
   kids-shelf downloads every video and keeps a copy, so the kids never see YouTube itself.
 - **Add a folder or NAS share**: type the path to a folder of videos and click **Add folder**.
-  kids-shelf looks through it right away; **Scan now** picks up videos you add later.
+  kids-shelf looks through it right away, and every video it can read appears on the shelf
+  within minutes, playing your own file. **Scan now** picks up videos you add later.
 - **Offline libraries**: search for a library (Wikipedia, Vikidia, PhET science simulations and
   others) and click **Download**.
 
 ## How much space
 
-Videos from a folder that browsers can already play (most MP4 files) play from where they are,
-with no second copy. kids-shelf makes its own copy only of videos browsers cannot play as they
-are (for example MKV files, or videos with Dolby or DTS sound), and it never changes or deletes
-your own files. Videos downloaded from YouTube live in kids-shelf's own folder.
+Every video from a folder plays from where it is, straight away. A video browsers cannot play
+well as it is (for example one with Dolby or DTS sound, which plays silent, or HEVC video, which
+may play black) also gets a better copy, made slowly in the background, and the shelf switches
+to that copy when it is ready. kids-shelf never changes or deletes your own files. Videos
+downloaded from YouTube live in kids-shelf's own folder.
+
+MKV files need a copy only for iPads, iPhones and Macs using Safari, which cannot open them. If
+none of your screens use Safari, untick **Some screens are iPads, iPhones or Macs using Safari**
+under Settings on the parent page, and kids-shelf skips those copies.
 
 For the offline libraries, some examples:
 
