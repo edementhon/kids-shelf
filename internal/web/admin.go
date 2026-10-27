@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -13,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1098,8 +1098,7 @@ func (s *Server) handleAdminRemove(w http.ResponseWriter, r *http.Request) {
 // adminAddress returns "http://<lan-ip>:<port>/", the address other devices
 // on the home network use to reach the shelf. The port is the one the
 // browser itself used to open this page (the launcher picks 8070 or the next
-// free port); the IP is the lowest non-loopback IPv4 address, preferring the
-// private ranges a home network uses.
+// free port); the IP is the home-network address lanIPv4 picks.
 func (s *Server) adminAddress(r *http.Request) string {
 	port := ""
 	if _, p, err := net.SplitHostPort(r.Host); err == nil {
@@ -1127,58 +1126,88 @@ func (s *Server) adminAddress(r *http.Request) string {
 	return u + "/"
 }
 
-// lanIPv4 picks the lowest non-loopback IPv4 address of this machine,
-// preferring RFC1918 private addresses (10/8, 172.16/12, 192.168/16); ""
-// when the machine has none.
+// lanIPv4 returns the IPv4 address tablets on the home network can reach,
+// or "" when this machine has none (see pickLANIPv4).
 func lanIPv4() string {
-	var priv, other []string
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return ""
 	}
+	var cands []lanCandidate
 	for _, ifc := range ifaces {
-		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 {
-			continue
-		}
 		addrs, err := ifc.Addrs()
 		if err != nil {
 			continue
 		}
 		for _, a := range addrs {
-			var ip net.IP
+			c := lanCandidate{ones: -1, flags: ifc.Flags}
 			switch v := a.(type) {
 			case *net.IPNet:
-				ip = v.IP
+				c.ip = v.IP.To4()
+				ones, bits := v.Mask.Size()
+				if bits == 8*net.IPv6len {
+					ones -= 8 * (net.IPv6len - net.IPv4len) // a v4 address in a 16-byte mask
+				}
+				c.ones = ones
 			case *net.IPAddr:
-				ip = v.IP
+				c.ip = v.IP.To4()
 			}
-			ip4 := ip.To4()
-			if ip4 == nil {
-				continue
-			}
-			ipStr := ip4.String()
-			if isPrivateIPv4(ip4) {
-				priv = append(priv, ipStr)
-			} else {
-				other = append(other, ipStr)
+			if c.ip != nil {
+				cands = append(cands, c)
 			}
 		}
 	}
-	sort.Strings(priv)
-	sort.Strings(other)
-	if len(priv) > 0 {
-		return priv[0]
-	}
-	if len(other) > 0 {
-		return other[0]
-	}
-	return ""
+	return pickLANIPv4(cands)
 }
 
-func isPrivateIPv4(ip net.IP) bool {
-	return ip[0] == 10 ||
-		(ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31) ||
-		(ip[0] == 192 && ip[1] == 168)
+// lanCandidate is one IPv4 address of one interface: the address, its
+// prefix length (-1 when unknown) and the interface's flags.
+type lanCandidate struct {
+	ip    net.IP
+	ones  int
+	flags net.Flags
+}
+
+// pickLANIPv4 chooses the address to show for other devices. It skips
+// interfaces that are down, have no link (an idle Docker bridge), are
+// loopback or point-to-point, addresses with a /32 prefix (VPN tunnels such
+// as WireGuard hand out a single host address; on a home server running
+// Mullvad the tunnel's 10.68.x.x won over the LAN before this), and
+// link-local 169.254/16. Of the rest it prefers 192.168/16, the usual home
+// router range, then 10/8 (some ISP routers use 10.0.0.x), then 172.16/12
+// (mostly container and VM bridges), then anything else; the lowest address
+// wins within a range.
+func pickLANIPv4(cands []lanCandidate) string {
+	best, bestRank := net.IP(nil), 0
+	for _, c := range cands {
+		f := c.flags
+		if f&net.FlagUp == 0 || f&net.FlagRunning == 0 || f&(net.FlagLoopback|net.FlagPointToPoint) != 0 {
+			continue
+		}
+		if len(c.ip) != net.IPv4len || c.ones == 32 || c.ip.IsLinkLocalUnicast() {
+			continue
+		}
+		r := lanRank(c.ip)
+		if best == nil || r < bestRank || (r == bestRank && bytes.Compare(c.ip, best) < 0) {
+			best, bestRank = c.ip, r
+		}
+	}
+	if best == nil {
+		return ""
+	}
+	return best.String()
+}
+
+func lanRank(ip net.IP) int {
+	switch {
+	case ip[0] == 192 && ip[1] == 168:
+		return 0
+	case ip[0] == 10:
+		return 1
+	case ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31:
+		return 2
+	}
+	return 3
 }
 
 // ─── QR codes ──────────────────────────────────────────────────────────────

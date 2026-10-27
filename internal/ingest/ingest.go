@@ -61,6 +61,9 @@ const (
 	msgConvert  = "This video couldn't be converted. Try another copy of the file."
 	msgDiskFull = "The disk is full. Delete some videos or move your media to a bigger drive, then try again."
 	msgGeneric  = "Something went wrong while adding this video. Try again."
+	// msgNoHelpers matches the problem app.Open shows on the parent page
+	// when it could not set up the helper programs.
+	msgNoHelpers = "Video conversion is unavailable: the helper programs could not be set up."
 )
 
 // payload is the per-job state persisted in the jobs table, grown stage by
@@ -328,6 +331,12 @@ func (w *Worker) processOne(ctx context.Context, jobID string) (done bool) {
 	pl, err := decodePayload(job)
 	if err != nil {
 		w.q.Fail(job.ID, errors.New(msgGeneric))
+		return true
+	}
+	if w.dir == nil {
+		// app.Open could not set up the helper programs; every stage needs
+		// them, so the job fails with the words the parent page shows.
+		w.q.Fail(job.ID, errors.New(msgNoHelpers))
 		return true
 	}
 	if err := os.MkdirAll(w.libraryDir(), 0o755); err != nil {

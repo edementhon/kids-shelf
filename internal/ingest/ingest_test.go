@@ -832,6 +832,43 @@ func TestPipelineTruncatedFileFailsPlainly(t *testing.T) {
 	assertLibraryClean(t, h.mediaDir)
 }
 
+// TestMissingHelpersFailJobPlainly: when the app could not set up the
+// helper programs (no bundle embedded, or no disk space to extract them) it
+// hands the worker a nil helper dir. app.Open promises the jobs then fail as
+// they reach the helpers; the worker used to dereference the nil dir in
+// stageProbe and panic instead (found installing on a home server,
+// 2026-10-27).
+func TestMissingHelpersFailJobPlainly(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "test.sqlite"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	q, err := jobs.New(s)
+	if err != nil {
+		t.Fatalf("jobs.New: %v", err)
+	}
+	pub := &core.FakePublisher{}
+	mediaDir := t.TempDir()
+	h := harness{iq: NewQueue(q), w: NewWorker(q, nil, pub, mediaDir), pub: pub, q: q, mediaDir: mediaDir}
+	src := filepath.Join(t.TempDir(), "episode.mp4")
+	if err := os.WriteFile(src, []byte("not probed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id := h.enqueue(t, src)
+	h.runToEnd(t, id)
+	j, err := h.q.Get(id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if j.State != jobs.StateFailed || j.Error != msgNoHelpers {
+		t.Fatalf("job = (%s, %q), want (%s, %q)", j.State, j.Error, jobs.StateFailed, msgNoHelpers)
+	}
+	if h.pub.Called() != 0 {
+		t.Errorf("published %d times without helpers", h.pub.Called())
+	}
+}
+
 // TestKillAndResumeEveryStage enqueues one job per entry point of the
 // pipeline, stops the worker after that stage, "crashes" (Recover), runs the
 // worker again, and requires the output to be identical to an uninterrupted
