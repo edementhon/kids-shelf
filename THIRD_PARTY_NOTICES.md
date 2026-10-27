@@ -37,7 +37,7 @@ The Go module sources are the ones go.sum pins.
 | oneVPL / libvpl (h264_qsv, windows and ffmpeg-hw) | 2.17.0 | MIT | https://github.com/intel/libvpl |
 | libva (h264_vaapi headers and link stubs for ffmpeg-hw; never bundled) | 2.24.1 | MIT | https://github.com/intel/libva |
 | libdrm (libva-drm build dependency for ffmpeg-hw; never bundled) | 2.4.122 | MIT | https://dri.freedesktop.org/libdrm/ |
-| macOS SDK (h264_videotoolbox framework headers and .tbd link stubs, darwin) | 11.3 | Apple SDK licence (see DECISIONS.md 2026-10-26 "macOS helpers cross-build here with osxcross"; extracted once under the build toolchain, only VideoToolbox, CoreMedia, CoreVideo, CoreFoundation and their header closure are linked) | https://github.com/phracker/MacOSX-SDKs |
+| macOS SDK (h264_videotoolbox framework headers and .tbd link stubs, darwin; build time only) | 11.3 | Apple SDK licence: used to build, never redistributed, so it is not in the helper sources archive; the darwin ffmpeg links only macOS's own VideoToolbox, CoreMedia, CoreVideo and CoreFoundation frameworks | https://github.com/phracker/MacOSX-SDKs |
 
 ## Go module dependencies (linked into the kids-shelf binaries)
 
@@ -57,10 +57,12 @@ and go.sum pin. Versions match go.mod at the time of writing.
 | modernc.org/mathutil | v1.7.1 | BSD-3-Clause |
 | modernc.org/memory | v1.12.1 | BSD-3-Clause |
 
-## Build-only tools (not shipped, but inside the sources archive)
+## Build-only tools (not shipped)
 
-zig 0.17.0 (MIT), nasm 3.02 (BSD-2-Clause), meson 1.12.1 (Apache-2.0),
-ninja 1.13.2 (Apache-2.0), plus the kiwix-build static-build patches and
-the meson wrapdb patches (zlib, liblzma, docopt.cpp) that the kiwix
-stack builds from. Versions, URLs and SHA-256s are pinned in
-build/helpers/versions.env.
+nasm 3.02 (BSD-2-Clause; its source is in the sources archive), zig 0.17.0
+(MIT), meson 1.12.1 (Apache-2.0) and ninja 1.13.2 (Apache-2.0); the
+sources archive also carries the kiwix-build static-build patches and the
+meson wrapdb patches (zlib, liblzma, docopt.cpp) that the kiwix stack
+builds from. zig, meson and ninja are compilers and build tools only and
+are not in the archive. Versions, URLs and SHA-256s for everything are
+pinned in build/helpers/versions.env.

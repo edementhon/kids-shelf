@@ -328,9 +328,12 @@ mkdir -p "$HELPER_STAGE/downloads" "$HELPER_STAGE/build/helpers"
 for DL in "$HELPERS_DOWNLOADS"/*; do
 	[ -f "$DL" ] || continue
 	# The cache also holds a test video and the build tools (the zig
-	# compiler, ninja, meson), which are not part of any shipped binary.
+	# compiler, ninja, meson), which are not part of any shipped binary,
+	# and Apple's macOS SDK, which the darwin helpers link against as the
+	# system's own frameworks: Apple's licence forbids redistributing it,
+	# and the GPL's system-library exception does not ask for it.
 	case "$(basename "$DL")" in
-	sample.mp4 | zig-* | ninja-* | meson-*) continue ;;
+	sample.mp4 | zig-* | ninja-* | meson-* | MacOSX*.sdk*) continue ;;
 	esac
 	cp "$DL" "$HELPER_STAGE/downloads/"
 done
