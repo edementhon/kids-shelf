@@ -274,6 +274,47 @@ LIMIT ?`, recentMax)
 	return out, rows.Err()
 }
 
+// RecentForKid returns one kid's recently watched episodes: at most
+// recentMax, newest first, one per episode. It reads the kid's own watch log
+// plus household recent rows attributed to the kid (legacy imports), not the
+// household list alone, which keeps one row per episode stamped with its
+// last watcher and so loses an episode from a kid's list once a sibling
+// watches it. Stored times are fixed-width UTC, so MAX orders them.
+func (l *Library) RecentForKid(ctx context.Context, kid core.KidID) ([]RecentItem, error) {
+	rows, err := l.s.DB().QueryContext(ctx, `
+SELECT x.episode, MAX(x.at) AS last, e.title, e.thumb, s.id, s.name
+FROM (
+	SELECT episode, at FROM watch_log WHERE kid = ?
+	UNION ALL
+	SELECT episode, at FROM recent WHERE kid = ?
+) x
+JOIN episodes e ON e.id = x.episode
+JOIN shows s ON s.id = e.show_id
+GROUP BY x.episode
+ORDER BY last DESC, x.episode
+LIMIT ?`, kid, kid, recentMax)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []RecentItem
+	for rows.Next() {
+		it := RecentItem{Kid: kid}
+		var at string
+		if err := rows.Scan(&it.Episode, &at, &it.Title, &it.Thumb, &it.Show, &it.ShowName); err != nil {
+			return nil, err
+		}
+		t, err := parseTime(at)
+		if err != nil {
+			return nil, err
+		}
+		it.At = t
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
 func boolInt(b bool) int {
 	if b {
 		return 1

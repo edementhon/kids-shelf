@@ -84,7 +84,12 @@ func makeFixtures(t *testing.T) fixtures {
 	t.Helper()
 	_, full := fixtureEnv(t)
 	encoders := encoderSet(t, full)
-	src := t.TempDir()
+	// Resolved like ingest resolves in-place originals (macOS temp dirs sit
+	// under the /var -> /private/var symlink), so recorded paths compare equal.
+	src, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	f := fixtures{}
 	f.keep = filepath.Join(src, "keep.mp4")
 	genFixture(t, full, f.keep,

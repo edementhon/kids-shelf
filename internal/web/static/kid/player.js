@@ -147,7 +147,10 @@ document.getElementById('endNext').addEventListener('click', () => { location.hr
 
 // The watch log is written only when playback really starts: the first
 // 'playing' event posts /api/kid/started, and a play blocked by "Time's up"
-// never fires 'playing', so it never leaves a log row.
+// never fires 'playing', so it never leaves a log row. Only the server's
+// explicit "no minutes left" (403) stops the video here: any other failure
+// just loses the log row, and the live meter (/api/kid/consume) still cuts
+// off a kid who really runs out.
 let startedSent = false;
 function reportStarted() {
   if (startedSent) return;
@@ -156,7 +159,7 @@ function reportStarted() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ episode: episode }),
-  }).then((r) => { if (!r.ok) cutOff(); }).catch(() => {});
+  }).then((r) => { if (r.status === 403) cutOff(); }).catch(() => {});
 }
 
 // Live metering: the clock runs only while the video is genuinely playing.

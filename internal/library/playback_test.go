@@ -208,6 +208,73 @@ func TestWatchLogAndRecent(t *testing.T) {
 	}
 }
 
+// TestRecentForKid: a kid's "Recently watched" comes from that kid's own
+// watches. The household recent table keeps one row per episode stamped with
+// its last watcher, so filtering it lost an episode from a kid's list as soon
+// as a sibling watched it too, and a sibling's twelve newer watches emptied
+// the list entirely.
+func TestRecentForKid(t *testing.T) {
+	ctx := context.Background()
+	lib := newTestLibrary(t)
+	clock(lib)
+	eps := mustBlueprint(t, lib, 15)
+	alex, sam := core.KidID("alex"), core.KidID("sam")
+	ids := func(items []RecentItem) []core.EpisodeID {
+		out := make([]core.EpisodeID, len(items))
+		for i, it := range items {
+			out[i] = it.Episode
+		}
+		return out
+	}
+
+	// An imported legacy recent row attributed to alex counts as his while
+	// the household list still holds it.
+	if err := lib.ImportHouseholdRecent(ctx, eps[14].ID, time.Unix(1_600_000_000, 0).UTC(), alex); err != nil {
+		t.Fatal(err)
+	}
+	for _, ep := range []core.Episode{eps[0], eps[1], eps[0]} {
+		if err := lib.RecordWatch(ctx, alex, ep.ID, ep.Title, 1, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := lib.RecentForKid(ctx, alex)
+	if err != nil {
+		t.Fatalf("RecentForKid: %v", err)
+	}
+	if g := ids(got); len(g) != 3 || g[0] != eps[0].ID || g[1] != eps[1].ID || g[2] != eps[14].ID {
+		t.Fatalf("alex's recent = %v, want [%s %s %s] (newest first, once each, imported row kept)", g, eps[0].ID, eps[1].ID, eps[14].ID)
+	}
+	if got[0].Title != eps[0].Title || got[0].ShowName != "Bluey" || got[0].Kid != alex {
+		t.Errorf("enrichment = %+v", got[0])
+	}
+
+	// Sam then watches alex's newest episode and twelve more, which also
+	// pushes every older row out of the 12-row household list.
+	if err := lib.RecordWatch(ctx, sam, eps[0].ID, eps[0].Title, 1, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, ep := range eps[2:14] {
+		if err := lib.RecordWatch(ctx, sam, ep.ID, ep.Title, 1, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err = lib.RecentForKid(ctx, alex)
+	if err != nil {
+		t.Fatalf("RecentForKid: %v", err)
+	}
+	if g := ids(got); len(g) < 2 || g[0] != eps[0].ID || g[1] != eps[1].ID {
+		t.Fatalf("alex's recent after sam's watches = %v, want his own %s and %s first", g, eps[0].ID, eps[1].ID)
+	}
+
+	got, err = lib.RecentForKid(ctx, sam)
+	if err != nil {
+		t.Fatalf("RecentForKid: %v", err)
+	}
+	if len(got) != recentMax || got[0].Episode != eps[13].ID {
+		t.Errorf("sam's recent = %v, want the newest %d of his own, newest first", ids(got), recentMax)
+	}
+}
+
 func TestPlaybackImporterMethods(t *testing.T) {
 	lib := newTestLibrary(t)
 	clock(lib)

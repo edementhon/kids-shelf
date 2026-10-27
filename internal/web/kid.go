@@ -397,16 +397,42 @@ func (s *Server) serveEpisodeFile(w http.ResponseWriter, r *http.Request, id cor
 		return
 	}
 	if !rec.Owned {
-		// An in-place episode plays from its folder/NAS original: when
-		// that file cannot be opened the drive is probably just
-		// disconnected. Answer 503 with the message the player shows,
-		// and never serve any other path in its place.
-		if _, err := os.Stat(rec.File); err != nil {
-			writeError(w, http.StatusServiceUnavailable, mediaUnavailableMsg)
-			return
-		}
+		s.serveOriginal(w, r, rec.File)
+		return
 	}
 	s.serveFile(w, r, rec.File)
+}
+
+// serveOriginal streams an in-place episode's folder/NAS original. Ingest
+// recorded the file's real path (no symlinks); a path that now resolves
+// elsewhere, or an opened file that is not the one at that path, is
+// refused, so replacing the original (or a folder above it) with a symlink
+// can never make playback hand out another file the server can read. A file
+// that cannot be opened answers 503 with the message the player shows: the
+// drive or NAS is probably just disconnected.
+func (s *Server) serveOriginal(w http.ResponseWriter, r *http.Request, path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, mediaUnavailableMsg)
+		return
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil || !opened.Mode().IsRegular() {
+		writeError(w, http.StatusServiceUnavailable, mediaUnavailableMsg)
+		return
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil || real != path {
+		http.NotFound(w, r)
+		return
+	}
+	atPath, err := os.Lstat(path)
+	if err != nil || !os.SameFile(opened, atPath) {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeContent(w, r, filepath.Base(path), opened.ModTime(), f)
 }
 
 func (s *Server) serveThumbFile(w http.ResponseWriter, r *http.Request, id core.EpisodeID) {
@@ -801,11 +827,11 @@ func (s *Server) handleKeepWatching(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }
 
-// handleRecent lists the recently-watched row for the unlocked kid, newest
-// first. The recent table keeps one row per episode with the kid who most
-// recently watched it, so a kid's own list is a plain filter and honest
-// ("that was the other kid's watch"). A grown-up session sees the whole
-// household list, which the page labels accordingly.
+// handleRecent lists the recently-watched row, newest first: for a kid, that
+// kid's own watches (library.RecentForKid; the household table keeps only
+// each episode's last watcher, so filtering it dropped an episode once a
+// sibling watched it too); for a grown-up session, the whole household list,
+// which the page labels accordingly.
 func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	sess, ok := s.requireSession(w, r)
 	if !ok {
@@ -814,7 +840,13 @@ func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	if !s.requireLibrary(w) {
 		return
 	}
-	items, err := s.deps.Library.Recent(r.Context())
+	var items []library.RecentItem
+	var err error
+	if sess.grownup {
+		items, err = s.deps.Library.Recent(r.Context())
+	} else {
+		items, err = s.deps.Library.RecentForKid(r.Context(), core.KidID(sess.kid))
+	}
 	if err != nil {
 		log.Printf("kid: recent: %v", err)
 		writeError(w, 500, "Something went wrong. Try again.")
@@ -822,9 +854,6 @@ func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, it := range items {
-		if !sess.grownup && string(it.Kid) != string(sess.kid) {
-			continue
-		}
 		thumb := ""
 		if it.Thumb != "" {
 			thumb = "/thumbs/" + string(it.Episode) + ".jpg"

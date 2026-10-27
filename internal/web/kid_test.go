@@ -190,7 +190,7 @@ func (e *kidEnv) publishWithFile(showID, showName, epID, title string, file stri
 // (owned) file keeps the plain 404.
 func TestMediaInPlaceRangeAndMissing(t *testing.T) {
 	e := newKidEnv(t)
-	dir := e.t.TempDir()
+	dir := realTempDir(t) // ingest records real paths (no symlinks)
 	present := filepath.Join(dir, "present.mp4")
 	if err := os.WriteFile(present, []byte("MP4TESTDATA\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -237,6 +237,83 @@ func TestMediaInPlaceRangeAndMissing(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("missing converted file = %d, want 404", resp.StatusCode)
+	}
+}
+
+// realTempDir is t.TempDir with symlinks resolved (macOS keeps temp dirs
+// under /var, a symlink to /private/var); ingest records in-place
+// originals the same way.
+func realTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// TestMediaInPlaceRefusesSymlinkSwap: an in-place episode plays its original
+// from the recorded path, so replacing that file, or a folder above it, with
+// a symlink to another file must not make /media hand that file out (the
+// server may run as a user who can read far more than videos).
+func TestMediaInPlaceRefusesSymlinkSwap(t *testing.T) {
+	e := newKidEnv(t)
+	root := realTempDir(t)
+	secret := filepath.Join(root, "secret.txt")
+	if err := os.WriteFile(secret, []byte("PRIVATE"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	show := filepath.Join(root, "Show")
+	if err := os.Mkdir(show, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ep := filepath.Join(show, "ep.mp4")
+	if err := os.WriteFile(ep, []byte("MP4TESTDATA\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.publishWithFile("show-nas", "NAS Show", "ep-nas", "NAS One", ep, false)
+	get := func() (int, string) {
+		t.Helper()
+		resp, err := e.client.Get(e.ts.URL + "/media/ep-nas.mp4")
+		if err != nil {
+			t.Fatalf("GET: %v", err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	if code, body := get(); code != http.StatusOK || body != "MP4TESTDATA\n" {
+		t.Fatalf("original = %d %q, want 200 and the video bytes", code, body)
+	}
+
+	// The file itself swapped for a symlink.
+	if err := os.Remove(ep); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, ep); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if code, body := get(); code == http.StatusOK || strings.Contains(body, "PRIVATE") {
+		t.Errorf("file symlink swap = %d %q, want a refusal without the target's bytes", code, body)
+	}
+
+	// A folder above it swapped for a symlink to a folder holding another
+	// "ep.mp4".
+	other := filepath.Join(root, "other")
+	if err := os.Mkdir(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "ep.mp4"), []byte("PRIVATE"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(show); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, show); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := get(); code == http.StatusOK || strings.Contains(body, "PRIVATE") {
+		t.Errorf("folder symlink swap = %d %q, want a refusal without the target's bytes", code, body)
 	}
 }
 

@@ -501,7 +501,15 @@ func (w *Worker) stageConvert(ctx context.Context, jobID string, pl *payload) (s
 		return "", err
 	}
 	if pl.Action == ActionInplace {
-		pl.Output = pl.File
+		// Record the original's real path (no symlinks in any part):
+		// serving refuses a recorded path that later resolves anywhere else
+		// (internal/web serveOriginal), so swapping the source for a
+		// symlink cannot make playback hand out another file.
+		real, err := filepath.EvalSymlinks(pl.File)
+		if err != nil {
+			return fail(errors.New(msgGeneric))
+		}
+		pl.Output = real
 		return StageVerify, nil
 	}
 	if !w.reserved(jobID) {

@@ -452,7 +452,8 @@ func installerFailure(err error, dir string, noBrowser bool, errOut io.Writer) i
 			switch {
 			case errors.Is(err, installer.ErrBusy):
 				oerr = launch.OpenRunning(dir)
-			case errors.Is(err, installer.ErrOlder):
+			case errors.Is(err, installer.ErrOlder) && !installNoStart:
+				// --no-start: a service manager owns the installed copy.
 				oerr = installer.StartInstalled(dir)
 			}
 			if oerr != nil {
