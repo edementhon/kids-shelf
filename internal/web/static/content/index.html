@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add videos &amp; libraries · kids-shelf</title>
+<link rel="stylesheet" href="/admin/content/static/content.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>🧰 kids-shelf · add videos &amp; libraries</h1>
+  <nav><a class="navlink" href="/admin">← Parent page</a></nav>
+</header>
+<div class="msg hidden" id="msg"></div>
+
+<section class="card" id="sec-youtube">
+  <h2>▶️ Add from YouTube</h2>
+  <p class="note">Paste a video, a playlist or a channel link. The download runs on this computer in the background.</p>
+  <form id="ytform" class="inlineform">
+    <input type="url" id="yturl" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off">
+    <button class="btn add" type="submit">Add</button>
+  </form>
+  <div id="ytjobs" class="jobs"></div>
+</section>
+
+<section class="card" id="sec-sources">
+  <h2>📂 Add a folder or NAS share</h2>
+  <p class="note">Videos found in the folder appear on the shelf. NAS = a network drive, like a Synology or a Plex box.</p>
+  <form id="srcform" class="inlineform">
+    <select id="srckind" class="mini">
+      <option value="folder">A folder on this computer</option>
+      <option value="nas">A network drive (NAS)</option>
+    </select>
+    <input type="text" id="srcpath" placeholder="Path to the folder, e.g. __KS_OS_PATH__" autocomplete="off" spellcheck="false">
+    <button class="btn add" type="submit">Add folder</button>
+  </form>
+  <details class="pathshelp">
+    <summary>Where do I find the path?</summary>
+    <ul>
+      <li><b>Windows:</b> a folder like <code>D:\Videos\Kids</code>; a NAS share is at <code>\\SERVER\Kids</code>.</li>
+      <li><b>Mac:</b> a folder like <code>/Users/you/Movies/Kids</code>; a NAS share appears under <code>/Volumes/</code>.</li>
+      <li><b>Linux:</b> a folder like <code>/home/you/Videos/Kids</code>; a NAS share is usually mounted at <code>/mnt/</code> or <code>/media/</code>.</li>
+    </ul>
+    <p>Tip: connect the NAS first so this computer can see it, then paste its address here.</p>
+  </details>
+  <div class="rowbtns"><button class="btn amber" id="scanbtn" type="button">Scan now</button></div>
+  <div id="sources" class="sourcelist"></div>
+</section>
+
+<section class="card" id="sec-convert">
+  <h2>⚙️ Conversions</h2>
+  <p class="note">Videos are turned into a format every tablet can play. This list shows the work waiting and running.</p>
+  <div id="ingestjobs" class="jobs"></div>
+</section>
+
+<section class="card" id="sec-libraries">
+  <h2>📚 Offline libraries</h2>
+  <p class="note">Libraries work with no internet (great for trips). Think about space before you download: <b>all of English Wikipedia needs about 120 GB. Wikipedia's top 100 articles: 318 MB.</b> The kids' encyclopedia Vikidia is 74 MB.</p>
+  <div class="filters">
+    <input type="search" id="catq" placeholder="Search libraries…" autocomplete="off">
+    <select id="catlang" class="mini"><option value="">Any language</option></select>
+    <select id="catcat" class="mini"><option value="">Any kind</option></select>
+    <button class="btn" id="catsearch" type="button">Search</button>
+  </div>
+  <div id="catstatus" class="statusline"></div>
+  <div id="catalog" class="catlist"></div>
+
+  <h3 class="subhead">On this shelf</h3>
+  <div id="installed" class="catlist"></div>
+
+  <h3 class="subhead">Downloads</h3>
+  <div id="kdownloads" class="jobs"></div>
+</section>
+
+<div class="overlay hidden" id="confirm">
+  <div class="overlay-box">
+    <h2>Download library?</h2>
+    <p id="confirmtext" class="note"></p>
+    <div class="rowbtns center">
+      <button class="btn add" id="confirmok" type="button">Download</button>
+      <button class="btn" id="confirmno" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="removeconfirm">
+  <div class="overlay-box">
+    <h2>Remove library?</h2>
+    <p id="removeconfirmtext" class="note"></p>
+    <div class="rowbtns center">
+      <button class="btn sub" id="removeok" type="button">Remove</button>
+      <button class="btn" id="removeno" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="pinoverlay">
+  <div class="overlay-box">
+    <h2>Parent PIN</h2>
+    <p class="note">Enter the parent PIN to manage videos and libraries.</p>
+    <input type="password" id="pinval" inputmode="numeric" maxlength="4" placeholder="••••">
+    <p class="err hidden" id="pinerr">That PIN is not right. Try again.</p>
+    <div class="rowbtns center">
+      <button class="btn add" id="pinok" type="button">Unlock</button>
+    </div>
+  </div>
+</div>
+
+<script src="/admin/content/static/content.js"></script>
+</body>
+</html>

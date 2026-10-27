@@ -1,0 +1,67 @@
+name: macos-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: Release tag to smoke test (for example v0.2.0)
+        required: true
+        type: string
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: smoke ${{ matrix.arch }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Current standard macOS runner labels (GitHub docs, checked
+          # 2026-10-27): macos-15 is Apple Silicon (arm64), macos-15-intel
+          # is the Intel (x86_64) image.
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: amd64
+    env:
+      TAG: ${{ inputs.release-tag || github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go (reads go.mod)
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Resolve the release tag
+        run: |
+          if [ -z "$TAG" ]; then
+            echo "No release tag found. Run this workflow with the release-tag" >&2
+            echo "input, or publish the release (the released event fills it in)." >&2
+            exit 1
+          fi
+          echo "Release under test: $TAG"
+
+      - name: Download the darwin zip for this runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "kids-shelf_darwin_${{ matrix.arch }}.zip" \
+            --dir "$RUNNER_TEMP/release" \
+            --clobber
+
+      - name: Smoke install (install, health, remove)
+        run: |
+          bash scripts/smoke-install.sh \
+            "$RUNNER_TEMP/release/kids-shelf_darwin_${{ matrix.arch }}.zip"
+
+      - name: Test
+        run: go test ./...

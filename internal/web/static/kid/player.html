@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Watch…</title>
+<link rel="stylesheet" href="/static/kid/styles.css">
+</head>
+<body class="player">
+<video id="v" controls autoplay playsinline></video>
+<div class="tap-overlay" id="tap"><div class="tap-btn">▶ Tap to play</div></div>
+<div class="minutes-badge" id="mb"></div>
+<div class="info" id="info"></div>
+<div class="chunk" id="chunk" hidden>
+  <h2 id="chunkTitle">🕐 Time's up!</h2>
+  <p id="chunkMsg">You used all your minutes for today. Ask a grown-up to watch together :)</p>
+  <button type="button" id="chunkBtn">Close</button>
+</div>
+<div class="chunk" id="end" hidden>
+  <h2>Done!</h2>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:8px">
+    <button type="button" id="endNext" hidden>Next episode</button>
+    <button type="button" id="endBack">Back to the shelf</button>
+  </div>
+</div>
+<script>window.KS = __KS_DATA__;</script>
+<script src="/static/kid/player.js"></script>
+</body>
+</html>

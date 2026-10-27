@@ -1,0 +1,5 @@
+# The release public key: 64 hex digits, printed on Eric's host by
+#   kssign pubkey ~/.config/kids-shelf/release.key
+# Paste it on the line below (a single line, no quotes). Comment lines
+# and blank lines are ignored by scripts/release.sh and
+# scripts/release-finish.sh.

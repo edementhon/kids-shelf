@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metalink xmlns="urn:ietf:params:xml:ns:metalink">
+  <generator>MirrorBrain/2.19.0</generator>
+  <origin dynamic="true">https://lb.download.kiwix.org/zim/vikidia/vikidia_en_all_maxi_2026-09.zim.meta4</origin>
+  <published>2026-10-26T17:50:35Z</published>
+  <publisher>
+    <name>Kiwix project</name>
+    <url>https://kiwix.org</url>
+  </publisher>
+
+  <file name="vikidia_en_all_maxi_2026-09.zim">
+    <size>77565163</size>
+
+    <!-- <mtime>1789728292</mtime> -->
+
+    <!-- internal id: 9950 -->
+    <hash type="md5">042caae59f5d40162aeee4403c106c98</hash>
+    <hash type="sha-1">2e1132221ebec5ec85d0ce9faebebc8495b912bb</hash>
+    <hash type="sha-256">16728e6be34081f6c627b3cbf2c36ff31823defb0f30b68fab146b5ca68e591e</hash>
+    <pieces length="4194304" type="sha-1">
+      <hash>6ea4f4502eacfd8c125900e0b71990c7281497d3</hash>
+      <hash>90ea89596cadc204edbb6bdf1c800bbc5d2a9b7f</hash>
+      <hash>175bb67a92105e6f33e6534b9376c63e868c35d5</hash>
+      <hash>24b4b4297fe3ff2dda62ed4a46c655d530b4d335</hash>
+      <hash>fe3e269d4a1cd36b002e3ff34b122835ec892e87</hash>
+      <hash>b8fc93c2e3b8963cc8c559a7d78ab081c6d16905</hash>
+      <hash>1f2fcec5350558c85c19c3e521720ff32313101b</hash>
+      <hash>7c9d569cca593ce7e45c5f8bb3accb81ac1a6cbf</hash>
+      <hash>657c3ae392496efba0c69674dce3e00c0c5ab281</hash>
+      <hash>5a71cce11611ed98bec6630b033ca200042c1698</hash>
+      <hash>238e669ffe17a26011dc90e82fe0a8fc1cd6ea32</hash>
+      <hash>5149c4e85a64ee461c0dbd701d2f2a9918fe256c</hash>
+      <hash>013612df5ebf769ee6c1196140bafbace89d0e36</hash>
+      <hash>6fcfe66d0766c87ce60416dbafe851a48acd74c3</hash>
+      <hash>d0d49bf71aef4faba5b820574c56fb39ef56d88a</hash>
+      <hash>d80f1f5aab21cc1562756d0b1cfbe31b5ce1441c</hash>
+      <hash>0ee5119761bcc848c00978622687dae96721a3a7</hash>
+      <hash>5fa1722d4df1c78972c0dac769ec09c72011fcba</hash>
+      <hash>8b8deea92845ca06c2240fd075c54a3f20d34c48</hash>
+    </pieces>
+
+
+    <!-- Found 7 mirrors: 0 in the same network prefix, 0 in the same autonomous system,
+         2 handling this country, 0 in the same region, 3 elsewhere -->
+
+    <!-- Mirrors in the same network (unknown): -->
+
+    <!-- Mirrors in the same AS (unknown): -->
+
+    <!-- Mirrors which handle this country (US): -->
+    <url location="us" priority="1">https://ny.mirror.driftle.ss/kiwix/zim/vikidia/vikidia_en_all_maxi_2026-09.zim</url>
+    <url location="us" priority="2">https://wi.mirror.driftle.ss/kiwix/zim/vikidia/vikidia_en_all_maxi_2026-09.zim</url>
+
+    <!-- Mirrors in the same continent (NA): -->
+
+    <!-- Mirrors in the rest of the world: -->
+    <url location="nl" priority="3">https://ftp.nluug.nl/pub/kiwix/zim/vikidia/vikidia_en_all_maxi_2026-09.zim</url>
+    <url location="fr" priority="4">https://mirror.download.kiwix.org/zim/vikidia/vikidia_en_all_maxi_2026-09.zim</url>
+    <url location="dk" priority="5">https://mirrors.dotsrc.org/kiwix/zim/vikidia/vikidia_en_all_maxi_2026-09.zim</url>
+  </file>
+</metalink>

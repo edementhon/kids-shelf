@@ -1,0 +1,96 @@
+/* Libraries page: the same solarized-light look as the kid home
+   (styles.css): warm paper background, white rounded cards, green accents.
+   Touch-first: every interactive target is well above 44 px and nothing
+   depends on hover (the page works on a tablet with no pointer). */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+body {
+  font-family: system-ui, sans-serif;
+  background: #fdf6e3;
+  color: #333;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+}
+h1 { font-size: 2em; margin: 0; }
+.sub { color: #888; margin: 2px 0 16px; }
+
+/* Header with the back link: the back target itself is at least 44 px tall. */
+.top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px;
+  min-height: 44px;
+  color: #69c;
+  text-decoration: none;
+  font-size: 1.1em;
+  margin-right: 4px;
+}
+.back img { width: 22px; height: 22px; }
+.back:active { color: #3a7; }
+
+/* Not-available banner (backend down or the list failed to load). */
+.msg {
+  background: #fdf3d5;
+  border: 1px solid #f0d98c;
+  color: #7a5c14;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  font-size: 1.05em;
+}
+
+/* Book tiles: one big touch target per library, same grid rhythm as the
+   home page's show cards. */
+.books {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+}
+.book {
+  background: #fff;
+  border: none;
+  border-radius: 16px;
+  padding: 16px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 150px;
+  color: #333;
+  text-decoration: none;
+}
+.book:active { background: #e8f7ee; }
+.book img {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background: #eee;
+  margin-bottom: 6px;
+}
+.book .emoji { font-size: 2.6em; line-height: 1; margin-bottom: 6px; }
+.book .t { font-weight: bold; line-height: 1.2; margin-top: 4px; }
+.book .l { color: #888; font-size: 0.85em; margin-top: 4px; }
+
+/* Installed but not openable right now: still shown, clearly not a link. */
+.book.off { opacity: 0.55; }
+.book.off:active { background: #fff; }
+
+/* Empty state: a grown-up adds libraries from the parent page. */
+.empty {
+  margin-top: 28px;
+  text-align: center;
+  color: #888;
+  font-size: 1.1em;
+  line-height: 1.6;
+}
+.empty a {
+  color: #69c;
+  padding: 4px;            /* a comfortable tap target on the words */
+  display: inline-block;
+}

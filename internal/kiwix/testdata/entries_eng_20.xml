@@ -1,0 +1,523 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:dc="http://purl.org/dc/terms/"
+      xmlns:opds="https://specs.opds.io/opds-1.2"
+      xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+  <id>7647dabb-c640-0447-7de3-9f7616aecea8</id>
+
+  <link rel="self"
+        href="/catalog/v2/entries?lang=eng&amp;count=20"
+        type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+  <link rel="start"
+        href="/catalog/v2/root.xml"
+        type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  <link rel="up"
+        href="/catalog/v2/root.xml"
+        type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+
+  <title>Filtered Entries (lang=eng&amp;count=20)</title>
+  <updated>2026-10-26T17:50:35Z</updated>
+  <totalResults>1311</totalResults>
+  <startIndex>0</startIndex>
+  <itemsPerPage>20</itemsPerPage>
+  <entry>
+    <id>urn:uuid:ab7c8918-9940-f83d-9a14-7f64b4f55636</id>
+    <title>スタック・オーバーフロー</title>
+    <updated>2026-10-19T00:00:00Z</updated>
+    <summary>熱狂的でプロフェッショナルなプログラマーのためのQ&amp;A</summary>
+    <language>eng,jpn</language>
+    <name>ja.stackoverflow.com_mul_all</name>
+    <flavour></flavour>
+    <category>stack_exchange</category>
+    <tags>_details:no;stack_exchange;_category:stack_exchange;_videos:no;_ftindex:yes;_pictures:yes</tags>
+    <articleCount>46670</articleCount>
+    <mediaCount>6901</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/ab7c8918-9940-f83d-9a14-7f64b4f55636/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/ja.stackoverflow.com_mul_all_2026-10" />
+    <author>
+      <name>Stack Exchange</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-10-19T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/stack_exchange/ja.stackoverflow.com_mul_all_2026-10.zim.meta4" length="236055552" />
+  </entry>
+  <entry>
+    <id>urn:uuid:600c47c6-a792-0f78-8fcc-9c05cf1c556b</id>
+    <title>PHP Manual</title>
+    <updated>2024-08-13T00:00:00Z</updated>
+    <summary>PHP Manual</summary>
+    <language>eng</language>
+    <name>php.net_en_all</name>
+    <flavour></flavour>
+    <category>other</category>
+    <tags>_category:other;_ftindex:yes;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>11604</articleCount>
+    <mediaCount>76</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/600c47c6-a792-0f78-8fcc-9c05cf1c556b/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/php.net_en_all_2024-08" />
+    <author>
+      <name>-</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2024-08-13T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/zimit/php.net_en_all_2024-08.zim.meta4" length="32847872" />
+  </entry>
+  <entry>
+    <id>urn:uuid:5ac8d4fc-e699-bdf7-bbfb-7c7bd3365a26</id>
+    <title>MediaWiki</title>
+    <updated>2023-07-05T00:00:00Z</updated>
+    <summary>From mediawiki.org</summary>
+    <language>eng</language>
+    <name>mediawiki_en_all</name>
+    <flavour></flavour>
+    <category></category>
+    <tags>mediawiki;_details:yes;_ftindex:yes;_pictures:yes;_videos:yes</tags>
+    <articleCount>67772</articleCount>
+    <mediaCount>11707</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/5ac8d4fc-e699-bdf7-bbfb-7c7bd3365a26/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/mediawiki_en_all_2023-07" />
+    <author>
+      <name>Mediawiki</name>
+    </author>
+    <publisher>
+      <name>Kiwix</name>
+    </publisher>
+    <dc:issued>2023-07-05T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/other/mediawiki_en_all_2023-07.zim.meta4" length="6830024704" />
+  </entry>
+  <entry>
+    <id>urn:uuid:e4d1f4f9-5e12-43e1-3005-375dd6c3f37f</id>
+    <title>sh1.org</title>
+    <updated>2026-09-05T00:00:00Z</updated>
+    <summary>Railway signals</summary>
+    <language>eng</language>
+    <name>sh1.org_en_all</name>
+    <flavour></flavour>
+    <category>other</category>
+    <tags>_ftindex:yes;_category:other;trains;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>115</articleCount>
+    <mediaCount>1175</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/e4d1f4f9-5e12-43e1-3005-375dd6c3f37f/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/sh1.org_en_all_2026-09" />
+    <author>
+      <name>-</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-09-05T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/zimit/sh1.org_en_all_2026-09.zim.meta4" length="36063232" />
+  </entry>
+  <entry>
+    <id>urn:uuid:a89af8b6-e619-526f-ce3a-2a80013c46a2</id>
+    <title>Stack Overflow на русском</title>
+    <updated>2026-10-19T00:00:00Z</updated>
+    <summary>Вопросы и ответы для программистов</summary>
+    <language>eng,rus</language>
+    <name>ru.stackoverflow.com_mul_all</name>
+    <flavour></flavour>
+    <category>stack_exchange</category>
+    <tags>_details:no;stack_exchange;_videos:no;_category:stack_exchange;_ftindex:yes;_pictures:yes</tags>
+    <articleCount>626063</articleCount>
+    <mediaCount>117458</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/a89af8b6-e619-526f-ce3a-2a80013c46a2/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/ru.stackoverflow.com_mul_all_2026-10" />
+    <author>
+      <name>Stack Exchange</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-10-19T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/stack_exchange/ru.stackoverflow.com_mul_all_2026-10.zim.meta4" length="2691410944" />
+  </entry>
+  <entry>
+    <id>urn:uuid:dae93d46-ed72-8de0-4462-bea163240ec5</id>
+    <title>Project Euler</title>
+    <updated>2026-08-11T00:00:00Z</updated>
+    <summary>Programming challenges</summary>
+    <language>eng</language>
+    <name>freecodecamp_en_project-euler</name>
+    <flavour></flavour>
+    <category></category>
+    <tags>FCC;freeCodeCamp;_ftindex:no;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>481</articleCount>
+    <mediaCount>4</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/dae93d46-ed72-8de0-4462-bea163240ec5/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/freecodecamp_en_project-euler_2026-08" />
+    <author>
+      <name>freeCodeCamp</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-08-11T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/freecodecamp/freecodecamp_en_project-euler_2026-08.zim.meta4" length="7281664" />
+  </entry>
+  <entry>
+    <id>urn:uuid:6e6994b3-1791-9635-2345-1302bf884a13</id>
+    <title>FreeCodeCamp JavaScript</title>
+    <updated>2026-08-11T00:00:00Z</updated>
+    <summary>JavaScript courses</summary>
+    <language>eng</language>
+    <name>freecodecamp_en_javascript-algorithms-and-data-structures</name>
+    <flavour></flavour>
+    <category></category>
+    <tags>FCC;freeCodeCamp;_ftindex:no;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>300</articleCount>
+    <mediaCount>4</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/6e6994b3-1791-9635-2345-1302bf884a13/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/freecodecamp_en_javascript-algorithms-and-data-structures_2026-08" />
+    <author>
+      <name>freeCodeCamp</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-08-11T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/freecodecamp/freecodecamp_en_javascript-algorithms-and-data-structures_2026-08.zim.meta4" length="7014400" />
+  </entry>
+  <entry>
+    <id>urn:uuid:b5cc1371-d733-2555-4b3d-fa847b558311</id>
+    <title>Got Questions?</title>
+    <updated>2026-07-20T00:00:00Z</updated>
+    <summary>Bible Questions Answered</summary>
+    <language>eng</language>
+    <name>gotquestions.org_en_all</name>
+    <flavour></flavour>
+    <category>other</category>
+    <tags>_ftindex:yes;_category:other;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>21482</articleCount>
+    <mediaCount>7408</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/b5cc1371-d733-2555-4b3d-fa847b558311/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/gotquestions.org_en_all_2026-07" />
+    <author>
+      <name>-</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-07-20T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/zimit/gotquestions.org_en_all_2026-07.zim.meta4" length="15182660608" />
+  </entry>
+  <entry>
+    <id>urn:uuid:2925fd0a-bd75-851c-20ff-6342dacf2a36</id>
+    <title>RagaGunglism</title>
+    <updated>2025-08-05T00:00:00Z</updated>
+    <summary>Indian Classical Music Theory</summary>
+    <language>eng</language>
+    <name>ragajunglism.org_en_all</name>
+    <flavour></flavour>
+    <category>other</category>
+    <tags>_category:other;_ftindex:yes;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>2695</articleCount>
+    <mediaCount>24660</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/2925fd0a-bd75-851c-20ff-6342dacf2a36/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/ragajunglism.org_en_all_2025-08" />
+    <author>
+      <name>-</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2025-08-05T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/zimit/ragajunglism.org_en_all_2025-08.zim.meta4" length="8738987008" />
+  </entry>
+  <entry>
+    <id>urn:uuid:b237d3c6-4ce9-b57f-411a-3ccb8cc24367</id>
+    <title>FreeCodeCamp</title>
+    <updated>2026-08-21T00:00:00Z</updated>
+    <summary>All FreeCodeCamp courses</summary>
+    <language>eng</language>
+    <name>freecodecamp_en_all</name>
+    <flavour></flavour>
+    <category></category>
+    <tags>FCC;freeCodeCamp;_ftindex:no;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>996</articleCount>
+    <mediaCount>4</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/b237d3c6-4ce9-b57f-411a-3ccb8cc24367/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/freecodecamp_en_all_2026-08" />
+    <author>
+      <name>freeCodeCamp</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-08-21T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/freecodecamp/freecodecamp_en_all_2026-08.zim.meta4" length="7894016" />
+  </entry>
+  <entry>
+    <id>urn:uuid:38d30729-4c28-a979-9887-5fd6ecfbee18</id>
+    <title>TED worklife</title>
+    <updated>2026-09-16T00:00:00Z</updated>
+    <summary>A collection of TED videos about worklife</summary>
+    <language>eng,ara,spa,zho</language>
+    <name>ted_mul_worklife</name>
+    <flavour></flavour>
+    <category>ted</category>
+    <tags>_category:ted;ted;_videos:yes;_ftindex:yes;_pictures:yes;_details:yes</tags>
+    <articleCount>23</articleCount>
+    <mediaCount>70</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/38d30729-4c28-a979-9887-5fd6ecfbee18/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/ted_mul_worklife_2026-09" />
+    <author>
+      <name>TED</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-09-16T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/ted/ted_mul_worklife_2026-09.zim.meta4" length="371139584" />
+  </entry>
+  <entry>
+    <id>urn:uuid:477f8cb7-eef2-cbb3-14c8-207073c9dfb3</id>
+    <title>TED competition</title>
+    <updated>2026-09-08T00:00:00Z</updated>
+    <summary>A collection of TED videos about competition</summary>
+    <language>eng,ara,spa,heb</language>
+    <name>ted_mul_competition</name>
+    <flavour></flavour>
+    <category>ted</category>
+    <tags>_category:ted;ted;_videos:yes;_ftindex:yes;_pictures:yes;_details:yes</tags>
+    <articleCount>6</articleCount>
+    <mediaCount>17</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/477f8cb7-eef2-cbb3-14c8-207073c9dfb3/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/ted_mul_competition_2026-09" />
+    <author>
+      <name>TED</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-09-08T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/ted/ted_mul_competition_2026-09.zim.meta4" length="119384064" />
+  </entry>
+  <entry>
+    <id>urn:uuid:4a0e3cc9-9974-e341-4457-48f8bb5d176c</id>
+    <title>Project Gutenberg Library</title>
+    <updated>2026-03-05T00:00:00Z</updated>
+    <summary>Law</summary>
+    <language>eng</language>
+    <name>gutenberg_en_lcc-k</name>
+    <flavour></flavour>
+    <category>gutenberg</category>
+    <tags>_category:gutenberg;gutenberg;_ftindex:no;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>342</articleCount>
+    <mediaCount>1003</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/4a0e3cc9-9974-e341-4457-48f8bb5d176c/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/gutenberg_en_lcc-k_2026-03" />
+    <author>
+      <name>gutenberg.org</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-03-05T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/gutenberg/gutenberg_en_lcc-k_2026-03.zim.meta4" length="246517760" />
+  </entry>
+  <entry>
+    <id>urn:uuid:cb06f790-935c-a1fb-9660-e26fb764d03c</id>
+    <title>Prunelle books</title>
+    <updated>2025-02-14T00:00:00Z</updated>
+    <summary>Books for children</summary>
+    <language>eng</language>
+    <name>prunelle_en_interactive-books</name>
+    <flavour></flavour>
+    <category></category>
+    <tags>_ftindex:no;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>1</articleCount>
+    <mediaCount>369</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/cb06f790-935c-a1fb-9660-e26fb764d03c/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/prunelle_en_interactive-books_2025-02" />
+    <author>
+      <name>Book Prunelle</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2025-02-14T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/other/prunelle_en_interactive-books_2025-02.zim.meta4" length="375919616" />
+  </entry>
+  <entry>
+    <id>urn:uuid:03a8324c-ae09-b98c-5893-9c6f111ca94e</id>
+    <title>Project Gutenberg Library</title>
+    <updated>2026-03-05T00:00:00Z</updated>
+    <summary>Education</summary>
+    <language>eng</language>
+    <name>gutenberg_en_lcc-l</name>
+    <flavour></flavour>
+    <category>gutenberg</category>
+    <tags>_category:gutenberg;gutenberg;_ftindex:no;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>594</articleCount>
+    <mediaCount>4726</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/03a8324c-ae09-b98c-5893-9c6f111ca94e/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/gutenberg_en_lcc-l_2026-03" />
+    <author>
+      <name>gutenberg.org</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-03-05T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/gutenberg/gutenberg_en_lcc-l_2026-03.zim.meta4" length="628986880" />
+  </entry>
+  <entry>
+    <id>urn:uuid:438c7985-7b24-b470-9dfc-7b0cafa02269</id>
+    <title>Project Gutenberg Library</title>
+    <updated>2026-03-06T00:00:00Z</updated>
+    <summary>Science</summary>
+    <language>eng</language>
+    <name>gutenberg_en_lcc-q</name>
+    <flavour></flavour>
+    <category>gutenberg</category>
+    <tags>_category:gutenberg;gutenberg;_ftindex:no;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>3663</articleCount>
+    <mediaCount>136245</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/438c7985-7b24-b470-9dfc-7b0cafa02269/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/gutenberg_en_lcc-q_2026-03" />
+    <author>
+      <name>gutenberg.org</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-03-06T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/gutenberg/gutenberg_en_lcc-q_2026-03.zim.meta4" length="17724715008" />
+  </entry>
+  <entry>
+    <id>urn:uuid:1bc843c0-c4d3-5241-90b8-f70496cff27b</id>
+    <title>Project Gutenberg Library</title>
+    <updated>2026-03-06T00:00:00Z</updated>
+    <summary>Technology</summary>
+    <language>eng</language>
+    <name>gutenberg_en_lcc-t</name>
+    <flavour></flavour>
+    <category>gutenberg</category>
+    <tags>_category:gutenberg;gutenberg;_ftindex:no;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>2550</articleCount>
+    <mediaCount>112467</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/1bc843c0-c4d3-5241-90b8-f70496cff27b/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/gutenberg_en_lcc-t_2026-03" />
+    <author>
+      <name>gutenberg.org</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-03-06T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/gutenberg/gutenberg_en_lcc-t_2026-03.zim.meta4" length="13154803712" />
+  </entry>
+  <entry>
+    <id>urn:uuid:55128623-2226-c4e3-a9b7-e136695deb9a</id>
+    <title>True prepper</title>
+    <updated>2026-05-04T00:00:00Z</updated>
+    <summary>Prepping Your Way</summary>
+    <language>eng</language>
+    <name>trueprepper.com_en_all</name>
+    <flavour></flavour>
+    <category>other</category>
+    <tags>_ftindex:yes;_category:other;preppers;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>399</articleCount>
+    <mediaCount>17739</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/55128623-2226-c4e3-a9b7-e136695deb9a/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/trueprepper.com_en_all_2026-05" />
+    <author>
+      <name>-</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-05-04T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/other/trueprepper.com_en_all_2026-05.zim.meta4" length="1423585280" />
+  </entry>
+  <entry>
+    <id>urn:uuid:4dc2d539-98f7-0b76-7256-0943f0c52e60</id>
+    <title>Project Gutenberg Library</title>
+    <updated>2026-03-06T00:00:00Z</updated>
+    <summary>Agriculture</summary>
+    <language>eng</language>
+    <name>gutenberg_en_lcc-s</name>
+    <flavour></flavour>
+    <category>gutenberg</category>
+    <tags>_category:gutenberg;gutenberg;_ftindex:no;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>1258</articleCount>
+    <mediaCount>31526</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/4dc2d539-98f7-0b76-7256-0943f0c52e60/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/gutenberg_en_lcc-s_2026-03" />
+    <author>
+      <name>gutenberg.org</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-03-06T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/gutenberg/gutenberg_en_lcc-s_2026-03.zim.meta4" length="4532683776" />
+  </entry>
+  <entry>
+    <id>urn:uuid:573dcd3f-e5bd-9eec-599f-379216e32a46</id>
+    <title>Project Gutenberg Library</title>
+    <updated>2026-03-06T00:00:00Z</updated>
+    <summary>Medicine</summary>
+    <language>eng</language>
+    <name>gutenberg_en_lcc-r</name>
+    <flavour></flavour>
+    <category>gutenberg</category>
+    <tags>_category:gutenberg;gutenberg;_ftindex:no;_pictures:yes;_videos:yes;_details:yes</tags>
+    <articleCount>1094</articleCount>
+    <mediaCount>13894</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/catalog/v2/illustration/573dcd3f-e5bd-9eec-599f-379216e32a46/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="https://browse.library.kiwix.org/content/gutenberg_en_lcc-r_2026-03" />
+    <author>
+      <name>gutenberg.org</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-03-06T00:00:00Z</dc:issued>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/x-zim" href="https://lb.download.kiwix.org/zim/gutenberg/gutenberg_en_lcc-r_2026-03.zim.meta4" length="2019298304" />
+  </entry>
+</feed>

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kids Shelf</title>
+<link rel="stylesheet" href="/static/kid/styles.css">
+</head>
+<body>
+<header class="top">
+  <h1>📺 Kids Shelf</h1>
+  <div class="tickets" id="tickets" hidden></div>
+  <a class="grownups" href="/admin">Grown-ups</a>
+</header>
+<div class="sub" id="sub">Pick something to watch together</div>
+
+<!-- Who's watching? picker -->
+<div class="who" id="who" hidden>
+  <h2>Who's watching?</h2>
+  <div class="pick" id="pick"></div>
+  <div class="subp">Each kid has their own PIN. A grown-up can pick too, and then watching together is free!</div>
+</div>
+
+<!-- PIN screen with a numeric keypad -->
+<div class="overlay" id="pinscreen" hidden>
+  <div class="pin-box">
+    <h2 id="pin-title">Enter your PIN</h2>
+    <p class="pin-msg" id="pin-msg">To spend your minutes, enter your PIN.</p>
+    <div class="pin-dots" id="pin-dots"><span></span><span></span><span></span><span></span></div>
+    <div class="keypad" id="keypad">
+      <button type="button" data-d="1">1</button>
+      <button type="button" data-d="2">2</button>
+      <button type="button" data-d="3">3</button>
+      <button type="button" data-d="4">4</button>
+      <button type="button" data-d="5">5</button>
+      <button type="button" data-d="6">6</button>
+      <button type="button" data-d="7">7</button>
+      <button type="button" data-d="8">8</button>
+      <button type="button" data-d="9">9</button>
+      <button type="button" data-d="del" class="key-icon" aria-label="Delete">⌫</button>
+      <button type="button" data-d="0">0</button>
+      <button type="button" data-d="ok" class="key-icon" id="pin-ok" disabled>OK</button>
+    </div>
+    <p class="pin-alt">Grown-up? <button type="button" class="link" id="pin-grownup">Watch together (free)</button></p>
+  </div>
+</div>
+
+<div class="msg" id="msg" hidden></div>
+<input type="search" id="q" placeholder="Search…" autocomplete="off" hidden>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+<script src="/static/kid/app.js"></script>
+</body>
+</html>

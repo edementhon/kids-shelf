@@ -1,0 +1,3386 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:dc="http://purl.org/dc/terms/"
+      xmlns:opds="https://specs.opds.io/opds-1.2"
+      xmlns:thr="http://purl.org/syndication/thread/1.0">
+  <id>be65d68a-9723-d1fe-9dc8-653cb3f79fa2</id>
+  <link rel="self"
+        href="/catalog/v2/languages"
+        type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  <link rel="start"
+        href="/catalog/v2/root.xml"
+        type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  <title>List of languages</title>
+  <updated>2026-10-26T17:47:27Z</updated>
+
+  <entry>
+    <title>Abkhazian</title>
+    <dc:language>abk</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=abk"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1d1e30a4-c6a7-899a-489e-5ad0c9fc62ee</id>
+  </entry>
+  <entry>
+    <title>Achinese</title>
+    <dc:language>ace</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ace"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>d5c2cf4c-897a-5267-724a-a29235592ce1</id>
+  </entry>
+  <entry>
+    <title>Adyghe</title>
+    <dc:language>ady</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ady"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>47e0e3ee-35ef-a350-64f4-625884f25bed</id>
+  </entry>
+  <entry>
+    <title>Afrikaans</title>
+    <dc:language>afr</dc:language>
+    <thr:count>11</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=afr"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>71d736f6-52c2-c436-7584-c8cc164e09d5</id>
+  </entry>
+  <entry>
+    <title>Akan</title>
+    <dc:language>aka</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=aka"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>ad774c80-ee34-631d-4223-27a22908611c</id>
+  </entry>
+  <entry>
+    <title>Aleut</title>
+    <dc:language>ale</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ale"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>28583f17-a71d-7f33-bd7b-90a07bf5dc1f</id>
+  </entry>
+  <entry>
+    <title>Southern Altai</title>
+    <dc:language>alt</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=alt"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>2b9daa82-d082-8500-21f0-094d0da088ce</id>
+  </entry>
+  <entry>
+    <title>አማርኛ</title>
+    <dc:language>amh</dc:language>
+    <thr:count>6</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=amh"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>faf84040-aec6-8a4a-a1ee-b3223ff2a675</id>
+  </entry>
+  <entry>
+    <title>Amis</title>
+    <dc:language>ami</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ami"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c1beca77-e5cf-74f7-d422-bc5c8cae81fb</id>
+  </entry>
+  <entry>
+    <title>Old English</title>
+    <dc:language>ang</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ang"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1a100476-98c4-7512-cc07-afdb833aef73</id>
+  </entry>
+  <entry>
+    <title>Angika</title>
+    <dc:language>anp</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=anp"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>85a30ed7-1f4d-7d34-02ca-a3794259cdd5</id>
+  </entry>
+  <entry>
+    <title>العربية</title>
+    <dc:language>ara</dc:language>
+    <thr:count>438</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ara"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>39ce5ab0-b9d9-b2bf-f15a-9119d296ecea</id>
+  </entry>
+  <entry>
+    <title>Aramaic</title>
+    <dc:language>arc</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=arc"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a936cfdf-0ac9-5427-2dc6-f8d10a694b5d</id>
+  </entry>
+  <entry>
+    <title>Aragonese</title>
+    <dc:language>arg</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=arg"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>99116017-715e-7337-328a-448191a3257d</id>
+  </entry>
+  <entry>
+    <title>Arapaho</title>
+    <dc:language>arp</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=arp"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c466025e-cee8-98ff-9a7a-459eddd32ec3</id>
+  </entry>
+  <entry>
+    <title>Moroccan Arabic</title>
+    <dc:language>ary</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ary"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>936db9a4-7dfa-d964-4fb3-2eabb367beca</id>
+  </entry>
+  <entry>
+    <title>Egyptian Arabic</title>
+    <dc:language>arz</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=arz"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1a376ad1-3fd3-ede6-f9e2-9bf07c14c780</id>
+  </entry>
+  <entry>
+    <title>অসমীয়া</title>
+    <dc:language>asm</dc:language>
+    <thr:count>6</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=asm"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>0125e00e-242f-821c-bf48-98cbc0f36cbf</id>
+  </entry>
+  <entry>
+    <title>asturianu</title>
+    <dc:language>ast</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ast"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>db96b81f-bf9a-268e-0f2a-1123f2e1ae94</id>
+  </entry>
+  <entry>
+    <title>atikamekw</title>
+    <dc:language>atj</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=atj"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>78c2ca9c-c015-f71f-8c6a-9397090c52c7</id>
+  </entry>
+  <entry>
+    <title>Avaric</title>
+    <dc:language>ava</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ava"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>9e4f077c-321d-fce5-5d74-5485e2b39259</id>
+  </entry>
+  <entry>
+    <title>Kotava</title>
+    <dc:language>avk</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=avk"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c867b228-c999-3ed4-6feb-941491dd39fb</id>
+  </entry>
+  <entry>
+    <title>Awadhi</title>
+    <dc:language>awa</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=awa"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>716f6d45-0d40-e6aa-933c-02a70d1313d8</id>
+  </entry>
+  <entry>
+    <title>Aymara</title>
+    <dc:language>aym</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=aym"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e0aa871d-5bc2-f9ca-4432-0b2cac9cb474</id>
+  </entry>
+  <entry>
+    <title>آذربایجان دیلی</title>
+    <dc:language>azb</dc:language>
+    <thr:count>6</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=azb"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c2e2e2c7-aa53-bd31-72ea-ae7d91bb8959</id>
+  </entry>
+  <entry>
+    <title>azərbaycan</title>
+    <dc:language>aze</dc:language>
+    <thr:count>15</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=aze"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f582456c-d51f-a81a-d619-d8648b195ecd</id>
+  </entry>
+  <entry>
+    <title>Bashkir</title>
+    <dc:language>bak</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bak"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>2436f57c-9d4f-acaf-9cc1-f664490d9995</id>
+  </entry>
+  <entry>
+    <title>bamanakan</title>
+    <dc:language>bam</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bam"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c822bd62-956d-8bee-1821-3bd8f900cb5d</id>
+  </entry>
+  <entry>
+    <title>Balinese</title>
+    <dc:language>ban</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ban"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f1d69c42-0f4b-a93d-74b3-8cff5ea34807</id>
+  </entry>
+  <entry>
+    <title>Bavarian</title>
+    <dc:language>bar</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bar"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>5e481161-e188-7d61-d8d2-b640af54f1c9</id>
+  </entry>
+  <entry>
+    <title>central bikol</title>
+    <dc:language>bcl</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bcl"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>be8e6289-50a2-d1aa-0b82-3d9700bb5e87</id>
+  </entry>
+  <entry>
+    <title>беларуская</title>
+    <dc:language>bel</dc:language>
+    <thr:count>17</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bel"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3d1db034-dad6-c407-141d-2976f0f1e108</id>
+  </entry>
+  <entry>
+    <title>বাংলা</title>
+    <dc:language>ben</dc:language>
+    <thr:count>13</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ben"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>b8c0debc-96c5-0168-2b8f-9dad88b1c597</id>
+  </entry>
+  <entry>
+    <title>tagabawa</title>
+    <dc:language>bgs</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bgs"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>b05259d8-5c56-484c-a54a-6ad87392724d</id>
+  </entry>
+  <entry>
+    <title>भोजपुरी</title>
+    <dc:language>bho</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bho"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>086cbe96-5239-5116-7aef-090b9b1c1e82</id>
+  </entry>
+  <entry>
+    <title>Bislama</title>
+    <dc:language>bis</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bis"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>37a3bb75-5f90-70ee-b1b5-c5384fbb5a2e</id>
+  </entry>
+  <entry>
+    <title>Banjar</title>
+    <dc:language>bjn</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bjn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>87cb266a-719d-6aba-2f4e-559411d94a82</id>
+  </entry>
+  <entry>
+    <title>ပအိုဝ်ႏ</title>
+    <dc:language>blk</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=blk"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e257af52-52c7-dd08-ad70-038f66ae577e</id>
+  </entry>
+  <entry>
+    <title>བོད་སྐད་</title>
+    <dc:language>bod</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bod"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>850f92cb-12a2-39d2-95c7-b918be50d322</id>
+  </entry>
+  <entry>
+    <title>bosanski</title>
+    <dc:language>bos</dc:language>
+    <thr:count>10</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bos"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f782e52c-afe9-641d-1cac-ffa1f5ddde47</id>
+  </entry>
+  <entry>
+    <title>Bishnupriya</title>
+    <dc:language>bpy</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bpy"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>ed1976e3-979e-b333-e10e-4362c0fda235</id>
+  </entry>
+  <entry>
+    <title>brezhoneg</title>
+    <dc:language>bre</dc:language>
+    <thr:count>9</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bre"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f26adbd9-e47f-b166-e241-5bc726b459a8</id>
+  </entry>
+  <entry>
+    <title>बर’</title>
+    <dc:language>brx</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=brx"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>aa77482c-927d-e3a3-aafd-f0ffe9757ff5</id>
+  </entry>
+  <entry>
+    <title>Buginese</title>
+    <dc:language>bug</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bug"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4db3abab-deb2-6e84-0440-98e211eaf653</id>
+  </entry>
+  <entry>
+    <title>български</title>
+    <dc:language>bul</dc:language>
+    <thr:count>74</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bul"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>35590b05-4e21-a0be-1a0c-25452a60278f</id>
+  </entry>
+  <entry>
+    <title>буряад хэлэн</title>
+    <dc:language>bxr</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=bxr"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e4b4332f-295b-5680-9a90-52650417e092</id>
+  </entry>
+  <entry>
+    <title>català</title>
+    <dc:language>cat</dc:language>
+    <thr:count>19</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=cat"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e60d7e66-167a-f8b2-6d47-8b541f2f54ac</id>
+  </entry>
+  <entry>
+    <title>chavacano</title>
+    <dc:language>cbk</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=cbk"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>08186ee9-644b-b70a-987c-dfd3308b2b85</id>
+  </entry>
+  <entry>
+    <title>閩東語</title>
+    <dc:language>cdo</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=cdo"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4f87e08b-f79e-7165-1324-11cd29a097ee</id>
+  </entry>
+  <entry>
+    <title>Cebuano</title>
+    <dc:language>ceb</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ceb"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>dec11af2-d0f3-bef1-4564-06d3af7fcf4c</id>
+  </entry>
+  <entry>
+    <title>čeština</title>
+    <dc:language>ces</dc:language>
+    <thr:count>42</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ces"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>b9aa5c5e-4ad4-b612-1cc8-32b91dc1fa00</id>
+  </entry>
+  <entry>
+    <title>Chamorro</title>
+    <dc:language>cha</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=cha"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>257f61b0-5c97-30a5-ca96-ec11cda7cb64</id>
+  </entry>
+  <entry>
+    <title>нохчийн</title>
+    <dc:language>che</dc:language>
+    <thr:count>6</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=che"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>0d2be25c-bdec-9291-951a-b0c97ddf028f</id>
+  </entry>
+  <entry>
+    <title>ᏣᎳᎩ</title>
+    <dc:language>chr</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=chr"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>06bfde93-e852-7e04-48df-4fa6d7e4d4e3</id>
+  </entry>
+  <entry>
+    <title>Church Slavic</title>
+    <dc:language>chu</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=chu"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4a722ce6-c589-952b-366b-6fcb3945dd54</id>
+  </entry>
+  <entry>
+    <title>чӑваш</title>
+    <dc:language>chv</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=chv"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a15431b0-e6ec-d180-0bb0-49db1da97381</id>
+  </entry>
+  <entry>
+    <title>Cheyenne</title>
+    <dc:language>chy</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=chy"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>ce822907-0bfc-cf0b-0a86-43198b26cc4a</id>
+  </entry>
+  <entry>
+    <title>کوردیی ناوەندی</title>
+    <dc:language>ckb</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ckb"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>513597c6-296c-61c9-35c0-139204355610</id>
+  </entry>
+  <entry>
+    <title>kernewek</title>
+    <dc:language>cor</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=cor"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a7b84ba1-9953-6066-d8ca-93869e63ae09</id>
+  </entry>
+  <entry>
+    <title>Corsican</title>
+    <dc:language>cos</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=cos"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e28ab817-20b7-d9a2-a566-241648b02245</id>
+  </entry>
+  <entry>
+    <title>Cree</title>
+    <dc:language>cre</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=cre"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>26892cee-63ca-6e4e-a1d2-d88f7fbb5904</id>
+  </entry>
+  <entry>
+    <title>Crimean Tatar</title>
+    <dc:language>crh</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=crh"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e931b40c-79b2-ff49-3fd3-aac5bfa8c072</id>
+  </entry>
+  <entry>
+    <title>Kashubian</title>
+    <dc:language>csb</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=csb"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>2e2f0511-dcf5-baaa-c738-2b3664dccc57</id>
+  </entry>
+  <entry>
+    <title>Cymraeg</title>
+    <dc:language>cym</dc:language>
+    <thr:count>17</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=cym"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>2b5e48b1-e226-3ee0-f76e-4eb1c6bce3aa</id>
+  </entry>
+  <entry>
+    <title>Dagbani</title>
+    <dc:language>dag</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=dag"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>b3657fec-57bd-54bf-3a35-279f9eea3e0d</id>
+  </entry>
+  <entry>
+    <title>dansk</title>
+    <dc:language>dan</dc:language>
+    <thr:count>18</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=dan"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>da1131c3-d9f0-371d-4ae3-220f950cff36</id>
+  </entry>
+  <entry>
+    <title>Deutsch</title>
+    <dc:language>deu</dc:language>
+    <thr:count>311</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=deu"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>aa73c966-c446-9902-3c6a-7ab8b5d5be61</id>
+  </entry>
+  <entry>
+    <title>Dinka</title>
+    <dc:language>din</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=din"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3b180d31-b840-9cce-8c20-4cedf1372fa5</id>
+  </entry>
+  <entry>
+    <title>dimli</title>
+    <dc:language>diq</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=diq"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a05dd720-dcac-06f0-a04c-2b798f9fe1cf</id>
+  </entry>
+  <entry>
+    <title>Divehi</title>
+    <dc:language>div</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=div"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>67150a98-5654-22e1-ed32-9cacac15d98f</id>
+  </entry>
+  <entry>
+    <title>dolnoserbšćina</title>
+    <dc:language>dsb</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=dsb"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1df5df85-bc49-78fb-b4f2-32c336d4e093</id>
+  </entry>
+  <entry>
+    <title>डोटेली</title>
+    <dc:language>dty</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=dty"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>432c5571-94c6-fc37-5c9d-fcefdc715457</id>
+  </entry>
+  <entry>
+    <title>རྫོང་ཁ</title>
+    <dc:language>dzo</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=dzo"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>78442dee-d57d-3028-7972-b54e3b09af12</id>
+  </entry>
+  <entry>
+    <title>Efik</title>
+    <dc:language>efi</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=efi"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a024b61b-8839-651f-df12-61d7f538a138</id>
+  </entry>
+  <entry>
+    <title>Emilian</title>
+    <dc:language>egl</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=egl"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>618f57bb-f281-2ba4-693e-b7d285f7dc29</id>
+  </entry>
+  <entry>
+    <title>Ελληνικά</title>
+    <dc:language>ell</dc:language>
+    <thr:count>222</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ell"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>575d55b7-3823-fad2-79fa-3f425ef1d2a4</id>
+  </entry>
+  <entry>
+    <title>English</title>
+    <dc:language>eng</dc:language>
+    <thr:count>1311</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=eng"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>caec3453-4220-4ca4-61ba-976007febdb0</id>
+  </entry>
+  <entry>
+    <title>Middle English</title>
+    <dc:language>enm</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=enm"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7661f787-33aa-3a05-8fe6-d0d82ef4d9b1</id>
+  </entry>
+  <entry>
+    <title>esperanto</title>
+    <dc:language>epo</dc:language>
+    <thr:count>16</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=epo"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>8d7da8a2-1c88-6ea6-098c-6f4e17727b78</id>
+  </entry>
+  <entry>
+    <title>eesti</title>
+    <dc:language>est</dc:language>
+    <thr:count>17</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=est"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>9bdc14c5-5732-60a9-b571-6ca3c4bd565c</id>
+  </entry>
+  <entry>
+    <title>euskara</title>
+    <dc:language>eus</dc:language>
+    <thr:count>17</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=eus"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>dab0c7da-b03c-0874-7f95-f62063e52cf0</id>
+  </entry>
+  <entry>
+    <title>Eʋegbe</title>
+    <dc:language>ewe</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ewe"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>ecd0e959-9997-087f-8c5e-b68c0504d3be</id>
+  </entry>
+  <entry>
+    <title>Extremaduran</title>
+    <dc:language>ext</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ext"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4388834d-27cf-c821-e7dd-4bc473ad2bdd</id>
+  </entry>
+  <entry>
+    <title>føroyskt</title>
+    <dc:language>fao</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=fao"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e76c306e-e40f-6ef4-3ac4-ae38f176ee76</id>
+  </entry>
+  <entry>
+    <title>فارسی</title>
+    <dc:language>fas</dc:language>
+    <thr:count>308</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=fas"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7f1f6376-89d8-53b3-bdb2-bc39a5780f7b</id>
+  </entry>
+  <entry>
+    <title>Fanti</title>
+    <dc:language>fat</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=fat"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>336d24c8-7014-53bf-c299-dbfa743b60ab</id>
+  </entry>
+  <entry>
+    <title>Fijian</title>
+    <dc:language>fij</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=fij"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>24904358-354c-331f-c39d-58e363cff5d7</id>
+  </entry>
+  <entry>
+    <title>suomi</title>
+    <dc:language>fin</dc:language>
+    <thr:count>22</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=fin"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c00a945c-12dd-5415-f141-8003f1580341</id>
+  </entry>
+  <entry>
+    <title>fɔ̀ngbè</title>
+    <dc:language>fon</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=fon"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>394b64b9-9f6f-35ef-a027-7e8b23d8ed63</id>
+  </entry>
+  <entry>
+    <title>français</title>
+    <dc:language>fra</dc:language>
+    <thr:count>518</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=fra"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>6301267e-35fc-531d-29a3-ea019bece9c0</id>
+  </entry>
+  <entry>
+    <title>Arpitan</title>
+    <dc:language>frp</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=frp"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>be4ec740-3926-c2f5-a93f-c338cf7b6a7b</id>
+  </entry>
+  <entry>
+    <title>Northern Frisian</title>
+    <dc:language>frr</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=frr"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>2cb41b14-c4b5-fb7c-4bd5-9d6e803b12c5</id>
+  </entry>
+  <entry>
+    <title>Frysk</title>
+    <dc:language>fry</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=fry"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4b615f93-8f8c-ff87-ca60-ecd29798a5c3</id>
+  </entry>
+  <entry>
+    <title>Pulaar</title>
+    <dc:language>ful</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ful"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>035e7646-fce1-ec13-78cb-a5894236b67f</id>
+  </entry>
+  <entry>
+    <title>furlan</title>
+    <dc:language>fur</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=fur"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a96af881-9f52-6afc-cc52-ad259062df22</id>
+  </entry>
+  <entry>
+    <title>fvr</title>
+    <dc:language>fvr</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=fvr"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f48b31b9-f3c2-059b-3681-04156f5dd2c5</id>
+  </entry>
+  <entry>
+    <title>Gagauz</title>
+    <dc:language>gag</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=gag"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7716cff0-8140-3f27-8145-ff819b79a3e8</id>
+  </entry>
+  <entry>
+    <title>Gan Chinese</title>
+    <dc:language>gan</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=gan"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>395b6560-5fef-82e0-8197-a55a801a9c13</id>
+  </entry>
+  <entry>
+    <title>Kriyòl gwiyannen</title>
+    <dc:language>gcr</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=gcr"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e2f42b4c-035c-b858-51d0-611960471f44</id>
+  </entry>
+  <entry>
+    <title>Gàidhlig</title>
+    <dc:language>gla</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=gla"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a8dc35d2-9025-83da-7bad-2d531de11130</id>
+  </entry>
+  <entry>
+    <title>Gaeilge</title>
+    <dc:language>gle</dc:language>
+    <thr:count>8</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=gle"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>698f288a-5593-2377-9645-934bbe78c0c5</id>
+  </entry>
+  <entry>
+    <title>galego</title>
+    <dc:language>glg</dc:language>
+    <thr:count>19</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=glg"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>2f035917-4f2c-a247-3c0d-cd87c2830a4e</id>
+  </entry>
+  <entry>
+    <title>Gilaki</title>
+    <dc:language>glk</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=glk"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>accf74f3-67e0-f4f2-8b16-6df8bd06b8ee</id>
+  </entry>
+  <entry>
+    <title>Gaelg</title>
+    <dc:language>glv</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=glv"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>5174cbee-6038-32b0-3123-abba1e05463f</id>
+  </entry>
+  <entry>
+    <title>Goan Konkani</title>
+    <dc:language>gom</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=gom"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1c1ac371-b33f-a1e6-abf5-74177a62f92c</id>
+  </entry>
+  <entry>
+    <title>Gorontalo</title>
+    <dc:language>gor</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=gor"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f0a3eb70-e514-3a13-5d32-8545f1274f4b</id>
+  </entry>
+  <entry>
+    <title>Gothic</title>
+    <dc:language>got</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=got"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f991096e-16c5-0656-5612-046f16cde740</id>
+  </entry>
+  <entry>
+    <title>Ancient Greek</title>
+    <dc:language>grc</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=grc"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>54c6a494-7312-dd79-3679-836aa15b7d2e</id>
+  </entry>
+  <entry>
+    <title>Guarani</title>
+    <dc:language>grn</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=grn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>20bee117-134a-813f-7580-c8470a87de80</id>
+  </entry>
+  <entry>
+    <title>Schwiizertüütsch</title>
+    <dc:language>gsw</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=gsw"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>40f15f1c-7437-d323-3706-18ccdd1065c9</id>
+  </entry>
+  <entry>
+    <title>Wayuu</title>
+    <dc:language>guc</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=guc"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7394991a-3def-db87-902f-b63e027295a4</id>
+  </entry>
+  <entry>
+    <title>ગુજરાતી</title>
+    <dc:language>guj</dc:language>
+    <thr:count>11</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=guj"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>df4d4405-5d05-a8ef-dce5-b63073bdbe07</id>
+  </entry>
+  <entry>
+    <title>Frafra</title>
+    <dc:language>gur</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=gur"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>8baa6a4f-b47e-aac8-964a-6180bd11966e</id>
+  </entry>
+  <entry>
+    <title>Gungbe</title>
+    <dc:language>guw</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=guw"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7f912199-1766-f4a6-2ede-6439f9d5f4bd</id>
+  </entry>
+  <entry>
+    <title>Hakka Chinese</title>
+    <dc:language>hak</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=hak"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>27c35ba7-96dc-1519-b39c-c838dc49ab36</id>
+  </entry>
+  <entry>
+    <title>créole haïtien</title>
+    <dc:language>hat</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=hat"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e951c7ea-c05a-e949-1043-cbaaa6af064c</id>
+  </entry>
+  <entry>
+    <title>Hausa</title>
+    <dc:language>hau</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=hau"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4bf2f739-6901-7666-a5f7-ecaf161337db</id>
+  </entry>
+  <entry>
+    <title>ʻŌlelo Hawaiʻi</title>
+    <dc:language>haw</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=haw"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>5c303fcb-7466-2e24-6747-9ece6951685f</id>
+  </entry>
+  <entry>
+    <title>srpskohrvatski</title>
+    <dc:language>hbs</dc:language>
+    <thr:count>9</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=hbs"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>14834d50-d177-36e1-bb19-80a3e283d926</id>
+  </entry>
+  <entry>
+    <title>עברית</title>
+    <dc:language>heb</dc:language>
+    <thr:count>344</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=heb"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>da791607-9884-efc5-f081-f4a2781746ee</id>
+  </entry>
+  <entry>
+    <title>Fiji Hindi</title>
+    <dc:language>hif</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=hif"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>6e3e0434-7691-4d43-bfb2-f44caff6ccac</id>
+  </entry>
+  <entry>
+    <title>हिन्दी</title>
+    <dc:language>hin</dc:language>
+    <thr:count>130</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=hin"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>83edb280-c8a9-c367-d939-4acd21a1d270</id>
+  </entry>
+  <entry>
+    <title>hrvatski</title>
+    <dc:language>hrv</dc:language>
+    <thr:count>51</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=hrv"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>6e51dfcd-fdbf-4e95-d108-11a96006cace</id>
+  </entry>
+  <entry>
+    <title>hornjoserbšćina</title>
+    <dc:language>hsb</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=hsb"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>0dc838b8-8ebc-e96a-ab9c-6985afb7046a</id>
+  </entry>
+  <entry>
+    <title>magyar</title>
+    <dc:language>hun</dc:language>
+    <thr:count>286</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=hun"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>0deaff39-1b09-ff65-e055-a46b62c3669d</id>
+  </entry>
+  <entry>
+    <title>հայերեն</title>
+    <dc:language>hye</dc:language>
+    <thr:count>15</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=hye"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a30c6e53-9a48-3ee3-9b22-79cca0bc6747</id>
+  </entry>
+  <entry>
+    <title>հայերէն/հայերեն</title>
+    <dc:language>hyw</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=hyw"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>70d48048-df46-a8fe-c1bd-ec52d65d3769</id>
+  </entry>
+  <entry>
+    <title>Igbo</title>
+    <dc:language>ibo</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ibo"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>309ce211-2a69-da12-7117-7e342a9e5bd3</id>
+  </entry>
+  <entry>
+    <title>ido</title>
+    <dc:language>ido</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ido"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4e165a24-c057-ae1b-cc6e-e0df76ea1a90</id>
+  </entry>
+  <entry>
+    <title>Inuktitut</title>
+    <dc:language>iku</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=iku"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4acf53b5-1196-dd47-5f2f-ea8b164ab42e</id>
+  </entry>
+  <entry>
+    <title>Interlingue</title>
+    <dc:language>ile</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ile"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3e1eaa1a-a35c-aeae-d85c-ba6994493b2e</id>
+  </entry>
+  <entry>
+    <title>Iloko</title>
+    <dc:language>ilo</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ilo"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f67ebc5a-5e99-de21-8052-343d544fe400</id>
+  </entry>
+  <entry>
+    <title>interlingua</title>
+    <dc:language>ina</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ina"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>2b2cc0c4-d8fb-4940-30c4-b2fab6998156</id>
+  </entry>
+  <entry>
+    <title>Indonesia</title>
+    <dc:language>ind</dc:language>
+    <thr:count>191</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ind"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>d7225fa3-f532-e89a-0646-1b27dd25effc</id>
+  </entry>
+  <entry>
+    <title>Ingush</title>
+    <dc:language>inh</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=inh"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>376ae178-6640-cda6-015b-61c777258e07</id>
+  </entry>
+  <entry>
+    <title>Inupiaq</title>
+    <dc:language>ipk</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ipk"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>6dd136ef-d4e8-1545-688e-0ac7657ae0e6</id>
+  </entry>
+  <entry>
+    <title>íslenska</title>
+    <dc:language>isl</dc:language>
+    <thr:count>13</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=isl"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>528f4ed8-3940-836c-e3cb-82a33d69ee6a</id>
+  </entry>
+  <entry>
+    <title>italiano</title>
+    <dc:language>ita</dc:language>
+    <thr:count>382</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ita"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7a39d7ef-9cf5-ef8f-e2f4-56c262eb835a</id>
+  </entry>
+  <entry>
+    <title>Jamaican Creole English</title>
+    <dc:language>jam</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=jam"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>be309ab1-cd33-1313-f8c6-b988c6d1daa0</id>
+  </entry>
+  <entry>
+    <title>Jawa</title>
+    <dc:language>jav</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=jav"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4f3a15a0-6b6b-59f8-4e86-a1e965884b38</id>
+  </entry>
+  <entry>
+    <title>Lojban</title>
+    <dc:language>jbo</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=jbo"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>2d5d5438-71f0-7a7c-7feb-be3b1bd89b45</id>
+  </entry>
+  <entry>
+    <title>日本語</title>
+    <dc:language>jpn</dc:language>
+    <thr:count>345</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=jpn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>9a823433-7781-1b8c-3745-795bed2ced74</id>
+  </entry>
+  <entry>
+    <title>Kara-Kalpak</title>
+    <dc:language>kaa</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kaa"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>8b546a78-6f05-bf29-6c1f-dee51a4e8242</id>
+  </entry>
+  <entry>
+    <title>Taqbaylit</title>
+    <dc:language>kab</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kab"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>48f182b8-9fab-2858-4688-906893105e58</id>
+  </entry>
+  <entry>
+    <title>kalaallisut</title>
+    <dc:language>kal</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kal"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7474ca1d-20a3-6614-4b58-7c75401e35aa</id>
+  </entry>
+  <entry>
+    <title>ಕನ್ನಡ</title>
+    <dc:language>kan</dc:language>
+    <thr:count>11</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kan"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7056f837-b5b2-91df-d13a-05ef4c6591a3</id>
+  </entry>
+  <entry>
+    <title>کٲشُر</title>
+    <dc:language>kas</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kas"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>38973de7-a9d9-133e-d755-45974c5b00a0</id>
+  </entry>
+  <entry>
+    <title>ქართული</title>
+    <dc:language>kat</dc:language>
+    <thr:count>13</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kat"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1208c83a-bc72-eb99-2ef8-4b88352c2dd1</id>
+  </entry>
+  <entry>
+    <title>қазақ тілі</title>
+    <dc:language>kaz</dc:language>
+    <thr:count>11</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kaz"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3073b7c5-e322-0c74-b1f8-387b8d22f1b1</id>
+  </entry>
+  <entry>
+    <title>Kabardian</title>
+    <dc:language>kbd</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kbd"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a596503d-3916-73e9-434c-2b8b210f2783</id>
+  </entry>
+  <entry>
+    <title>kabɩyɛ</title>
+    <dc:language>kbp</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kbp"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f0fb621b-cd76-e74f-960f-494bbc38b02a</id>
+  </entry>
+  <entry>
+    <title>Tyap</title>
+    <dc:language>kcg</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kcg"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>2d087421-94e0-6bb3-dd62-ac55698afd2c</id>
+  </entry>
+  <entry>
+    <title>Khasi</title>
+    <dc:language>kha</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kha"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>ba98bacd-924d-a323-b590-ea3429c7a3b1</id>
+  </entry>
+  <entry>
+    <title>ខ្មែរ</title>
+    <dc:language>khm</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=khm"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>0ea109e8-5d9f-c952-2d65-01ec66bdbd81</id>
+  </entry>
+  <entry>
+    <title>Gikuyu</title>
+    <dc:language>kik</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kik"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a5f6c347-1621-fc1c-9376-f1bd8e39e8c5</id>
+  </entry>
+  <entry>
+    <title>Kinyarwanda</title>
+    <dc:language>kin</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kin"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>05bfb128-66d5-8321-b451-69afe8c587c6</id>
+  </entry>
+  <entry>
+    <title>кыргызча</title>
+    <dc:language>kir</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kir"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f30f18f1-16bc-ceb1-62f8-a1d9b5d408d4</id>
+  </entry>
+  <entry>
+    <title>Gamilaraay</title>
+    <dc:language>kld</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kld"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>04a27c4d-cff2-0ab9-6ff5-4062e4e0649e</id>
+  </entry>
+  <entry>
+    <title>Komi-Permyak</title>
+    <dc:language>koi</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=koi"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>96bd87d4-22d6-32f7-f951-636c14cdc703</id>
+  </entry>
+  <entry>
+    <title>Komi</title>
+    <dc:language>kom</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kom"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>45b7bc87-b78a-eeb0-70c4-1d1da8b38e68</id>
+  </entry>
+  <entry>
+    <title>Kongo</title>
+    <dc:language>kon</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kon"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>39735bcc-39b8-2abc-fefd-c41b291536a3</id>
+  </entry>
+  <entry>
+    <title>한국어</title>
+    <dc:language>kor</dc:language>
+    <thr:count>371</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kor"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>67533d73-f99e-df4f-63c7-60651509b705</id>
+  </entry>
+  <entry>
+    <title>Karachay-Balkar</title>
+    <dc:language>krc</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=krc"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c34bcf25-2864-133b-9a2e-f19476004186</id>
+  </entry>
+  <entry>
+    <title>Kölsch</title>
+    <dc:language>ksh</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ksh"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>bc7d2492-1d42-8957-72ff-7c761af6fe07</id>
+  </entry>
+  <entry>
+    <title>kurdî</title>
+    <dc:language>kur</dc:language>
+    <thr:count>10</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=kur"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a0779d0e-a66d-f5cc-e044-2d916f761464</id>
+  </entry>
+  <entry>
+    <title>Ladino</title>
+    <dc:language>lad</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lad"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1f2b0b68-6082-1a72-db43-45f899283490</id>
+  </entry>
+  <entry>
+    <title>ລາວ</title>
+    <dc:language>lao</dc:language>
+    <thr:count>6</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lao"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a2870a73-8cc4-4a9e-4ae2-5cd77674f095</id>
+  </entry>
+  <entry>
+    <title>Latin</title>
+    <dc:language>lat</dc:language>
+    <thr:count>16</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lat"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>ecb0534a-3007-2551-9cad-806dfa855ce1</id>
+  </entry>
+  <entry>
+    <title>latviešu</title>
+    <dc:language>lav</dc:language>
+    <thr:count>8</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lav"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1615c19a-006c-69dd-d0fb-6d144e20521e</id>
+  </entry>
+  <entry>
+    <title>лакку маз</title>
+    <dc:language>lbe</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lbe"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1bce229a-5231-38e1-7bc6-11790d6f2eb1</id>
+  </entry>
+  <entry>
+    <title>ལ་དྭགས་སྐད་</title>
+    <dc:language>lbj</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lbj"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f2553049-0e9f-8ffe-d1cc-b5ed420afe07</id>
+  </entry>
+  <entry>
+    <title>Lezghian</title>
+    <dc:language>lez</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lez"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>359d7f34-e751-4797-c354-2eb3505adc26</id>
+  </entry>
+  <entry>
+    <title>Lingua Franca Nova</title>
+    <dc:language>lfn</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lfn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>905dda2c-66e8-7c2f-d8d5-52dadf1a2f88</id>
+  </entry>
+  <entry>
+    <title>Ligurian</title>
+    <dc:language>lij</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lij"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>47dad438-9cd2-da53-568a-c7d7f0f07db8</id>
+  </entry>
+  <entry>
+    <title>Limburgish</title>
+    <dc:language>lim</dc:language>
+    <thr:count>9</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lim"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>9ae96c7f-e28a-eca6-d58f-b7197c0ceb3c</id>
+  </entry>
+  <entry>
+    <title>lingála</title>
+    <dc:language>lin</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lin"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>44772f5a-32d1-403d-6223-ec49579beaaf</id>
+  </entry>
+  <entry>
+    <title>lietuvių</title>
+    <dc:language>lit</dc:language>
+    <thr:count>19</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lit"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>bc385881-4c5f-8cf9-423e-36f3e4a615aa</id>
+  </entry>
+  <entry>
+    <title>ladin</title>
+    <dc:language>lld</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lld"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>ff121636-36d6-d68c-83bc-db8223bf1184</id>
+  </entry>
+  <entry>
+    <title>Lombard</title>
+    <dc:language>lmo</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lmo"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>eda24e87-9f9f-6dc0-4f60-eb428361d0a8</id>
+  </entry>
+  <entry>
+    <title>Latgalian</title>
+    <dc:language>ltg</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ltg"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>acad3478-48df-6f97-ed86-f6d84448d153</id>
+  </entry>
+  <entry>
+    <title>Lëtzebuergesch</title>
+    <dc:language>ltz</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ltz"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>579d45d0-82cb-81a6-8fc3-33b4c9a75f65</id>
+  </entry>
+  <entry>
+    <title>Luganda</title>
+    <dc:language>lug</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lug"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c30117f6-faa8-12b8-aded-d303e49ebeaf</id>
+  </entry>
+  <entry>
+    <title>Literary Chinese</title>
+    <dc:language>lzh</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=lzh"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>81e769c1-12c5-c05e-8ae8-ab4dd507ced6</id>
+  </entry>
+  <entry>
+    <title>Madurese</title>
+    <dc:language>mad</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mad"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3b091ddc-45f1-4ccb-c455-d9f49f598c96</id>
+  </entry>
+  <entry>
+    <title>मैथिली</title>
+    <dc:language>mai</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mai"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>34e0ae23-cef8-fc1c-62bf-6978ae9b962b</id>
+  </entry>
+  <entry>
+    <title>മലയാളം</title>
+    <dc:language>mal</dc:language>
+    <thr:count>13</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mal"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>430f5eda-d630-3e54-31fc-56c7fb64e010</id>
+  </entry>
+  <entry>
+    <title>मराठी</title>
+    <dc:language>mar</dc:language>
+    <thr:count>15</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mar"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>16a49cb0-e83b-a9ad-2792-e81fb01a5c82</id>
+  </entry>
+  <entry>
+    <title>Moksha</title>
+    <dc:language>mdf</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mdf"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>09cfc8e2-e9fa-3b54-3468-5dbaf274b6d5</id>
+  </entry>
+  <entry>
+    <title>марий йылме</title>
+    <dc:language>mhr</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mhr"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>47e7c9b9-700b-f210-8902-fc3af6443a3c</id>
+  </entry>
+  <entry>
+    <title>Minangkabau</title>
+    <dc:language>min</dc:language>
+    <thr:count>6</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=min"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e9898345-9bc0-c731-2d45-f3bccd571869</id>
+  </entry>
+  <entry>
+    <title>македонски</title>
+    <dc:language>mkd</dc:language>
+    <thr:count>13</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mkd"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>957a9f89-7e10-9c2b-9577-41fb2fcd29f3</id>
+  </entry>
+  <entry>
+    <title>Malagasy</title>
+    <dc:language>mlg</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mlg"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a02c7171-0fe7-8ec2-8beb-d78298620b5c</id>
+  </entry>
+  <entry>
+    <title>Malti</title>
+    <dc:language>mlt</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mlt"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>957655ca-a38f-a4df-c20d-f2b39519caf6</id>
+  </entry>
+  <entry>
+    <title>মৈতৈলোন্</title>
+    <dc:language>mni</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mni"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>631111cd-d2e2-d298-689b-95eec749ab1e</id>
+  </entry>
+  <entry>
+    <title>ဘာသာမန်</title>
+    <dc:language>mnw</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mnw"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>61a865cd-0a41-5293-3d13-6962f3fe9ae3</id>
+  </entry>
+  <entry>
+    <title>монгол</title>
+    <dc:language>mon</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mon"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c865dc59-0b3b-208b-4a45-d043d9677cf2</id>
+  </entry>
+  <entry>
+    <title>Māori</title>
+    <dc:language>mri</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mri"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>b43ca67a-d24c-de3e-85bd-21160edc3f8c</id>
+  </entry>
+  <entry>
+    <title>Western Mari</title>
+    <dc:language>mrj</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mrj"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c2afc3e4-fb9d-61b6-3e44-8a21e3ddcffb</id>
+  </entry>
+  <entry>
+    <title>Melayu</title>
+    <dc:language>msa</dc:language>
+    <thr:count>11</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=msa"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>ebe7422b-0a0c-72ee-a9ba-7c6510c11d9a</id>
+  </entry>
+  <entry>
+    <title>mul</title>
+    <dc:language>mul</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mul"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a104a9bf-fda5-74b9-571b-5ef7d1396c09</id>
+  </entry>
+  <entry>
+    <title>Mirandese</title>
+    <dc:language>mwl</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mwl"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>214a81cf-a76c-4d51-590c-47c3cdc11665</id>
+  </entry>
+  <entry>
+    <title>မြန်မာ</title>
+    <dc:language>mya</dc:language>
+    <thr:count>38</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mya"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>2fe3f09b-e8bc-8579-3486-867a76b209c1</id>
+  </entry>
+  <entry>
+    <title>Erzya</title>
+    <dc:language>myv</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=myv"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4c2626d9-9317-79b3-1bf3-dc97135363c9</id>
+  </entry>
+  <entry>
+    <title>مازرونی</title>
+    <dc:language>mzn</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=mzn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7a952ec3-e817-f551-4992-68cdd5df7d3d</id>
+  </entry>
+  <entry>
+    <title>Min Nan Chinese</title>
+    <dc:language>nan</dc:language>
+    <thr:count>9</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nan"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e8bb7b4c-33f7-b6ab-dbe4-5969e4c2ba18</id>
+  </entry>
+  <entry>
+    <title>Neapolitan</title>
+    <dc:language>nap</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nap"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>fc89199d-a211-b429-5268-11f3c536b2d9</id>
+  </entry>
+  <entry>
+    <title>Nauru</title>
+    <dc:language>nau</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nau"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>5fa1828b-152f-2812-562f-6fe843e09d2b</id>
+  </entry>
+  <entry>
+    <title>Navajo</title>
+    <dc:language>nav</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nav"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>b1de60fe-be05-5153-6629-592a10778763</id>
+  </entry>
+  <entry>
+    <title>plattdütsch</title>
+    <dc:language>nds</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nds"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>8266af5b-16a0-5063-e74e-8638563c835d</id>
+  </entry>
+  <entry>
+    <title>नेपाली</title>
+    <dc:language>nep</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nep"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>ca5de9c7-8193-bde8-052b-0fb40fde3f2c</id>
+  </entry>
+  <entry>
+    <title>Newari</title>
+    <dc:language>new</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=new"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>0baff594-f409-9553-011f-43f2919f3632</id>
+  </entry>
+  <entry>
+    <title>nhe</title>
+    <dc:language>nhe</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nhe"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>d50d4c3e-6047-21e9-3eef-4ff562b34ced</id>
+  </entry>
+  <entry>
+    <title>Nias</title>
+    <dc:language>nia</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nia"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>97b3e0c5-766b-54e4-7242-74d22bf3002d</id>
+  </entry>
+  <entry>
+    <title>Nederlands</title>
+    <dc:language>nld</dc:language>
+    <thr:count>212</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nld"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a63266d7-876d-3378-00f3-3914aae51533</id>
+  </entry>
+  <entry>
+    <title>norsk nynorsk</title>
+    <dc:language>nno</dc:language>
+    <thr:count>11</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nno"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>d377242c-e64c-f5b0-e7e9-f7dc40f47862</id>
+  </entry>
+  <entry>
+    <title>norsk bokmål</title>
+    <dc:language>nob</dc:language>
+    <thr:count>15</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nob"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>9b934b86-a4e4-047c-8dbe-1bad7e1acb64</id>
+  </entry>
+  <entry>
+    <title>norsk</title>
+    <dc:language>nor</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nor"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>6bff2d38-6f70-c9d5-441e-6fc4db770124</id>
+  </entry>
+  <entry>
+    <title>Novial</title>
+    <dc:language>nov</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nov"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c4c74ab7-8c2c-3d47-6097-816d78cf7238</id>
+  </entry>
+  <entry>
+    <title>N’Ko</title>
+    <dc:language>nqo</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nqo"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>5035acd1-dfce-e71a-c5c6-43faebfd650a</id>
+  </entry>
+  <entry>
+    <title>nrf</title>
+    <dc:language>nrf</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nrf"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>b044cc5c-0277-9ffa-23e9-8833f5bad219</id>
+  </entry>
+  <entry>
+    <title>Northern Sotho</title>
+    <dc:language>nso</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nso"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>fa4d1cbb-ee7e-8409-790f-5b53558becf9</id>
+  </entry>
+  <entry>
+    <title>Nyanja</title>
+    <dc:language>nya</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=nya"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c5a9a48e-472e-6577-b319-593775cf2d6a</id>
+  </entry>
+  <entry>
+    <title>Occitan</title>
+    <dc:language>oci</dc:language>
+    <thr:count>9</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=oci"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>9f94df3e-205e-efa9-db74-86a591c00bfb</id>
+  </entry>
+  <entry>
+    <title>Ojibwa</title>
+    <dc:language>oji</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=oji"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c95d8f2f-2f05-4bf2-d78b-fc7e6273a989</id>
+  </entry>
+  <entry>
+    <title>livvi</title>
+    <dc:language>olo</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=olo"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a64bd26b-4896-c820-4656-34d77eb9b99b</id>
+  </entry>
+  <entry>
+    <title>ଓଡ଼ିଆ</title>
+    <dc:language>ori</dc:language>
+    <thr:count>9</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ori"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4c03ec6a-c59a-d97d-8d22-58558f3cd59d</id>
+  </entry>
+  <entry>
+    <title>Oromoo</title>
+    <dc:language>orm</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=orm"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4d9b6836-0604-6c6b-171c-4100d2e0f4b7</id>
+  </entry>
+  <entry>
+    <title>ирон</title>
+    <dc:language>oss</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=oss"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>8ebc223d-0c76-81ef-3ff2-40092f039944</id>
+  </entry>
+  <entry>
+    <title>Pangasinan</title>
+    <dc:language>pag</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pag"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>650f4703-06db-281f-acf7-506b314acd46</id>
+  </entry>
+  <entry>
+    <title>Pampanga</title>
+    <dc:language>pam</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pam"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c9e17c70-e268-14d0-a357-7f9a0f299299</id>
+  </entry>
+  <entry>
+    <title>ਪੰਜਾਬੀ</title>
+    <dc:language>pan</dc:language>
+    <thr:count>9</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pan"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>988bfd94-5c17-d205-cf08-fccd39d1fab4</id>
+  </entry>
+  <entry>
+    <title>Papiamento</title>
+    <dc:language>pap</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pap"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f9fd0b68-a682-39d3-2cec-ac498f8fcf12</id>
+  </entry>
+  <entry>
+    <title>Picard</title>
+    <dc:language>pcd</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pcd"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>56e262ee-794e-5840-3883-9bba8215d1e4</id>
+  </entry>
+  <entry>
+    <title>Naijíriá Píjin</title>
+    <dc:language>pcm</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pcm"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>830e3db8-3595-0e3e-bfb1-17d4241cafb6</id>
+  </entry>
+  <entry>
+    <title>Pennsylvania German</title>
+    <dc:language>pdc</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pdc"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>04843f2e-0931-6e28-0ae9-39aca8d75633</id>
+  </entry>
+  <entry>
+    <title>Palatine German</title>
+    <dc:language>pfl</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pfl"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>bc8f6e1c-19cb-e371-4648-282ef770d3b8</id>
+  </entry>
+  <entry>
+    <title>Pitcairn-Norfolk</title>
+    <dc:language>pih</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pih"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>73aeb862-c049-d2bd-fec3-f61be8d917f7</id>
+  </entry>
+  <entry>
+    <title>Pali</title>
+    <dc:language>pli</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pli"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>28a93bbf-f13a-5a7b-1818-44272687cded</id>
+  </entry>
+  <entry>
+    <title>Piedmontese</title>
+    <dc:language>pms</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pms"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3046b2d7-7e44-c3a5-5a44-3a7ae6d761f9</id>
+  </entry>
+  <entry>
+    <title>Western Panjabi</title>
+    <dc:language>pnb</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pnb"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f14c348e-3653-b15a-be8d-210a7e857721</id>
+  </entry>
+  <entry>
+    <title>Pontic</title>
+    <dc:language>pnt</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pnt"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>db4c4c67-6067-f2d8-0ba4-8c2d4ebdecf2</id>
+  </entry>
+  <entry>
+    <title>polski</title>
+    <dc:language>pol</dc:language>
+    <thr:count>245</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pol"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>eea496ff-74f9-3b82-eee6-4e8f723e7b02</id>
+  </entry>
+  <entry>
+    <title>português</title>
+    <dc:language>por</dc:language>
+    <thr:count>398</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=por"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>0cd6b144-b4a9-2383-49f0-40c73d28f392</id>
+  </entry>
+  <entry>
+    <title>پښتو</title>
+    <dc:language>pus</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pus"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>8d4c428a-d6c9-2eca-1c27-2269ffce765e</id>
+  </entry>
+  <entry>
+    <title>Pinayuanan</title>
+    <dc:language>pwn</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=pwn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a969c850-1785-45f4-b94f-c1af133be6ce</id>
+  </entry>
+  <entry>
+    <title>Runasimi</title>
+    <dc:language>que</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=que"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e4df460a-2b08-c346-3e22-9d39324212d2</id>
+  </entry>
+  <entry>
+    <title>Romagnol</title>
+    <dc:language>rgn</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=rgn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7c748ffa-427e-aadc-6f44-bd9f50d525d7</id>
+  </entry>
+  <entry>
+    <title>rmq</title>
+    <dc:language>rmq</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=rmq"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>5eed5d45-834d-cf49-531d-7c5d830f5556</id>
+  </entry>
+  <entry>
+    <title>romani shib</title>
+    <dc:language>rmy</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=rmy"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>cf2c3701-ddb7-6e40-58cf-03dde6e7b2fc</id>
+  </entry>
+  <entry>
+    <title>rumantsch</title>
+    <dc:language>roh</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=roh"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e63eab12-9063-d9e7-4e1b-5e18dcab3b0a</id>
+  </entry>
+  <entry>
+    <title>română</title>
+    <dc:language>ron</dc:language>
+    <thr:count>305</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ron"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3fc01602-c448-45b5-522b-a95d9c5fe19a</id>
+  </entry>
+  <entry>
+    <title>Rusyn</title>
+    <dc:language>rue</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=rue"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1399af28-8b93-a2c2-88dd-1f74e7995fa3</id>
+  </entry>
+  <entry>
+    <title>Ikirundi</title>
+    <dc:language>run</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=run"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>d2444eaa-d82e-d914-6218-68e1a97e9359</id>
+  </entry>
+  <entry>
+    <title>Aromanian</title>
+    <dc:language>rup</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=rup"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>d8d7255a-05e2-3d4e-878b-0a2dbdf277e7</id>
+  </entry>
+  <entry>
+    <title>русский</title>
+    <dc:language>rus</dc:language>
+    <thr:count>381</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=rus"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>2a5614c7-9f96-90cd-2380-04fc52a145dc</id>
+  </entry>
+  <entry>
+    <title>Sängö</title>
+    <dc:language>sag</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=sag"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7c1763bb-d041-4f70-b901-02871fc73261</id>
+  </entry>
+  <entry>
+    <title>саха тыла</title>
+    <dc:language>sah</dc:language>
+    <thr:count>6</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=sah"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3b256bf6-4f9c-2087-f358-47036b04ca07</id>
+  </entry>
+  <entry>
+    <title>संस्कृत भाषा</title>
+    <dc:language>san</dc:language>
+    <thr:count>11</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=san"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>352ad45c-1e68-adae-4568-3b58fb5cb7f6</id>
+  </entry>
+  <entry>
+    <title>ᱥᱟᱱᱛᱟᱲᱤ</title>
+    <dc:language>sat</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=sat"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3592221e-334c-26e7-b2c2-0f9cf4ca43fa</id>
+  </entry>
+  <entry>
+    <title>Sicilian</title>
+    <dc:language>scn</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=scn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>aebaa225-6972-b5cd-7953-8f7d562211bb</id>
+  </entry>
+  <entry>
+    <title>Scots</title>
+    <dc:language>sco</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=sco"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>5a634be8-fd5b-0ae6-1195-f1d0bbf4a60e</id>
+  </entry>
+  <entry>
+    <title>Samogitian</title>
+    <dc:language>sgs</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=sgs"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a04c7c83-69c1-460e-0f5a-d3bf792763d0</id>
+  </entry>
+  <entry>
+    <title>ⵜⴰⵛⵍⵃⵉⵜ</title>
+    <dc:language>shi</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=shi"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>ce524a9d-1fc1-e7e7-9748-7e806798f78b</id>
+  </entry>
+  <entry>
+    <title>Shan</title>
+    <dc:language>shn</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=shn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1d7fea4b-d0f8-9e19-fe93-f61728b1c012</id>
+  </entry>
+  <entry>
+    <title>සිංහල</title>
+    <dc:language>sin</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=sin"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>94e375f0-80aa-4960-c0c2-aeeb6d3fe14a</id>
+  </entry>
+  <entry>
+    <title>سرائیکی</title>
+    <dc:language>skr</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=skr"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>635c66e5-3cc4-b5f5-e081-ff676ddc1de1</id>
+  </entry>
+  <entry>
+    <title>slovenčina</title>
+    <dc:language>slk</dc:language>
+    <thr:count>21</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=slk"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>23d9487f-f971-2ce6-e64e-edfaf66f3c50</id>
+  </entry>
+  <entry>
+    <title>slovenščina</title>
+    <dc:language>slv</dc:language>
+    <thr:count>19</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=slv"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>0222f22d-9fdc-dc63-78e8-c4fefb507f56</id>
+  </entry>
+  <entry>
+    <title>davvisámegiella</title>
+    <dc:language>sme</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=sme"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c522ceda-2466-9104-5c60-55caa1b7795e</id>
+  </entry>
+  <entry>
+    <title>anarâškielâ</title>
+    <dc:language>smn</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=smn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4842eb42-93f0-11b6-8b46-a1b9c8e3963c</id>
+  </entry>
+  <entry>
+    <title>Samoan</title>
+    <dc:language>smo</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=smo"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1e2fbaec-db92-82f4-3085-cdc3c19ad773</id>
+  </entry>
+  <entry>
+    <title>chiShona</title>
+    <dc:language>sna</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=sna"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>d2daf27c-ba2a-a429-85ed-d69339b5ed6f</id>
+  </entry>
+  <entry>
+    <title>سنڌي</title>
+    <dc:language>snd</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=snd"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3689fa3f-f14d-a736-7f79-25e0dd90ecd3</id>
+  </entry>
+  <entry>
+    <title>Soomaali</title>
+    <dc:language>som</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=som"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>34ce434c-eec0-0105-cefb-d7b48d0aefbc</id>
+  </entry>
+  <entry>
+    <title>Southern Sotho</title>
+    <dc:language>sot</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=sot"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>0becf39b-8ce5-0413-0668-fbe6547b5812</id>
+  </entry>
+  <entry>
+    <title>español</title>
+    <dc:language>spa</dc:language>
+    <thr:count>430</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=spa"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>b6bfb2c9-9d8d-ed95-d065-222a954d9648</id>
+  </entry>
+  <entry>
+    <title>shqip</title>
+    <dc:language>sqi</dc:language>
+    <thr:count>10</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=sqi"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f6e1cf8c-260e-edaa-cd13-7b3db1df4ca6</id>
+  </entry>
+  <entry>
+    <title>sardu</title>
+    <dc:language>srd</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=srd"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>359fc834-ae34-b43b-22c2-a9744ede3877</id>
+  </entry>
+  <entry>
+    <title>Sranan Tongo</title>
+    <dc:language>srn</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=srn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4f795591-69e6-401a-160a-087bc0608735</id>
+  </entry>
+  <entry>
+    <title>српски</title>
+    <dc:language>srp</dc:language>
+    <thr:count>182</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=srp"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c7cbad83-e1b5-2e80-e16b-f3cb87ac429f</id>
+  </entry>
+  <entry>
+    <title>Swati</title>
+    <dc:language>ssw</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ssw"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>8e58e5d1-f96b-e2f3-8459-cc275d4c4b01</id>
+  </entry>
+  <entry>
+    <title>Saterland Frisian</title>
+    <dc:language>stq</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=stq"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3e1ae2f0-38a3-3571-3596-ab2b35f16622</id>
+  </entry>
+  <entry>
+    <title>Basa Sunda</title>
+    <dc:language>sun</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=sun"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>20b77448-239a-ff2b-ea5c-360242dc9ad9</id>
+  </entry>
+  <entry>
+    <title>Kiswahili</title>
+    <dc:language>swa</dc:language>
+    <thr:count>11</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=swa"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e932103b-77cc-471c-7810-b0977bdc8b9a</id>
+  </entry>
+  <entry>
+    <title>svenska</title>
+    <dc:language>swe</dc:language>
+    <thr:count>28</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=swe"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a32b8222-1072-3e61-fa62-f8770c2fb5da</id>
+  </entry>
+  <entry>
+    <title>Silesian</title>
+    <dc:language>szl</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=szl"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>4f35f900-d09a-fc85-91e3-3553e83c7b01</id>
+  </entry>
+  <entry>
+    <title>Sakizaya</title>
+    <dc:language>szy</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=szy"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3dffd89f-c7cf-9074-fa84-5223d218b035</id>
+  </entry>
+  <entry>
+    <title>Tahitian</title>
+    <dc:language>tah</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tah"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>23f9e322-b37e-6d14-7a7c-c5a035211b21</id>
+  </entry>
+  <entry>
+    <title>தமிழ்</title>
+    <dc:language>tam</dc:language>
+    <thr:count>17</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tam"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>19ccfcc1-b721-9051-99e2-baa68bc7f15f</id>
+  </entry>
+  <entry>
+    <title>татар</title>
+    <dc:language>tat</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tat"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>31672934-47ac-49de-d78b-6f5e98835829</id>
+  </entry>
+  <entry>
+    <title>Tayal</title>
+    <dc:language>tay</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tay"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>dee0427e-d66b-d402-f879-47f2fc2991ad</id>
+  </entry>
+  <entry>
+    <title>Tulu</title>
+    <dc:language>tcy</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tcy"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>b5cd3157-33f2-258e-afea-a9012d52676d</id>
+  </entry>
+  <entry>
+    <title>తెలుగు</title>
+    <dc:language>tel</dc:language>
+    <thr:count>15</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tel"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>583a6b05-0804-4b27-48a6-3c6cec0044d6</id>
+  </entry>
+  <entry>
+    <title>Tetum</title>
+    <dc:language>tet</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tet"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>fcabe61f-a261-5273-8929-c57c5b656281</id>
+  </entry>
+  <entry>
+    <title>тоҷикӣ</title>
+    <dc:language>tgk</dc:language>
+    <thr:count>7</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tgk"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>5447ef85-3855-08df-0aca-a0912f2cf164</id>
+  </entry>
+  <entry>
+    <title>Wikang Tagalog</title>
+    <dc:language>tgl</dc:language>
+    <thr:count>9</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tgl"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1427b69e-88ef-fdc5-aa4f-6fe48b07b1d8</id>
+  </entry>
+  <entry>
+    <title>ไทย</title>
+    <dc:language>tha</dc:language>
+    <thr:count>93</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tha"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a4864886-f17b-4537-0518-005cbb6d6358</id>
+  </entry>
+  <entry>
+    <title>ትግርኛ</title>
+    <dc:language>tir</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tir"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>97b613a9-fdb6-2e1b-343e-3df3a6deb002</id>
+  </entry>
+  <entry>
+    <title>tok</title>
+    <dc:language>tok</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tok"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>041b5646-902f-61e5-8263-b65a9c7fea6a</id>
+  </entry>
+  <entry>
+    <title>lea fakatonga</title>
+    <dc:language>ton</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ton"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>268c0e94-61ef-0263-cb85-1f2252a73d4a</id>
+  </entry>
+  <entry>
+    <title>Tok Pisin</title>
+    <dc:language>tpi</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tpi"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3bc32ed0-675b-58cc-8872-15a2c294ee03</id>
+  </entry>
+  <entry>
+    <title>Taroko</title>
+    <dc:language>trv</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=trv"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>d9cb8a9b-305c-7186-6c38-6c494292d1de</id>
+  </entry>
+  <entry>
+    <title>Tswana</title>
+    <dc:language>tsn</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tsn"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>708c1cb8-6360-2f31-3876-d6ce719b7f87</id>
+  </entry>
+  <entry>
+    <title>Tsonga</title>
+    <dc:language>tso</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tso"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a1f1273f-f482-72d9-94b8-0d1e3bf9287d</id>
+  </entry>
+  <entry>
+    <title>tsz</title>
+    <dc:language>tsz</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tsz"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>0ec5a398-3fcf-2077-5900-9909a48e1b36</id>
+  </entry>
+  <entry>
+    <title>türkmen dili</title>
+    <dc:language>tuk</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tuk"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>fe7ceb78-6912-5e1e-e00b-5265b07f5ef4</id>
+  </entry>
+  <entry>
+    <title>Tumbuka</title>
+    <dc:language>tum</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tum"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>33cc2f40-287b-6067-b5c7-7bc412b1f91f</id>
+  </entry>
+  <entry>
+    <title>Türkçe</title>
+    <dc:language>tur</dc:language>
+    <thr:count>381</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tur"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>dd6f7090-a709-1d87-f90f-d8a6ebf5c6bf</id>
+  </entry>
+  <entry>
+    <title>Akwapem Twi</title>
+    <dc:language>twi</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=twi"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>090b455c-5253-63c8-240d-0e74e1166a53</id>
+  </entry>
+  <entry>
+    <title>Tuvinian</title>
+    <dc:language>tyv</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=tyv"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>808e835b-7ecd-bb06-c1a8-1af2f5793cde</id>
+  </entry>
+  <entry>
+    <title>Udmurt</title>
+    <dc:language>udm</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=udm"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a2efc978-c7aa-ce53-1102-acbfd2a2e464</id>
+  </entry>
+  <entry>
+    <title>ئۇيغۇرچە</title>
+    <dc:language>uig</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=uig"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e62b1fc5-cf95-7190-7a09-f9040bd2b5e9</id>
+  </entry>
+  <entry>
+    <title>українська</title>
+    <dc:language>ukr</dc:language>
+    <thr:count>87</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ukr"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1acb2bbc-394b-8198-822d-9ce9cfc5c93b</id>
+  </entry>
+  <entry>
+    <title>اردو</title>
+    <dc:language>urd</dc:language>
+    <thr:count>15</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=urd"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>dfa67501-1b38-5843-752e-18c327d93be7</id>
+  </entry>
+  <entry>
+    <title>o‘zbek</title>
+    <dc:language>uzb</dc:language>
+    <thr:count>12</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=uzb"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>55789ef0-3f1d-117a-1478-20cd54e39a7a</id>
+  </entry>
+  <entry>
+    <title>Venetian</title>
+    <dc:language>vec</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=vec"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a0faf113-3211-2b70-dfe4-2d88ff50118f</id>
+  </entry>
+  <entry>
+    <title>Venda</title>
+    <dc:language>ven</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=ven"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7bcff6d7-403d-15fa-0bc1-e15a5c927b60</id>
+  </entry>
+  <entry>
+    <title>Veps</title>
+    <dc:language>vep</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=vep"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>782bede9-d09a-59b2-dccd-e1e16b1e5f69</id>
+  </entry>
+  <entry>
+    <title>Tiếng Việt</title>
+    <dc:language>vie</dc:language>
+    <thr:count>368</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=vie"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>fd96afc4-b43c-b7dd-8a4c-6916af7ad047</id>
+  </entry>
+  <entry>
+    <title>West Flemish</title>
+    <dc:language>vls</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=vls"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>79e0e60d-cc21-9dce-9296-ec61f817270c</id>
+  </entry>
+  <entry>
+    <title>Volapük</title>
+    <dc:language>vol</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=vol"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>c00bfcb3-e7be-0633-d8af-b8c85d63e33b</id>
+  </entry>
+  <entry>
+    <title>Võro</title>
+    <dc:language>vro</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=vro"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>be15f3ac-e742-f7ab-7891-23d6e885798b</id>
+  </entry>
+  <entry>
+    <title>Waray</title>
+    <dc:language>war</dc:language>
+    <thr:count>6</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=war"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>400b5eea-207a-cb16-ebd6-7d06cdf46d2b</id>
+  </entry>
+  <entry>
+    <title>Walloon</title>
+    <dc:language>wln</dc:language>
+    <thr:count>3</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=wln"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>9328df6e-1d4f-0e2c-6987-1668a55bfa03</id>
+  </entry>
+  <entry>
+    <title>Wolof</title>
+    <dc:language>wol</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=wol"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>f96cf55a-5abc-680e-191f-beba35a7a3f0</id>
+  </entry>
+  <entry>
+    <title>Wu Chinese</title>
+    <dc:language>wuu</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=wuu"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>6d491569-26fb-1c53-e874-c0b9ea5a5ef9</id>
+  </entry>
+  <entry>
+    <title>Kalmyk</title>
+    <dc:language>xal</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=xal"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>25e0ff44-97f6-e0c6-73df-405fae96e05e</id>
+  </entry>
+  <entry>
+    <title>IsiXhosa</title>
+    <dc:language>xho</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=xho"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>e760e8a4-6005-4e7d-1066-076e8de6520a</id>
+  </entry>
+  <entry>
+    <title>Mingrelian</title>
+    <dc:language>xmf</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=xmf"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3e1c56e2-650d-9a1a-9a27-faffb45de7a7</id>
+  </entry>
+  <entry>
+    <title>ייִדיש</title>
+    <dc:language>yid</dc:language>
+    <thr:count>6</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=yid"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>09e725de-8815-1e3b-24dd-8f9a0afc25d4</id>
+  </entry>
+  <entry>
+    <title>Èdè Yorùbá</title>
+    <dc:language>yor</dc:language>
+    <thr:count>4</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=yor"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>5dc3526a-e831-ce5f-5ff8-727ecaf942d1</id>
+  </entry>
+  <entry>
+    <title>粵語</title>
+    <dc:language>yue</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=yue"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>59fa4449-b311-245f-dbdf-1b163866f804</id>
+  </entry>
+  <entry>
+    <title>Zeelandic</title>
+    <dc:language>zea</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=zea"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>7415a8fd-81a8-fb06-e5af-1bf07a440cb6</id>
+  </entry>
+  <entry>
+    <title>ⵜⴰⵎⴰⵣⵉⵖⵜ</title>
+    <dc:language>zgh</dc:language>
+    <thr:count>1</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=zgh"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>3df15bbb-ff97-d708-d9f8-0e02dadbeba3</id>
+  </entry>
+  <entry>
+    <title>Zhuang</title>
+    <dc:language>zha</dc:language>
+    <thr:count>2</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=zha"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>1813a770-6f99-1e7d-57f8-c7b42b44b2d2</id>
+  </entry>
+  <entry>
+    <title>中文</title>
+    <dc:language>zho</dc:language>
+    <thr:count>417</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=zho"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>b258eb09-62fc-1a35-8e7b-4dd238f6659c</id>
+  </entry>
+  <entry>
+    <title>isiZulu</title>
+    <dc:language>zul</dc:language>
+    <thr:count>5</thr:count>
+    <link rel="subsection"
+          href="/catalog/v2/entries?lang=zul"
+          type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <updated>2026-10-26T17:47:27Z</updated>
+    <id>a1166adc-fef9-dc7d-2869-fb3ec00cb520</id>
+  </entry>
+</feed>

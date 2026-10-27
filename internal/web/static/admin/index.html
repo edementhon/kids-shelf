@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parent page · kids-shelf</title>
+<link rel="stylesheet" href="/admin/static/admin.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>🛡️ kids-shelf · parent page</h1>
+  <nav><a class="navlink" href="/admin/content">➕ Add videos &amp; libraries</a></nav>
+</header>
+<section class="card problems" id="sec-problems">
+  <p class="problems-item" id="helpersproblem"></p>
+  <div class="firewall" id="firewall">
+    <p class="firewall-note">Tablets and phones can't reach kids-shelf yet.</p>
+    <button class="btn add" id="fw-allow">Let tablets in</button>
+    <p class="note">Windows will ask for the computer's administrator password.</p>
+  </div>
+</section>
+<p class="statusline" id="statusline"></p>
+<div class="msg" id="msg"></div>
+<section class="card hidden" id="sec-pinprompt">
+  <h2>🔒 Parent-page PIN</h2>
+  <p class="note">Set a parent-page PIN so the kids cannot change settings.</p>
+  <form id="pinpromptform" class="inlineform">
+    <input id="pinprompt" placeholder="4 digits" inputmode="numeric" maxlength="4" autocomplete="off">
+    <button type="submit" class="btn add">Set PIN</button>
+  </form>
+</section>
+
+<section class="card" id="sec-address">
+  <h2>📱 Address for other devices</h2>
+  <p class="addr" id="addr"></p>
+  <img id="qr" alt="QR code with the address on it" class="qr">
+  <p class="note">Type this address on phones and tablets, or scan the code.</p>
+</section>
+
+
+<section class="card" id="sec-kids">
+  <h2>👶 Kids</h2>
+  <div id="kids" class="kids"></div>
+  <form id="addkid" class="addkid">
+    <input id="newname" placeholder="Kid's name" maxlength="40" autocomplete="off">
+    <input id="newpin" placeholder="PIN" inputmode="numeric" maxlength="4" autocomplete="off">
+    <button type="submit" class="btn add">Add kid</button>
+  </form>
+</section>
+
+<section class="card" id="sec-minutes">
+  <h2>⏱ Minutes <label class="switch" title="Metering on or off for the whole house">
+    <input type="checkbox" id="budgetswitch"> budgets on
+  </label></h2>
+  <h3 class="subhead">Default minutes per day</h3>
+  <form id="defaultform" class="inlineform">
+    <input type="number" id="defaultmin" min="0" step="1" inputmode="decimal">
+    <button class="btn">Save</button>
+  </form>
+  <h3 class="subhead">Watch log</h3>
+  <div class="scroll">
+    <table id="watchlog">
+      <thead><tr><th>When</th><th>Kid</th><th>Show</th><th>Title</th><th>Est. cost</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="note">Cost is an estimate for one full watch. Minutes are charged as the video plays.</p>
+</section>
+
+
+<section class="card" id="sec-bins">
+  <h2>📦 Bins: what shows cost</h2>
+  <p class="note">Drag a show between the columns, or tap ⋯ on a show to move it. Fun costs full minutes, Learning costs half, Free costs nothing.</p>
+  <div class="bins">
+    <div class="col" data-bin="fun"><h3>🟢 Fun <span class="subtag">full price</span></h3><div class="cards" id="cards-fun"></div></div>
+    <div class="col" data-bin="learning"><h3>🟡 Learning <span class="subtag">half price</span></h3><div class="cards" id="cards-learning"></div></div>
+    <div class="col" data-bin="free"><h3>⚪ Free <span class="subtag">no minutes</span></h3><div class="cards" id="cards-free"></div></div>
+  </div>
+</section>
+
+<section class="card" id="sec-settings">
+  <h2>⚙️ Settings</h2>
+  <div class="settings">
+    <div class="setrow">
+      <label for="grownup">Grown-up watch-together PIN: watching with it is free</label>
+      <div class="rowbtns">
+        <input id="grownup" placeholder="4 digits" inputmode="numeric" maxlength="4" autocomplete="off">
+        <button id="grownup-save" class="btn">Save</button>
+        <button id="grownup-clear" class="btn danger">Clear</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <label for="dashpin">Parent-page PIN: locks this page (off by default)</label>
+      <div class="rowbtns">
+        <input id="dashpin" placeholder="4 digits" inputmode="numeric" maxlength="4" autocomplete="off">
+        <button id="dashpin-save" class="btn">Save</button>
+        <button id="dashpin-clear" class="btn danger">Clear</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <label for="counter">Practice earnings go to this counter</label>
+      <div class="rowbtns">
+        <input id="counter" maxlength="32" placeholder="video" autocomplete="off">
+        <button id="counter-save" class="btn">Save</button>
+      </div>
+      <p class="note">The default is "video": math and spelling practice score video minutes.</p>
+    </div>
+  </div>
+</section>
+
+<section class="card" id="sec-updates">
+  <h2>🔄 Updates</h2>
+  <p id="updatemsg" class="updatemsg"></p>
+  <button id="restart-update" class="btn big amber hidden">Restart to update</button>
+</section>
+
+<section class="card" id="sec-test">
+  <h2>▶️ Test video and sound</h2>
+  <video id="testvid" controls preload="none" src="/admin/static/test-av.mp4"></video>
+  <p class="note">Press play and check two things: the picture moves, and you hear a steady tone for 5 seconds. If either is missing, this machine cannot play the kids' videos.</p>
+</section>
+
+<section class="card" id="sec-quit">
+  <h2>🛑 Quit</h2>
+  <button id="quit" class="btn danger big">Quit kids-shelf…</button>
+</section>
+
+<section class="card" id="sec-remove">
+  <h2>🗑️ Remove kids-shelf from this computer</h2>
+  <p class="note">kids-shelf stops, and the program is deleted. Videos and settings are kept, unless you choose to delete them too. The confirmation shows you the two folders either way.</p>
+  <label class="switch" title="Also delete the videos and the settings, not just the program">
+    <input type="checkbox" id="removedata"> also delete videos and settings
+  </label>
+  <button id="remove" class="btn danger big">Remove kids-shelf…</button>
+</section>
+
+<div class="overlay hidden" id="pinoverlay">
+  <div class="overlay-box">
+    <h2>🔒 Parent PIN</h2>
+    <p class="note">This page is locked. Enter the parent PIN from Settings.</p>
+    <input id="pinval" placeholder="PIN" inputmode="numeric" maxlength="4" autocomplete="off">
+    <div class="rowbtns center"><button id="pinok" class="btn">Unlock</button></div>
+    <p id="pinerr" class="err hidden"></p>
+  </div>
+</div>
+
+<div class="overlay hidden" id="stopped">
+  <div class="overlay-box">
+    <h2>kids-shelf has stopped.</h2>
+    <p>Open it again from the desktop icon.</p>
+  </div>
+</div>
+
+<div id="menu" class="menu hidden"></div>
+
+<script src="/admin/static/admin.js"></script>
+</body>
+</html>
