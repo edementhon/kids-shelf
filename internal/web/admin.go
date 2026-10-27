@@ -138,6 +138,7 @@ func init() {
 		m.HandleFunc("POST /api/admin/settings/counter", s.handleAdminCounter)
 		m.HandleFunc("POST /api/admin/settings/default", s.handleAdminDefaultMinutes)
 		m.HandleFunc("POST /api/admin/settings/budgets", s.handleAdminBudgets)
+		m.HandleFunc("POST /api/admin/settings/safari", s.handleAdminSafariScreens)
 		m.HandleFunc("POST /api/admin/update/restart", s.handleAdminUpdateRestart)
 		m.HandleFunc("GET /api/admin/remove", s.handleAdminRemoveInfo)
 		m.HandleFunc("POST /api/admin/remove", s.handleAdminRemove)
@@ -405,6 +406,10 @@ type adminSettings struct {
 	Counter         string `json:"counter,omitempty"` // absent when practice is not running
 	Address         string `json:"address"`
 	QRSVG           string `json:"qr_svg"`
+	// SafariScreens is the "some screens are iPads, iPhones or Macs using
+	// Safari" setting: while on, remux-only files are converted to MP4 in
+	// the background after they appear on the shelf.
+	SafariScreens bool `json:"safari_screens"`
 }
 
 type adminUpdate struct {
@@ -504,6 +509,9 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 	st.Settings.Address = s.adminAddress(r)
 	if svg, err := qrSVG(st.Settings.Address); err == nil {
 		st.Settings.QRSVG = svg
+	}
+	if on, err := b.SafariScreens(ctx); err == nil {
+		st.Settings.SafariScreens = on
 	}
 	// Updates (may be nil: plain words tell the parent this copy has none).
 	st.Updates.Message = msgUpdatesOff
@@ -1002,8 +1010,33 @@ func (s *Server) handleAdminBudgets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// ─── updates and quit ──────────────────────────────────────────────────────
+// handleAdminSafariScreens sets the household "some screens use Safari"
+// switch. It applies to videos processed after the change, never
+// retroactively, which the settings card's help text says.
+func (s *Server) handleAdminSafariScreens(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPIN(w, r) {
+		return
+	}
+	b := s.deps.Budget
+	if b == nil {
+		writeError(w, http.StatusServiceUnavailable, msgAdminServiceDown)
+		return
+	}
+	var req struct {
+		On bool `json:"on"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "That didn't look right. Try again.")
+		return
+	}
+	if err := b.SetSafariScreens(r.Context(), req.On); err != nil {
+		writeError(w, http.StatusInternalServerError, msgSaveFailed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
 
+// ─── updates and quit ──────────────────────────────────────────────────────
 func (s *Server) handleAdminUpdateRestart(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return

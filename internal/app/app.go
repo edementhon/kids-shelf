@@ -328,6 +328,9 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	reservations := disk.NewReservations(queue)
 	helpers := a.setupHelpers(ctx, dataDir, reservations, bundle.FS(), bundle.Manifest())
 	ingestWorker := ingest.NewWorker(queue, helpers, lib, mediaDir)
+	ingestWorker.WithSafariSetting(func(ctx context.Context) (bool, error) {
+		return b.SafariScreens(ctx)
+	})
 
 	updater := youtube.NewUpdater(dataDir, "")
 	var qjsPath, ffmpegDir string

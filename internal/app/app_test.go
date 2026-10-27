@@ -6,12 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
+	"github.com/edementhon/kids-shelf/internal/core"
 	"github.com/edementhon/kids-shelf/internal/disk"
 	"github.com/edementhon/kids-shelf/internal/jobs"
 	"github.com/edementhon/kids-shelf/internal/store"
@@ -291,4 +294,101 @@ func TestSetupHelpersReusesValidExtractedSetOnLowSpace(t *testing.T) {
 	if helpers := a.setupHelpers(context.Background(), dataDir, reservations, fsys, m); helpers != nil {
 		t.Fatal("setupHelpers succeeded on a full disk with a missing helper; want a refusal")
 	}
+}
+
+// TestIngestWorkerHonorsSafariSettingFromBudget proves the wiring from
+// internal/app: the ingest worker reads the household Safari setting from
+// the budget store. With it off, a folder MKV with H.264+AAC is shown in
+// place and the job is done with no conversion. The helpers and the fixture
+// ffmpeg come from the same environment the ingest pipeline tests use.
+func TestIngestWorkerHonorsSafariSettingFromBudget(t *testing.T) {
+	if os.Getenv(tools.EnvHelpersDir) == "" || os.Getenv("KS_FIXTURE_FFMPEG") == "" {
+		t.Skip("needs KS_HELPERS_DIR and KS_FIXTURE_FFMPEG (ffmpeg/ffprobe plus a full ffmpeg)")
+	}
+	full := os.Getenv("KS_FIXTURE_FFMPEG")
+	src := filepath.Join(t.TempDir(), "clip.mkv")
+	cmd := exec.Command(full,
+		"-y", "-loglevel", "error",
+		"-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24",
+		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+		"-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
+		"-c:a", "aac", "-b:a", "128k", "-t", "4", "-f", "matroska", src)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("fixture: %v\n%s", err, b)
+	}
+
+	dataDir := t.TempDir()
+	a := openTest(t, dataDir)
+	if a.worker == nil {
+		t.Fatal("Open wired no ingest worker")
+	}
+	ctx := context.Background()
+	if err := a.budget.SetSafariScreens(ctx, false); err != nil {
+		t.Fatalf("SetSafariScreens(false): %v", err)
+	}
+	// openTest points the media dir at a temp dir; helpers resolve from
+	// KS_HELPERS_DIR, so the worker can really run.
+	id, err := a.ingestQ.Enqueue(ctx, src, core.Source{
+		Kind:  core.SourceFolder,
+		Path:  src,
+		Title: "Clip",
+		Show:  "Clips",
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	runDone := make(chan struct{})
+	go func() {
+		a.worker.Run(runCtx)
+		close(runDone)
+	}()
+	deadline := time.After(120 * time.Second)
+	for {
+		j, gerr := a.queue.Get(id)
+		if gerr == nil && (j.State == jobs.StateDone || j.State == jobs.StateFailed) {
+			break
+		}
+		select {
+		case <-deadline:
+			cancel()
+			<-runDone
+			t.Fatal("job did not finish in time")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	cancel()
+	<-runDone
+	job, err := a.queue.Get(id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if job.State != jobs.StateDone {
+		t.Fatalf("state = %s (error %q), want done", job.State, job.Error)
+	}
+	ep, err := a.library.Episode(ctx, mustEpisodeID(t, job))
+	if err != nil {
+		t.Fatalf("Episode: %v", err)
+	}
+	if ep.Owned || ep.File != src {
+		t.Errorf("episode = %+v, want the original %q, unowned (Safari off means no conversion)", ep, src)
+	}
+	if entries, err := os.ReadDir(filepath.Join(a.mediaDir, "library")); err == nil {
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".mp4") {
+				t.Errorf("converted copy %s exists with the Safari setting off", e.Name())
+			}
+		}
+	}
+}
+
+func mustEpisodeID(t *testing.T, job *jobs.Job) core.EpisodeID {
+	t.Helper()
+	var p struct {
+		EpisodeID core.EpisodeID `json:"episode_id"`
+	}
+	if err := job.DecodePayload(&p); err != nil {
+		t.Fatalf("DecodePayload: %v", err)
+	}
+	return p.EpisodeID
 }

@@ -36,6 +36,33 @@ func TestSetBudgetsOnToggle(t *testing.T) {
 	}
 }
 
+// TestSafariScreensDefaultTrueAndToggle: the household "some screens use
+// Safari" setting starts on and flips both ways.
+func TestSafariScreensDefaultTrueAndToggle(t *testing.T) {
+	b, _ := newTestBudget(t, at(nowOct26))
+	on, err := b.SafariScreens(ctx)
+	if err != nil {
+		t.Fatalf("SafariScreens: %v", err)
+	}
+	if !on {
+		t.Error("SafariScreens = false, want true")
+	}
+	if err := b.SetSafariScreens(ctx, false); err != nil {
+		t.Fatalf("SetSafariScreens(false): %v", err)
+	}
+	on, err = b.SafariScreens(ctx)
+	if err != nil || on {
+		t.Errorf("SafariScreens = %v, %v; want false, nil", on, err)
+	}
+	if err := b.SetSafariScreens(ctx, true); err != nil {
+		t.Fatalf("SetSafariScreens(true): %v", err)
+	}
+	on, _ = b.SafariScreens(ctx)
+	if !on {
+		t.Error("SafariScreens = false after re-enabling, want true")
+	}
+}
+
 // TestBudgetsOffChargesNothingAndNeverCutsOff: with the switch off, Consume
 // charges nothing and reports no cut-off, even at a zero balance with a Fun
 // rate that would otherwise cut off.

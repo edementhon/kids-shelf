@@ -235,6 +235,7 @@ function hideMenu() { $('menu').classList.add('hidden'); }
 function renderSettings() {
   $('defaultmin').value = STATE.default_minutes;
   $('budgetswitch').checked = STATE.budgets_on;
+  $('safariswitch').checked = STATE.settings.safari_screens;
   const hasCounter = 'counter' in STATE.settings;
   $('counter').disabled = !hasCounter;
   $('counter').value = hasCounter ? STATE.settings.counter : '';
@@ -435,6 +436,15 @@ document.addEventListener('change', async e => {
       msg(e.target.checked ? 'Budgets are on.' : 'Budgets are off.');
       await load();
     } catch (err) { /* message already shown */ }
+    return;
+  }
+  if (e.target.id === 'safariswitch') {
+    try {
+      await api('/api/admin/settings/safari', { method: 'POST', body: JSON.stringify({ on: e.target.checked }) });
+      msg(e.target.checked ? 'New videos in Safari-incompatible formats will be converted after they appear.' : 'New videos in Safari-incompatible formats stay as they are.');
+      await load();
+    } catch (err) { /* message already shown */ }
+    return;
   }
 });
 

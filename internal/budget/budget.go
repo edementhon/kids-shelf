@@ -97,6 +97,17 @@ CREATE TABLE credits (
 	created  TEXT    NOT NULL
 );
 `,
+}, {
+	// safari_screens is the household's "some screens are iPads, iPhones
+	// or Macs using Safari" setting, default on: while it is on, ingest
+	// converts remux-only files (MKV and friends) after they are shown, so
+	// Safari devices can play them too. It lives on the household row with
+	// the other settings because the budget package owns that table and
+	// the web dashboard already reaches every setting through it.
+	Owner:   "budget",
+	Version: 2,
+	SQL: `
+ALTER TABLE household ADD COLUMN safari_screens INTEGER NOT NULL DEFAULT 1;`,
 }}
 
 // Budget owns the kid profiles and their screen-time accounts, backed by the
@@ -454,6 +465,38 @@ func (b *Budget) budgetsOn(tx *sql.Tx) (bool, error) {
 	}
 	if err != nil {
 		return false, fmt.Errorf("budget: read budgets switch: %w", err)
+	}
+	return v != 0, nil
+}
+
+// SetSafariScreens switches the household's "some screens use Safari"
+// setting, which decides whether remux-only originals (compatible codecs in
+// a non-MP4 container) are converted to MP4 in the background after they
+// appear on the shelf. It applies to videos processed after the change,
+// never retroactively. Default is on.
+func (b *Budget) SetSafariScreens(ctx context.Context, on bool) error {
+	onInt := 0
+	if on {
+		onInt = 1
+	}
+	if _, err := b.store.DB().ExecContext(ctx,
+		`UPDATE household SET safari_screens = ? WHERE id = 1`, onInt); err != nil {
+		return fmt.Errorf("budget: set safari screens: %w", err)
+	}
+	return nil
+}
+
+// SafariScreens reports whether the household setting "some screens use
+// Safari" is on.
+func (b *Budget) SafariScreens(ctx context.Context) (bool, error) {
+	var v int
+	err := b.store.DB().QueryRowContext(ctx,
+		`SELECT safari_screens FROM household WHERE id = 1`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil // default on
+	}
+	if err != nil {
+		return false, fmt.Errorf("budget: read safari screens: %w", err)
 	}
 	return v != 0, nil
 }

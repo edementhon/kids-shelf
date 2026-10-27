@@ -493,3 +493,135 @@ func TestClaimAndListFollowEnqueueOrder(t *testing.T) {
 		}
 	}
 }
+
+// TestClaimOrdersByPriorityThenSeq pins the claim order the show-first
+// decision runs on: any not-yet-shown job (priority 0) claims before an
+// already-shown job's improvement (priority 1-3), no matter when either was
+// enqueued, and among equal priorities the seq (enqueue) order holds.
+func TestClaimOrdersByPriorityThenSeq(t *testing.T) {
+	q := newTestQueue(t)
+	enqueue := func() string {
+		id, err := q.Enqueue("ingest", map[string]string{"kind": "folder"})
+		if err != nil {
+			t.Fatalf("Enqueue: %v", err)
+		}
+		return id
+	}
+	// B is an old improvement (claimed, then requeued at a higher
+	// priority); A and C are fresh show jobs enqueued after it.
+	b := enqueue()
+	job, err := q.Claim("ingest")
+	if err != nil || job == nil || job.ID != b {
+		t.Fatalf("Claim = %+v, %v, want %s", job, err, b)
+	}
+	if err := q.Requeue(b, "convert", 2); err != nil {
+		t.Fatalf("Requeue: %v", err)
+	}
+	a := enqueue()
+	c := enqueue()
+	for i, want := range []string{a, c, b} {
+		job, err := q.Claim("ingest")
+		if err != nil {
+			t.Fatalf("Claim %d: %v", i, err)
+		}
+		if job == nil || job.ID != want {
+			t.Fatalf("Claim %d = %+v, want %s (show jobs ahead of older improvements)", i, job, want)
+		}
+	}
+	// Among improvements audio (1) precedes full (2) precedes remux (3).
+	remux := enqueue()
+	job, _ = q.Claim("ingest")
+	if err := q.Requeue(remux, "convert", 3); err != nil {
+		t.Fatalf("Requeue: %v", err)
+	}
+	full := enqueue()
+	job, _ = q.Claim("ingest")
+	if err := q.Requeue(full, "convert", 2); err != nil {
+		t.Fatalf("Requeue: %v", err)
+	}
+	audio := enqueue()
+	job, _ = q.Claim("ingest")
+	if err := q.Requeue(audio, "convert", 1); err != nil {
+		t.Fatalf("Requeue: %v", err)
+	}
+	for i, want := range []string{audio, full, remux} {
+		job, err := q.Claim("ingest")
+		if err != nil {
+			t.Fatalf("Claim %d: %v", i, err)
+		}
+		if job == nil || job.ID != want {
+			t.Fatalf("improvement Claim %d = %+v, want %s", i, job, want)
+		}
+	}
+}
+
+// TestFailedFolderJobsRequeuedByMigration pins the v4 migration's second
+// chance: ingest jobs failed under the old rules (their folder/NAS source
+// is readable from the payload JSON) are requeued at the start, staged for
+// the new show phase with no error and priority 0; failed YouTube jobs keep
+// their failure (they have their own Retry button).
+func TestFailedFolderJobsRequeuedByMigration(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "test.sqlite"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	// A database from before the show-first change: jobs v1-v3 only.
+	if err := s.Migrate(Migrations[:3]...); err != nil {
+		t.Fatalf("migrate v1-v3: %v", err)
+	}
+	now := "2026-10-01T00:00:00Z"
+	insert := func(id, payload string) {
+		t.Helper()
+		if _, err := s.DB().Exec(
+			`INSERT INTO jobs (id, kind, stage, state, payload, error, created, updated, seq)
+			 VALUES (?, 'ingest', 'convert', 'failed', ?, 'something broke', ?, ?, 1)`,
+			id, payload, now, now,
+		); err != nil {
+			t.Fatalf("insert %s: %v", id, err)
+		}
+	}
+	insert("folder", `{"file":"/mnt/a.mkv","source":{"kind":"folder","path":"/mnt/a.mkv","title":"A","show":"S"}}`)
+	insert("nas", `{"file":"/nas/b.mp4","source":{"kind":"nas","path":"/nas/b.mp4","title":"B","show":"S"}}`)
+	insert("youtube", `{"file":"/dl/c.mp4","source":{"kind":"youtube","path":"https://www.youtube.com/watch?v=abc","title":"C","show":"S"}}`)
+
+	// The new migration: priority column plus the one-time requeue.
+	if err := s.Migrate(Migrations[3:]...); err != nil {
+		t.Fatalf("migrate v4: %v", err)
+	}
+	// Applying it again is a no-op (recorded in schema_migrations).
+	if err := s.Migrate(Migrations[3:]...); err != nil {
+		t.Fatalf("re-migrate v4: %v", err)
+	}
+	q, err := New(s)
+	if err != nil {
+		t.Fatalf("jobs.New: %v", err)
+	}
+	for _, tc := range []struct {
+		id, wantState, wantStage, wantErr string
+		wantPriority, wantAttempts        int
+	}{
+		{"folder", StateQueued, "", "", 0, 0},
+		{"nas", StateQueued, "", "", 0, 0},
+		{"youtube", StateFailed, "convert", "something broke", 0, 0},
+	} {
+		j, err := q.Get(tc.id)
+		if err != nil {
+			t.Fatalf("Get %s: %v", tc.id, err)
+		}
+		if j.State != tc.wantState || j.Stage != tc.wantStage || j.Error != tc.wantErr ||
+			j.Priority != tc.wantPriority || j.Attempts != tc.wantAttempts {
+			t.Errorf("%s: state=%s stage=%q error=%q priority=%d attempts=%d, want %s/%q/%q/%d/%d",
+				tc.id, j.State, j.Stage, j.Error, j.Priority, j.Attempts,
+				tc.wantState, tc.wantStage, tc.wantErr, tc.wantPriority, tc.wantAttempts)
+		}
+	}
+	// The requeued jobs claim as fresh show work, ahead of anything else.
+	job, err := q.Claim("ingest")
+	if err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+	if job == nil || (job.ID != "folder" && job.ID != "nas") {
+		t.Fatalf("first claim = %+v, want a requeued folder/NAS job", job)
+	}
+}

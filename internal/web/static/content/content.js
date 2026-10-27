@@ -15,8 +15,8 @@ let store = {
 const STATE_LABEL = { queued: 'Waiting', running: 'Working', paused: 'Paused', done: 'Done', failed: 'Failed' };
 const YT_STAGE = { resolve: 'Looking it up…', download: 'Downloading', handoff: 'Adding to the shelf', expand: 'Opening the list…' };
 const INGEST_STAGE = {
-  probe: 'Checking the file', plan: 'Planning the conversion', convert: 'Converting',
-  verify: 'Checking the result', thumbnail: 'Making a picture', publish: 'Adding to the shelf'
+  probe: 'Checking the file', plan: 'Planning the conversion', show: 'Adding to the shelf',
+  convert: 'Converting', verify: 'Checking the result', thumbnail: 'Making a picture', publish: 'Adding to the shelf'
 };
 const KIND_LABEL = { folder: 'Folder', nas: 'NAS share' };
 const FLAVOUR_LABEL = { maxi: 'with pictures', nopic: 'text only', mini: 'short version' };

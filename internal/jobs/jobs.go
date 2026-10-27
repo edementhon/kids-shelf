@@ -79,6 +79,30 @@ CREATE TABLE reservations (
 );
 
 ALTER TABLE jobs ADD COLUMN fs_key TEXT NOT NULL DEFAULT '';`,
+}, {
+	// priority moves show-phase work ahead of improvements: Claim orders by
+	// priority, then seq, so a video that has not been published yet (0)
+	// always claims before an already-visible video's conversion (1-3), no
+	// matter how old the conversion is. See internal/ingest.
+	//
+	// The same migration gives failed folder/NAS ingest jobs from before
+	// the show-first change a second chance: their files are readable by
+	// ffprobe (the old rules could fail them on decode checks the show
+	// phase no longer runs), so they are requeued at the start with no
+	// stage and no error and take the new show-then-improve path. The
+	// source kind lives in the payload JSON, which SQLite's json_extract
+	// reads; jobs whose payload does not decode stay failed. This runs
+	// exactly once because Migrate records the (owner, version) pair.
+	Owner:   "jobs",
+	Version: 4,
+	SQL: `
+ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+
+UPDATE jobs
+SET state = 'queued', stage = '', error = '', attempts = 0,
+    updated = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE kind = 'ingest' AND state = 'failed'
+  AND json_extract(payload, '$.source.kind') IN ('folder', 'nas');`,
 }}
 
 // ErrNotFound is returned by Get when no job has the requested id.
@@ -94,8 +118,13 @@ type Job struct {
 	ReservedBytes uint64
 	Attempts      int
 	Error         string
-	Created       time.Time
-	Updated       time.Time
+	// Priority orders queued jobs within a kind: Claim hands out the
+	// lowest priority first, then the lowest seq. Ingest uses it to keep
+	// show-phase work (0) ahead of already-visible videos' conversions
+	// (1-3); other kinds leave it at the 0 default.
+	Priority int
+	Created  time.Time
+	Updated  time.Time
 }
 
 // DecodePayload unmarshals the job's JSON payload into v.
@@ -146,9 +175,12 @@ func (q *Queue) Enqueue(kind string, payload any) (string, error) {
 	return id, nil
 }
 
-// Claim atomically moves the oldest queued job of kind - lowest seq, i.e.
-// enqueue order - to running and returns it, or (nil, nil) when none is
-// queued. The transaction starts with BEGIN IMMEDIATE (set in
+// Claim atomically moves the oldest queued job of kind to running and
+// returns it, or (nil, nil) when none is queued. Queued jobs order by
+// priority, then seq (enqueue order): priority 0 is the default, and the
+// ingest package uses higher priorities for already-visible videos'
+// conversions, so they always wait behind work that has not been published
+// yet. The transaction starts with BEGIN IMMEDIATE (set in
 // internal/store), so two concurrent Claim calls can never hand out the same
 // job: the loser sees it already running and picks the next one, if any.
 func (q *Queue) Claim(kind string) (*Job, error) {
@@ -159,7 +191,7 @@ func (q *Queue) Claim(kind string) (*Job, error) {
 		}
 		var id string
 		err = tx.QueryRow(
-			`SELECT id FROM jobs WHERE kind = ? AND state = 'queued' ORDER BY seq LIMIT 1`,
+			`SELECT id FROM jobs WHERE kind = ? AND state = 'queued' ORDER BY priority, seq LIMIT 1`,
 			kind,
 		).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -288,6 +320,22 @@ func (q *Queue) Recover() (int, error) {
 		return 0, fmt.Errorf("jobs: recover: %w", err)
 	}
 	return int(n), nil
+}
+
+// Requeue moves a running job back to queued at the given stage and
+// priority, so the worker's claim ends and the queue hands the job out
+// again by its new ordering. The ingest show phase requeues a published
+// episode for its conversion this way. The attempt counter bumps like a
+// Recover, and the payload keeps whatever the caller last persisted.
+func (q *Queue) Requeue(id, stage string, priority int) error {
+	now := q.now().UTC().Format(time.RFC3339Nano)
+	if _, err := q.store.DB().Exec(
+		`UPDATE jobs SET state = 'queued', stage = ?, priority = ?, attempts = attempts + 1, updated = ? WHERE id = ?`,
+		stage, priority, now, id,
+	); err != nil {
+		return fmt.Errorf("jobs: requeue %s: %w", id, err)
+	}
+	return nil
 }
 
 // Get returns the job with the given id, or ErrNotFound.
@@ -523,7 +571,7 @@ func (q *Queue) HeldReservationIDs(prefix string) ([]string, error) {
 	return ids, nil
 }
 
-const selectJob = `SELECT id, kind, stage, state, payload, reserved_bytes, attempts, error, created, updated FROM jobs`
+const selectJob = `SELECT id, kind, stage, state, payload, reserved_bytes, attempts, error, created, updated, priority FROM jobs`
 
 // scanner is satisfied by both *sql.Row and *sql.Rows.
 type scanner interface{ Scan(dest ...any) error }
@@ -531,14 +579,15 @@ type scanner interface{ Scan(dest ...any) error }
 func scanJob(s scanner) (*Job, error) {
 	var j Job
 	var payload, created, updated string
-	var reserved int64
-	err := s.Scan(&j.ID, &j.Kind, &j.Stage, &j.State, &payload, &reserved, &j.Attempts, &j.Error, &created, &updated)
+	var reserved, priority int64
+	err := s.Scan(&j.ID, &j.Kind, &j.Stage, &j.State, &payload, &reserved, &j.Attempts, &j.Error, &created, &updated, &priority)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("jobs: scan: %w", err)
 	}
+	j.Priority = int(priority)
 	j.Payload = json.RawMessage(payload)
 	j.ReservedBytes = uint64(reserved)
 	if j.Created, err = time.Parse(time.RFC3339, created); err != nil {

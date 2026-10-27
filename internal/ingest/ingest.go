@@ -1,14 +1,15 @@
-// Package ingest implements core.IngestQueue over the persisted job queue:
-// a media file is probed, planned (folder/NAS originals that already play in
-// the browser are published in place, everything else is normalized to an
-// H.264 8-bit + AAC faststart MP4), verified, given a thumbnail and
-// published to the library. The pipeline runs as stages probe -> plan ->
-// convert -> verify -> thumbnail -> publish, and each stage persists its
-// outputs in the job's payload, so a quit, a kill or a power cut at any
-// stage resumes exactly there after jobs.Recover. The original file is never
-// modified or moved: convert writes a temp file next to the destination and
-// renames it into place only when it succeeded, and an in-place job writes
-// nothing at all.
+// Package ingest implements core.IngestQueue over the persisted job queue.
+// A media file is probed and planned, and folder/NAS originals then run the
+// show-first pipeline: the episode is published playing its original file
+// right away (probe -> plan -> show), and the conversion that normalizes it
+// to an H.264 8-bit + AAC faststart MP4 runs afterwards at lower priority
+// (convert -> verify -> thumbnail -> publish) and silently replaces the file
+// the episode plays. YouTube downloads keep the old single pass. Each stage
+// persists its outputs in the job's payload, so a quit, a kill or a power
+// cut at any stage resumes exactly there after jobs.Recover. The original
+// file is never modified or moved: convert writes a temp file next to the
+// destination and renames it into place only when it succeeded, and a
+// show-only job writes nothing at all.
 package ingest
 
 import (
@@ -40,10 +41,14 @@ const JobKind = "ingest"
 
 // Pipeline stages, in order. The jobs table's stage column holds the stage
 // that is running or next to run; processOne advances to the next stage's
-// name only after the current one finished.
+// name only after the current one finished. The show stage ends the show
+// phase for a folder/NAS job: it publishes the episode playing its original
+// and, when a conversion is wanted, requeues the job at convert with an
+// improvement priority; the remaining stages are the improvement.
 const (
 	StageProbe     = "probe"
 	StagePlan      = "plan"
+	StageShow      = "show"
 	StageConvert   = "convert"
 	StageVerify    = "verify"
 	StageThumbnail = "thumbnail"
@@ -51,14 +56,30 @@ const (
 )
 
 // stages lists the pipeline in order; tests kill jobs at each one.
-var stages = []string{StageProbe, StagePlan, StageConvert, StageVerify, StageThumbnail, StagePublish}
+var stages = []string{StageProbe, StagePlan, StageShow, StageConvert, StageVerify, StageThumbnail, StagePublish}
+
+// Improvement priorities on the jobs table: Claim hands out the lowest
+// priority first, so every not-yet-shown job (0) runs before any conversion
+// of an already-visible episode. Among conversions, audio-only re-encodes
+// come first (they fix episodes that play silent in Chromium), then full
+// re-encodes, then remuxes.
+const (
+	prioShow  = 0
+	prioAudio = 1
+	prioFull  = 2
+	prioRemux = 3
+)
 
 // Words a parent sees in the dashboard when a job cannot finish. Every job
 // failure ends in one of these; internal errors are never shown raw.
 const (
-	msgDamaged  = "This file is damaged or incomplete and can't be played."
-	msgNoVideo  = "This file doesn't contain a video and can't be played."
-	msgConvert  = "This video couldn't be converted. Try another copy of the file."
+	msgDamaged = "This file is damaged or incomplete and can't be played."
+	msgNoVideo = "This file doesn't contain a video and can't be played."
+	msgConvert = "This video couldn't be converted. Try another copy of the file."
+	// msgKeepAsIs is what a failed improvement says: the episode is
+	// already on the shelf playing its original bytes, so the failure only
+	// means no better copy was made.
+	msgKeepAsIs = "This video plays as it is, but kids-shelf couldn't make a better copy."
 	msgDiskFull = "The disk is full. Delete some videos or move your media to a bigger drive, then try again."
 	msgGeneric  = "Something went wrong while adding this video. Try again."
 	// msgNoHelpers matches the problem app.Open shows on the parent page
@@ -80,7 +101,18 @@ type payload struct {
 	AudioIndex  int            `json:"audio_index"` // -1 when the file has no audio
 	Output      string         `json:"output,omitempty"`
 	Thumb       string         `json:"thumb,omitempty"`
-	Published   bool           `json:"published,omitempty"`
+	// Shown marks the show phase finished: the episode is published
+	// playing its original (or was final in place), so any convert-stage
+	// work left is an improvement. Jobs from before the show-first change
+	// have it false and are routed through the show stage before their
+	// conversion resumes (see runStage).
+	Shown bool `json:"shown"`
+	// Published is the show-phase publish marker: a kill between the
+	// publish and the requeue resumes without publishing twice.
+	Published bool `json:"published"`
+	// Improved is the improvement-phase publish marker, the same
+	// idempotency for the converted copy.
+	Improved bool `json:"improved"`
 }
 
 // Queue implements core.IngestQueue on top of a jobs.Queue: Enqueue hands a
@@ -254,6 +286,10 @@ type Worker struct {
 	resv     *disk.Reservations
 	mediaDir string
 	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, error)
+	// safari reports the household's "some screens use Safari" setting;
+	// nil means on (the default). When it is off, remux-only plans are
+	// final in place and never grow an improvement job.
+	safari func(ctx context.Context) (bool, error)
 }
 
 // NewWorker returns a worker over q using the helper binaries in dir,
@@ -274,6 +310,14 @@ func NewWorker(q *jobs.Queue, dir *tools.Dir, pub core.Publisher, mediaDir strin
 // probes this way.
 func (w *Worker) WithReservations(r *disk.Reservations) *Worker {
 	w.resv = r
+	return w
+}
+
+// WithSafariSetting wires the household's "some screens use Safari" setting
+// into the worker (internal/app passes the budget setting). A nil setting
+// means on, the default.
+func (w *Worker) WithSafariSetting(safari func(ctx context.Context) (bool, error)) *Worker {
+	w.safari = safari
 	return w
 }
 
@@ -371,6 +415,12 @@ func (w *Worker) processOne(ctx context.Context, jobID string) (done bool) {
 		}
 		return true
 	}
+	if next == requeuedStage {
+		// The show stage requeued the job for its improvement: it is
+		// queued again with the convert stage and its improvement
+		// priority, and this claim is over.
+		return true
+	}
 	if next == "" {
 		if err := w.q.Done(job.ID); err != nil {
 			w.q.Fail(job.ID, errors.New(msgGeneric))
@@ -385,11 +435,23 @@ func (w *Worker) processOne(ctx context.Context, jobID string) (done bool) {
 }
 
 func (w *Worker) runStage(ctx context.Context, jobID, stage string, pl *payload) (string, error) {
+	// A folder/NAS job recovered mid-improvement that was never shown (it
+	// predates the show-first change, or a kill landed between the plan
+	// and the old publish) must do the show phase first and only then
+	// requeue for its conversion. YouTube jobs never show in place.
+	if pl.Source.Kind != core.SourceYouTube && !pl.Shown {
+		switch stage {
+		case StageConvert, StageVerify, StageThumbnail, StagePublish:
+			return w.stageShow(ctx, jobID, pl)
+		}
+	}
 	switch stage {
 	case StageProbe:
 		return w.stageProbe(ctx, pl)
 	case StagePlan:
 		return w.stagePlan(pl)
+	case StageShow:
+		return w.stageShow(ctx, jobID, pl)
 	case StageConvert:
 		return w.stageConvert(ctx, jobID, pl)
 	case StageVerify:
@@ -402,6 +464,12 @@ func (w *Worker) runStage(ctx context.Context, jobID, stage string, pl *payload)
 		return "", errors.New(msgGeneric)
 	}
 }
+
+// requeuedStage is the runStage result a stage returns after requeuing the
+// job itself (the show stage publishes and then requeues for its
+// improvement); processOne treats it like a terminal claim, without touching
+// the job's stage.
+const requeuedStage = "requeued"
 
 // stageErr records how a stage failed: a pauseError pauses the job with its
 // parent-readable reason (a full disk is something the parent can fix), any
@@ -422,18 +490,29 @@ type pauseError struct{ reason string }
 
 func (e *pauseError) Error() string { return e.reason }
 
-// stageProbe inspects the original with ffprobe and keeps the report plus
-// the box order in the payload. A box tree that runs past the end of the
+// stageProbe inspects the original with ffprobe and keeps the report in the
+// payload. A folder/NAS original is read by ffprobe alone - no
+// through-the-end decode and no box-tree walk - because the show phase
+// publishes it immediately: the legacy app served every original without
+// checking media data, and the owner prefers everything visible sooner; the
+// deep checks run on the converted output in stageVerify instead. YouTube
+// downloads keep the old probe: a box tree that runs past the end of the
 // file (a truncated faststart MP4 keeps its moov index while the mdat no
-// longer fits) fails the probe with the plain damaged-file words, and so
-// does media data that does not decode through the end - which matters for
-// a file the plan would publish as-is (inplace or keep), because its bytes
+// longer fits) fails it with the plain damaged-file words, and so does
+// media data that does not decode through the end - which matters for a
+// file the plan would publish as-is (inplace or keep), because its bytes
 // are served verbatim and nothing downstream ever reads the media data
 // again.
 func (w *Worker) stageProbe(ctx context.Context, pl *payload) (string, error) {
 	info, err := ProbeFile(ctx, w.dir.FFprobe, pl.File)
 	if err != nil {
 		return "", errors.New(msgDamaged)
+	}
+	pl.Probe = info
+	pl.DurationSec = info.durationSeconds()
+	if pl.Source.Kind != core.SourceYouTube {
+		// Folder/NAS: the show phase publishes whatever ffprobe can read.
+		return StagePlan, nil
 	}
 	moov, mErr := moovBeforeMdat(pl.File)
 	if mErr != nil {
@@ -442,9 +521,7 @@ func (w *Worker) stageProbe(ctx context.Context, pl *payload) (string, error) {
 		}
 		moov = false // not an MP4 box tree; nothing to reorder
 	}
-	pl.Probe = info
 	pl.MoovFront = moov
-	pl.DurationSec = info.durationSeconds()
 	if a, aerr := Plan(info); aerr == nil && (a == ActionKeep || a == ActionInplace) {
 		vIdx, aIdx := info.selectStreams()
 		if err := w.decodeCheck(ctx, pl.File, vIdx, aIdx, float64(info.Duration)); err != nil {
@@ -459,7 +536,8 @@ func (w *Worker) stageProbe(ctx context.Context, pl *payload) (string, error) {
 // exactly the streams the plan decided on. A YouTube download that would
 // qualify for in-place serving is downgraded to keep/remux: its file stays
 // an app-owned converted copy in the media folder, exactly as before the
-// in-place decision.
+// in-place decision. Folder/NAS jobs go to the show stage next - the plan
+// only decides what the improvement will fix later, never what plays now.
 func (w *Worker) stagePlan(pl *payload) (string, error) {
 	if pl.Probe == nil {
 		return "", errors.New(msgGeneric) // unreachable: probe runs first
@@ -477,21 +555,97 @@ func (w *Worker) stagePlan(pl *payload) (string, error) {
 	}
 	pl.Action = a
 	pl.VideoIndex, pl.AudioIndex = pl.Probe.selectStreams()
+	if pl.Source.Kind != core.SourceYouTube {
+		return StageShow, nil
+	}
 	return StageConvert, nil
 }
 
-// stageConvert produces the episode's playable file. An in-place job records
-// the original's path and writes nothing, reserving no disk space (the probe
-// and verify stages have already read the file). Every other plan normalizes
-// the file into <media>/library/<episode>.mp4: it first reserves the
-// worst-case bytes (input size for keep and remux, the encoder-capped
-// duration bound for audio and full re-encodes) against the disk floor; a
-// reservation denied for lack of space pauses the job. The helper writes a
-// temp file which is renamed into place only on success, so a failure - a
-// full disk included - never damages the original or leaves a partial
-// episode. The reservation is released on every exit; a kill mid-convert
+// stageShow is the show phase: it publishes the episode playing its
+// original file (real path, Owned false, thumbnail from the original) and
+// then either finishes the job - the plan needs nothing more, or the
+// household turned the Safari remux off - or requeues it at convert with
+// the improvement priority for its plan's action. The publish is persisted
+// before the requeue, so a kill anywhere in the stage resumes without
+// publishing twice, and library.Publish upserts by episode id, so resume
+// positions and watch-log rows stay attached when the improvement later
+// replaces the file.
+func (w *Worker) stageShow(ctx context.Context, jobID string, pl *payload) (string, error) {
+	if !pl.Published {
+		real, err := filepath.EvalSymlinks(pl.File)
+		if err != nil {
+			return "", errors.New(msgGeneric)
+		}
+		pl.Output = real
+		// The thumbnail is cosmetic: stageThumb never fails the job.
+		w.stageThumb(ctx, pl)
+		ep := core.Episode{
+			ID:          pl.EpisodeID,
+			ShowID:      showIDFor(pl.Source.Show),
+			Title:       pl.Source.Title,
+			File:        real,
+			DurationSec: pl.DurationSec,
+			Thumb:       pl.Thumb,
+			Source:      pl.Source,
+			Owned:       false,
+		}
+		if err := w.pub.Publish(ctx, ep); err != nil {
+			return "", errors.New(msgGeneric)
+		}
+		pl.Published = true
+		pl.Shown = true
+		if err := w.q.Advance(jobID, StageShow, pl); err != nil {
+			return "", errors.New(msgGeneric)
+		}
+	}
+	if improve, prio := w.improvement(ctx, pl); !improve {
+		// Shown and final in place: the job is done.
+		return "", nil
+	} else if err := w.q.Requeue(jobID, StageConvert, prio); err != nil {
+		return "", errors.New(msgGeneric)
+	}
+	return requeuedStage, nil
+}
+
+// improvement decides whether an already-shown folder/NAS job still needs
+// its conversion, and with which priority. In-place plans are final; a
+// remux-only plan is final too when the "some screens use Safari" setting
+// is off (the setting applies to videos processed after the change); audio
+// re-encodes run before full re-encodes before remuxes.
+func (w *Worker) improvement(ctx context.Context, pl *payload) (bool, int) {
+	switch pl.Action {
+	case ActionInplace, ActionKeep:
+		return false, 0
+	case ActionRemux:
+		if w.safari != nil {
+			// An unreadable setting falls back to on (convert): a failed
+			// read must not leave an episode that Safari cannot play.
+			if on, err := w.safari(ctx); err == nil && !on {
+				return false, 0
+			}
+		}
+		return true, prioRemux
+	case ActionAudio:
+		return true, prioAudio
+	case ActionFull:
+		return true, prioFull
+	default:
+		return true, prioRemux
+	}
+}
+
+// stageConvert produces the improvement's file, an app-owned MP4 in the
+// media library: it first reserves the worst-case bytes (input size for
+// keep and remux, the encoder-capped duration bound for audio and full
+// re-encodes) against the disk floor; a reservation denied for lack of
+// space pauses the job. The helper writes a temp file which is renamed into
+// place only on success, so a failure - a full disk included - never
+// damages the original or the shown episode and never leaves a partial
+// copy. The reservation is released on every exit; a kill mid-convert
 // leaves the reservation held, so the resumed run recognizes it and
-// re-reserves only when it is gone.
+// re-reserves only when it is gone. A conversion that fails for any other
+// reason fails the job with the keep-as-is words: the episode stays
+// published playing its original, it is never unpublished.
 func (w *Worker) stageConvert(ctx context.Context, jobID string, pl *payload) (string, error) {
 	tmp := filepath.Join(w.libraryDir(), "."+string(pl.EpisodeID)+".tmp.mp4")
 	final := filepath.Join(w.libraryDir(), string(pl.EpisodeID)+".mp4")
@@ -499,18 +653,6 @@ func (w *Worker) stageConvert(ctx context.Context, jobID string, pl *payload) (s
 		os.Remove(tmp)
 		w.resv.Release(jobID)
 		return "", err
-	}
-	if pl.Action == ActionInplace {
-		// Record the original's real path (no symlinks in any part):
-		// serving refuses a recorded path that later resolves anywhere else
-		// (internal/web serveOriginal), so swapping the source for a
-		// symlink cannot make playback hand out another file.
-		real, err := filepath.EvalSymlinks(pl.File)
-		if err != nil {
-			return fail(errors.New(msgGeneric))
-		}
-		pl.Output = real
-		return StageVerify, nil
 	}
 	if !w.reserved(jobID) {
 		if err := w.reserve(jobID, pl); err != nil {
@@ -539,10 +681,10 @@ func (w *Worker) stageConvert(ctx context.Context, jobID string, pl *payload) (s
 		return fail(errors.New(msgGeneric))
 	}
 	if err != nil {
-		return fail(w.convertErr(err, out))
+		return fail(w.convertErr(err, out, pl.Shown))
 	}
 	if err := os.Rename(tmp, final); err != nil {
-		return fail(errors.New(msgConvert))
+		return fail(errors.New(convertMsg(pl.Shown)))
 	}
 	w.resv.Release(jobID)
 	pl.Output = final
@@ -671,12 +813,24 @@ func audioReservedBytes(pl *payload, input uint64) uint64 {
 // convertErr classifies a failed conversion: a full disk pauses the job (the
 // original and everything already published stay intact, the parent frees
 // space, the job resumes), anything else means the file cannot be
-// normalized.
-func (w *Worker) convertErr(err error, out []byte) error {
+// normalized - and when the episode is already shown, the job fails with
+// the keep-as-is words instead of the conversion ones.
+func (w *Worker) convertErr(err error, out []byte, shown bool) error {
 	if isDiskFullErr(err, out) {
 		return &pauseError{reason: msgDiskFull}
 	}
-	return errors.New(msgConvert)
+	return errors.New(convertMsg(shown))
+}
+
+// convertMsg is the failure wording of a convert/verify error: the
+// keep-as-is words when the episode is already published playing its
+// original (the failure only costs the better copy), the plain conversion
+// words otherwise (YouTube downloads, which publish once).
+func convertMsg(shown bool) string {
+	if shown {
+		return msgKeepAsIs
+	}
+	return msgConvert
 }
 
 // isDiskFullErr reports whether a failed helper run means the disk filled
@@ -690,43 +844,41 @@ func isDiskFullErr(err error, out []byte) bool {
 	return bytes.Contains(out, []byte("No space left on device"))
 }
 
-// stageVerify re-probes the episode file and requires what the target
+// stageVerify re-probes the converted output and requires what the target
 // players need: H.264 8-bit yuv420p video, AAC audio (when there is audio)
 // and media data that decodes through the end - a metadata check alone would
 // accept an output whose mdat was truncated after the index was written. The
-// moov-before-mdat (faststart) requirement applies to every converted file
-// but not to an in-place original, which is served by byte range and may
-// legitimately keep its index at the end. The codec checks run on the
-// streams selectStreams picks, not blindly the first video stream: a kept
-// or in-place file keeps the input's own numbering, cover art included, so
-// its output must still have its real H.264 video accepted.
+// moov-before-mdat (faststart) requirement applies to every converted file.
+// The codec checks run on the streams selectStreams picks, not blindly the
+// first video stream: a kept file keeps the input's own numbering, cover
+// art included, so its output must still have its real H.264 video
+// accepted. A failed verification fails the job with the keep-as-is words
+// when the episode is already shown; it is never unpublished.
 func (w *Worker) stageVerify(ctx context.Context, pl *payload) (string, error) {
 	info, err := ProbeFile(ctx, w.dir.FFprobe, pl.Output)
 	if err != nil {
-		return "", errors.New(msgConvert)
+		return "", errors.New(convertMsg(pl.Shown))
 	}
 	vIdx, aIdx := info.selectStreams()
 	if vIdx < 0 {
-		return "", errors.New(msgConvert)
+		return "", errors.New(convertMsg(pl.Shown))
 	}
 	v := &info.Streams[vIdx]
 	if v.CodecName != "h264" || !eightBitYUV420P(v.PixFmt) {
-		return "", errors.New(msgConvert)
+		return "", errors.New(convertMsg(pl.Shown))
 	}
 	if aIdx >= 0 && info.Streams[aIdx].CodecName != "aac" {
-		return "", errors.New(msgConvert)
+		return "", errors.New(convertMsg(pl.Shown))
 	}
-	if pl.Action != ActionInplace {
-		front, err := moovBeforeMdat(pl.Output)
-		if err != nil || !front {
-			return "", errors.New(msgConvert)
-		}
+	front, err := moovBeforeMdat(pl.Output)
+	if err != nil || !front {
+		return "", errors.New(convertMsg(pl.Shown))
 	}
 	// Decode through the end on the same chosen streams: remux and
-	// re-encodes renumber them (video 0, audio 1), while a kept or in-place
-	// file keeps the input's own numbering, cover art included.
+	// re-encodes renumber them (video 0, audio 1), while a kept file keeps
+	// the input's own numbering, cover art included.
 	if err := w.decodeCheck(ctx, pl.Output, vIdx, aIdx, float64(info.Duration)); err != nil {
-		return "", errors.New(msgConvert)
+		return "", errors.New(convertMsg(pl.Shown))
 	}
 	return StageThumbnail, nil
 }
@@ -821,13 +973,21 @@ func (w *Worker) stageThumb(ctx context.Context, pl *payload) (string, error) {
 	return StagePublish, nil
 }
 
-// stagePublish files the verified episode with the library. The publish is
-// persisted before the job finishes, so a kill between publish and the
-// queue's Done marker resumes without publishing twice. Owned marks whether
-// the recorded file is app-owned: every converted or YouTube file is, an
-// in-place original is not.
+// stagePublish files the improvement's converted episode with the library.
+// The publish is persisted before the job finishes, so a kill between
+// publish and the queue's Done marker resumes without publishing twice.
+// library.Publish upserts by episode id, so the episode keeps its resume
+// positions, watch-log rows and recent entry; only the recorded file (and
+// the Owned flag) changes, to the app-owned converted copy. The show phase
+// publishes inside stageShow; this stage is the improvement's publish.
 func (w *Worker) stagePublish(ctx context.Context, jobID string, pl *payload) (string, error) {
-	if pl.Published {
+	if pl.Improved {
+		return "", nil
+	}
+	// A job from before the show-first change (YouTube, or a folder/NAS
+	// job the old single-publish flow already finished) marked Published;
+	// nothing more is wanted from it.
+	if !pl.Shown && pl.Published {
 		return "", nil
 	}
 	ep := core.Episode{
@@ -838,12 +998,12 @@ func (w *Worker) stagePublish(ctx context.Context, jobID string, pl *payload) (s
 		DurationSec: pl.DurationSec,
 		Thumb:       pl.Thumb,
 		Source:      pl.Source,
-		Owned:       pl.Action != ActionInplace,
+		Owned:       true,
 	}
 	if err := w.pub.Publish(ctx, ep); err != nil {
 		return "", errors.New(msgGeneric)
 	}
-	pl.Published = true
+	pl.Improved = true
 	if err := w.q.Advance(jobID, StagePublish, pl); err != nil {
 		return "", errors.New(msgGeneric)
 	}

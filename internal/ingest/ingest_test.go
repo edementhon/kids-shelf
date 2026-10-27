@@ -444,7 +444,11 @@ func (h harness) payloadOf(t *testing.T, jobID string) payload {
 }
 
 // runToEnd drives a job from its queue state to a terminal state, claiming
-// and re-claiming it as a restarted worker would after jobs.Recover.
+// and re-claiming as a restarted worker would after jobs.Recover. A
+// folder/NAS job's show stage requeues it for its improvement, so the
+// target can be claimed twice before it is done, failed or paused; a claim
+// that picks up another queued job (an earlier-priority improvement waits)
+// is driven to its own terminal state first, like a real worker would.
 func (h harness) runToEnd(t *testing.T, jobID string) {
 	t.Helper()
 	for {
@@ -453,14 +457,63 @@ func (h harness) runToEnd(t *testing.T, jobID string) {
 			t.Fatalf("Claim: %v", err)
 		}
 		if job == nil {
+			j, gerr := h.q.Get(jobID)
+			if gerr != nil {
+				t.Fatalf("Get: %v", gerr)
+			}
+			if j.State != jobs.StateQueued {
+				return // done, failed or paused: the run is over
+			}
 			t.Fatalf("job %s was never claimed", jobID)
-		}
-		if job.ID != jobID {
-			t.Fatalf("claimed %s, want %s", job.ID, jobID)
 		}
 		for !h.w.processOne(context.Background(), job.ID) {
 		}
-		return
+		if job.ID == jobID {
+			if j, err := h.q.Get(jobID); err == nil && j.State != jobs.StateQueued {
+				return // done, failed or paused
+			}
+			// The show stage requeued it for its improvement: claim again.
+		}
+	}
+}
+
+// runStages runs the next k pipeline stages of jobID, claiming the job for
+// its first stage and re-claiming it when the show stage requeues it for
+// its improvement, the way Worker.Run claims across the boundary. The job
+// must not reach a terminal state before the k stages are up.
+func (h harness) runStages(t *testing.T, jobID string, k int) {
+	t.Helper()
+	claim := func() {
+		job, err := h.q.Claim(JobKind)
+		if err != nil {
+			t.Fatalf("Claim: %v", err)
+		}
+		if job == nil || job.ID != jobID {
+			t.Fatalf("claimed %+v, want job %s", job, jobID)
+		}
+	}
+	claim()
+	for ran := range k {
+		done := h.w.processOne(context.Background(), jobID)
+		if !done {
+			continue
+		}
+		j, err := h.q.Get(jobID)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		switch j.State {
+		case jobs.StateQueued:
+			// The show stage finished and requeued the job for its
+			// improvement. When more stages remain, claim it again; after
+			// the last one the requeue is the kill point, and the job
+			// must be left queued for Recover and the next run.
+			if ran+1 < k {
+				claim()
+			}
+		default:
+			t.Fatalf("job reached %s after %d stages; cannot kill at %s", j.State, ran, stages[k])
+		}
 	}
 }
 
@@ -574,6 +627,40 @@ func suit(t *testing.T, h harness, jobID string) (core.Episode, *jobs.Job) {
 		t.Fatalf("published %d times, want once", h.pub.Called())
 	}
 	return h.pub.Published()[0], j
+}
+
+// suitImprove checks a finished folder/NAS job that needed a conversion:
+// the show phase published the episode playing its original (Owned false,
+// File = the original path) and the improve phase published the converted
+// copy under the same episode id (Owned true). It returns the final episode
+// and the job.
+func suitImprove(t *testing.T, h harness, jobID, original string) (core.Episode, *jobs.Job) {
+	t.Helper()
+	j, err := h.q.Get(jobID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if j.State != jobs.StateDone {
+		t.Fatalf("state = %s, want %s (error %q)", j.State, jobs.StateDone, j.Error)
+	}
+	if n := h.pub.Called(); n != 2 {
+		t.Fatalf("published %d times, want 2 (show + improve)", n)
+	}
+	pubs := h.pub.Published()
+	show, final := pubs[0], pubs[1]
+	if show.Owned {
+		t.Errorf("show-phase episode Owned = true, want the original unowned")
+	}
+	if show.File != original {
+		t.Errorf("show-phase File = %q, want the original %q", show.File, original)
+	}
+	if final.ID != show.ID {
+		t.Errorf("improve publish changed the episode id: %q -> %q", show.ID, final.ID)
+	}
+	if !final.Owned {
+		t.Errorf("converted episode Owned = false, want true")
+	}
+	return final, j
 }
 
 func TestPipelineInplace(t *testing.T) {
@@ -739,10 +826,7 @@ func TestPipelineRemux(t *testing.T) {
 			before := sha256File(t, in)
 			id := h.enqueue(t, in)
 			h.runToEnd(t, id)
-			ep, _ := suit(t, h, id)
-			if !ep.Owned {
-				t.Errorf("Owned = false, want true for a converted file")
-			}
+			ep, _ := suitImprove(t, h, id, in)
 			assertGoodMP4(t, helpers, ep.File)
 			if _, err := os.Stat(ep.Thumb); err != nil {
 				t.Errorf("thumbnail missing: %v", err)
@@ -768,7 +852,7 @@ func TestPipelineAudio(t *testing.T) {
 			before := sha256File(t, in)
 			id := h.enqueue(t, in)
 			h.runToEnd(t, id)
-			ep, _ := suit(t, h, id)
+			ep, _ := suitImprove(t, h, id, in)
 			assertGoodMP4(t, helpers, ep.File)
 			// The video is copied, the audio re-encoded to stereo AAC.
 			info := probePath(t, helpers, ep.File)
@@ -791,7 +875,7 @@ func TestPipelineFull(t *testing.T) {
 	before := sha256File(t, f.hevcMKV)
 	id := h.enqueue(t, f.hevcMKV)
 	h.runToEnd(t, id)
-	ep, _ := suit(t, h, id)
+	ep, _ := suitImprove(t, h, id, f.hevcMKV)
 	assertGoodMP4(t, helpers, ep.File)
 	info := probePath(t, helpers, ep.File)
 	v := info.Video()
@@ -875,9 +959,14 @@ func TestMissingHelpersFailJobPlainly(t *testing.T) {
 }
 
 // TestKillAndResumeEveryStage enqueues one job per entry point of the
-// pipeline, stops the worker after that stage, "crashes" (Recover), runs the
-// worker again, and requires the output to be identical to an uninterrupted
-// run and published exactly once.
+// pipeline - the show phase's probe, plan and show plus the improvement's
+// convert, verify, thumbnail and publish - stops the worker after that
+// stage, "crashes" (Recover), runs the worker again, and requires the
+// result to be identical to an uninterrupted run, with each phase's publish
+// exactly once. The remux fixture is a folder original that needs an
+// improvement, so the run crosses the show/improve boundary (the show stage
+// requeues the job itself); killing between show and improve means the job
+// is already queued when Recover runs, and Recover leaves it alone.
 func TestKillAndResumeEveryStage(t *testing.T) {
 	helpers, _ := fixtureEnv(t)
 	f := makeFixtures(t)
@@ -886,35 +975,21 @@ func TestKillAndResumeEveryStage(t *testing.T) {
 			h := newHarness(t, helpers)
 			// Reference: an uninterrupted run of the same file.
 			ref := newHarness(t, helpers)
-			refID := ref.enqueue(t, f.keep)
+			refID := ref.enqueue(t, f.remuxMKV)
 			ref.runToEnd(t, refID)
-			if ref.pub.Called() != 1 {
-				t.Fatalf("reference published %d times", ref.pub.Called())
+			if ref.pub.Called() != 2 {
+				t.Fatalf("reference published %d times, want 2 (show + improve)", ref.pub.Called())
 			}
-			refSHA := sha256File(t, ref.pub.Published()[0].File)
+			refPubs := ref.pub.Published()
+			refShow, refFinal := refPubs[0], refPubs[1]
+			refSHA := sha256File(t, refFinal.File)
 
-			id := h.enqueue(t, f.keep)
-			job, err := h.q.Claim(JobKind)
-			if err != nil {
-				t.Fatalf("Claim: %v", err)
-			}
-			if job == nil || job.ID != id {
-				t.Fatalf("claimed %+v, want job %s", job, id)
-			}
-			// Run k stages, then stop (a kill or power cut).
-			for i := range k {
-				if done := h.w.processOne(context.Background(), id); done {
-					t.Fatalf("job finished after %d stages; cannot kill at %s", i, stages[k])
-				}
-			}
-			// "Restart": Recover requeues the running job, the worker
-			// claims it again and drains the rest.
-			n, err := h.q.Recover()
-			if err != nil {
+			id := h.enqueue(t, f.remuxMKV)
+			h.runStages(t, id, k)
+			// "Restart": Recover requeues a job left running; a job the
+			// show stage requeued is already queued and untouched.
+			if _, err := h.q.Recover(); err != nil {
 				t.Fatalf("Recover: %v", err)
-			}
-			if n != 1 {
-				t.Fatalf("Recover requeued %d jobs, want 1", n)
 			}
 			h.runToEnd(t, id)
 
@@ -925,17 +1000,24 @@ func TestKillAndResumeEveryStage(t *testing.T) {
 			if j.State != jobs.StateDone {
 				t.Fatalf("state = %s (error %q)", j.State, j.Error)
 			}
-			if h.pub.Called() != 1 {
-				t.Errorf("published %d times, want exactly once", h.pub.Called())
+			if h.pub.Called() != 2 {
+				t.Errorf("published %d times, want exactly 2 (one per phase)", h.pub.Called())
 			}
-			ep := h.pub.Published()[0]
-			if ep.File == "" || ep.ID == "" {
-				t.Fatalf("published episode incomplete: %+v", ep)
+			pubs := h.pub.Published()
+			show, final := pubs[0], pubs[1]
+			if show.File != refShow.File || show.Owned {
+				t.Errorf("show publish = %+v, want %+v (original, unowned)", show, refShow)
 			}
-			if got := sha256File(t, ep.File); got != refSHA {
+			if final.ID != show.ID {
+				t.Errorf("improve publish changed the episode id: %q -> %q", show.ID, final.ID)
+			}
+			if !final.Owned {
+				t.Errorf("converted episode Owned = false, want true")
+			}
+			if got := sha256File(t, final.File); got != refSHA {
 				t.Errorf("resumed output differs from the uninterrupted run")
 			}
-			assertGoodMP4(t, helpers, ep.File)
+			assertGoodMP4(t, helpers, final.File)
 			assertLibraryClean(t, h.mediaDir)
 			if j.ReservedBytes != 0 {
 				t.Errorf("reservation not released: %d", j.ReservedBytes)
@@ -946,7 +1028,7 @@ func TestKillAndResumeEveryStage(t *testing.T) {
 
 // TestDiskFullMidConvertPauses simulates a real ENOSPC: the helper fails
 // with ffmpeg's "No space left on device" message, the job pauses with a
-// parent-readable reason, the original and any published work stay intact
+// parent-readable reason, the original and the shown episode stay intact
 // and no temp file remains; the job then resumes and completes normally.
 func TestDiskFullMidConvertPauses(t *testing.T) {
 	helpers, _ := fixtureEnv(t)
@@ -968,8 +1050,11 @@ func TestDiskFullMidConvertPauses(t *testing.T) {
 	if !strings.Contains(strings.ToLower(j.Error), "disk is full") {
 		t.Errorf("pause reason = %q, want the plain disk-full words", j.Error)
 	}
-	if h.pub.Called() != 0 {
-		t.Errorf("published %d times for a paused job", h.pub.Called())
+	if h.pub.Called() != 1 {
+		t.Errorf("published %d times for a paused job, want 1 (the show phase)", h.pub.Called())
+	}
+	if ep := h.pub.Published()[0]; ep.File != f.remuxMKV || ep.Owned {
+		t.Errorf("shown episode = %+v, want the original %q, unowned", ep, f.remuxMKV)
 	}
 	if j.ReservedBytes != 0 {
 		t.Errorf("reservation not released: %d", j.ReservedBytes)
@@ -994,12 +1079,14 @@ func TestDiskFullMidConvertPauses(t *testing.T) {
 	if j2, err := h.q.Get(id); err != nil || j2.State != jobs.StateDone {
 		t.Fatalf("after resume: state = %s (err %v)", j2.State, err)
 	}
+	suitImprove(t, h, id, f.remuxMKV)
 }
 
 // TestNoSpaceBeforeConvertPauses injects a free-space probe reporting zero
-// free bytes, so the pre-convert reservation is denied and the job pauses
-// before any conversion. It drives a remux fixture: an in-place job never
-// reserves, so it cannot pause from a full disk.
+// free bytes, so the improvement's pre-convert reservation is denied and
+// the job pauses before any conversion. The show phase needs no disk and
+// has already published the episode playing its original; only the
+// better copy is missing.
 func TestNoSpaceBeforeConvertPauses(t *testing.T) {
 	helpers, _ := fixtureEnv(t)
 	f := makeFixtures(t)
@@ -1019,8 +1106,8 @@ func TestNoSpaceBeforeConvertPauses(t *testing.T) {
 	if !strings.Contains(strings.ToLower(j.Error), "disk is full") {
 		t.Errorf("pause reason = %q", j.Error)
 	}
-	if h.pub.Called() != 0 {
-		t.Errorf("published %d times", h.pub.Called())
+	if h.pub.Called() != 1 {
+		t.Errorf("published %d times, want 1 (the show phase)", h.pub.Called())
 	}
 	assertIntact(t, f.remuxMKV, before)
 	assertLibraryClean(t, h.mediaDir)
@@ -1056,8 +1143,8 @@ func TestRunLoop(t *testing.T) {
 	}
 	cancel()
 	<-done
-	if h.pub.Called() != 2 {
-		t.Errorf("published %d episodes, want 2", h.pub.Called())
+	if h.pub.Called() != 3 {
+		t.Errorf("published %d episodes, want 3 (the in-place job plus the remux job's show and improve)", h.pub.Called())
 	}
 }
 
@@ -1169,43 +1256,41 @@ func ensureProbeFails(t *testing.T, helpers, path string) error {
 	return nil
 }
 
-// TestTruncatedFaststartFailsPlainly feeds the pipeline a faststart MP4
+// TestTruncatedFaststartShownInPlace feeds the pipeline a faststart MP4
 // truncated to 60% of its bytes. ffprobe reads only the index (moov, at the
-// front) and still reports the full duration, so the box walk and the
-// through-the-end media check are the only thing standing between it and a
-// published, unplayable file; the job must fail with the plain damaged-file
-// words.
-func TestTruncatedFaststartFailsPlainly(t *testing.T) {
+// front) and still reports the full duration, so the file is healthy enough
+// for the show phase: the folder source is probed with ffprobe alone (no
+// box walk, no through-the-end decode of the original, exactly like the
+// legacy app that served every file), so it publishes playing its original
+// and the job is done - the deep media checks are reserved for converted
+// outputs.
+func TestTruncatedFaststartShownInPlace(t *testing.T) {
 	helpers, _ := fixtureEnv(t)
 	f := makeFixtures(t)
 	h := newHarness(t, helpers)
 	before := sha256File(t, f.truncatedFaststart)
 	id := h.enqueue(t, f.truncatedFaststart)
 	h.runToEnd(t, id)
-	j, err := h.q.Get(id)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
+	ep, _ := suit(t, h, id)
+	if ep.File != f.truncatedFaststart {
+		t.Fatalf("File = %q, want the truncated original %q", ep.File, f.truncatedFaststart)
 	}
-	if j.State != jobs.StateFailed {
-		t.Fatalf("state = %s, want %s", j.State, jobs.StateFailed)
-	}
-	if j.Error != msgDamaged {
-		t.Errorf("error = %q, want the plain damaged message", j.Error)
-	}
-	if h.pub.Called() != 0 {
-		t.Errorf("published %d times for a rejected file", h.pub.Called())
+	if ep.Owned {
+		t.Errorf("Owned = true, want false (the original is served in place)")
 	}
 	assertIntact(t, f.truncatedFaststart, before)
 	assertLibraryClean(t, h.mediaDir)
 }
 
-// TestPipelineCorruptedMdatFailsPlainly takes the KEEP-eligible fixture and
-// zeroes 4096 bytes mid-mdat: the moov index, the box tree and the packet
-// headers survive, so ffprobe still reports a healthy file, but the frame
-// payloads no longer decode. Only a real decode pass - not a -c copy remux,
-// which ships the intact packets straight through - can reject it; the job
-// must fail with the plain damaged-file words.
-func TestPipelineCorruptedMdatFailsPlainly(t *testing.T) {
+// TestPipelineCorruptedMdatShownInPlace takes the in-place-eligible fixture
+// and zeroes 4096 bytes mid-mdat: the moov index, the box tree and the
+// packet headers survive, so ffprobe still reports a healthy file, but the
+// frame payloads no longer decode fully. The show phase does not decode the
+// original (the legacy app never did), so the episode still publishes
+// playing its original bytes - the file plays until the corruption, exactly
+// as it did before kids-shelf existed. The through-the-end decode check
+// still guards every converted output (see the improvement tests).
+func TestPipelineCorruptedMdatShownInPlace(t *testing.T) {
 	helpers, _ := fixtureEnv(t)
 	f := makeFixtures(t)
 	b, err := os.ReadFile(f.keep)
@@ -1235,18 +1320,12 @@ func TestPipelineCorruptedMdatFailsPlainly(t *testing.T) {
 	before := sha256File(t, corrupt)
 	id := h.enqueue(t, corrupt)
 	h.runToEnd(t, id)
-	j, err := h.q.Get(id)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
+	ep, _ := suit(t, h, id)
+	if ep.File != corrupt {
+		t.Fatalf("File = %q, want the corrupted original %q", ep.File, corrupt)
 	}
-	if j.State != jobs.StateFailed {
-		t.Fatalf("state = %s, want %s", j.State, jobs.StateFailed)
-	}
-	if j.Error != msgDamaged {
-		t.Errorf("error = %q, want the plain damaged message", j.Error)
-	}
-	if h.pub.Called() != 0 {
-		t.Errorf("published %d times for a rejected file", h.pub.Called())
+	if ep.Owned {
+		t.Errorf("Owned = true, want false (the original is served in place)")
 	}
 	assertIntact(t, corrupt, before)
 	assertLibraryClean(t, h.mediaDir)
@@ -1405,7 +1484,7 @@ func TestPipelineStreamSelection(t *testing.T) {
 			before := sha256File(t, tt.in)
 			id := h.enqueue(t, tt.in)
 			h.runToEnd(t, id)
-			ep, _ := suit(t, h, id)
+			ep, _ := suitImprove(t, h, id, tt.in)
 			assertGoodMP4(t, helpers, ep.File)
 			info := probePath(t, helpers, ep.File)
 			vids, auds := 0, 0
@@ -1448,7 +1527,7 @@ func TestRotatedVideoPublishesPortrait(t *testing.T) {
 	before := sha256File(t, f.rotatedMP4)
 	id := h.enqueue(t, f.rotatedMP4)
 	h.runToEnd(t, id)
-	ep, _ := suit(t, h, id)
+	ep, _ := suitImprove(t, h, id, f.rotatedMP4)
 	v := probePath(t, helpers, ep.File).Video()
 	if v == nil {
 		t.Fatal("output has no video stream")
@@ -1725,10 +1804,11 @@ func TestCopyFileHonorsContext(t *testing.T) {
 }
 
 // TestCancelDuringConvertLeavesJobRunning stops the worker's context at the
-// convert stage of a converting (remux) job: the job must stay running at
-// convert (nothing failed, no temp), and after Recover it completes and
-// publishes once. An in-place job has no copy to cancel, so the stop
-// behavior is pinned on real convert work.
+// improvement's convert stage of a remux job: the show phase has already
+// published the episode playing its original, and the job must stay running
+// at convert (nothing failed, no temp) for jobs.Recover; after the restart
+// it completes and publishes the converted copy. An in-place job has no
+// copy to cancel, so the stop behavior is pinned on real convert work.
 func TestCancelDuringConvertLeavesJobRunning(t *testing.T) {
 	helpers, _ := fixtureEnv(t)
 	f := makeFixtures(t)
@@ -1738,10 +1818,28 @@ func TestCancelDuringConvertLeavesJobRunning(t *testing.T) {
 	if err != nil || job == nil || job.ID != id {
 		t.Fatalf("Claim = %+v, %v", job, err)
 	}
-	for i := range 2 { // probe, plan; the job now sits at convert
+	for i := range 2 { // probe, plan
 		if done := h.w.processOne(context.Background(), id); done {
 			t.Fatalf("job finished after %d stages", i)
 		}
+	}
+	// The show stage publishes the original and requeues the job for its
+	// improvement; claim it again, now sitting at convert.
+	if done := h.w.processOne(context.Background(), id); done {
+		j, gerr := h.q.Get(id)
+		if gerr != nil {
+			t.Fatalf("Get: %v", gerr)
+		}
+		if j.State != jobs.StateQueued || j.Stage != StageConvert {
+			t.Fatalf("after show: state=%s stage=%s, want queued at convert", j.State, j.Stage)
+		}
+	}
+	job, err = h.q.Claim(JobKind)
+	if err != nil || job == nil || job.ID != id {
+		t.Fatalf("re-claim = %+v, %v", job, err)
+	}
+	if job.Stage != StageConvert || !h.payloadOf(t, id).Shown {
+		t.Fatalf("improvement job = %+v, want convert after the show phase", job)
 	}
 	// A quit, a kill or a power cut: the context dies and the worker stops
 	// mid-convert. The run must stop (leave the running job for Recover),
@@ -1760,8 +1858,8 @@ func TestCancelDuringConvertLeavesJobRunning(t *testing.T) {
 		t.Errorf("stage = %s, want convert", j.Stage)
 	}
 	assertLibraryClean(t, h.mediaDir)
-	if h.pub.Called() != 0 {
-		t.Errorf("published %d times before the job finished", h.pub.Called())
+	if h.pub.Called() != 1 {
+		t.Errorf("published %d times before the improve phase finished, want 1 (the show publish)", h.pub.Called())
 	}
 	// The next launch recovers the running job and it completes normally.
 	n, err := h.q.Recover()
@@ -1772,7 +1870,7 @@ func TestCancelDuringConvertLeavesJobRunning(t *testing.T) {
 		t.Fatalf("Recover requeued %d jobs, want 1", n)
 	}
 	h.runToEnd(t, id)
-	suit(t, h, id)
+	suitImprove(t, h, id, f.remuxMKV)
 }
 
 func TestLastOutTimeUS(t *testing.T) {
@@ -1787,5 +1885,325 @@ func TestLastOutTimeUS(t *testing.T) {
 	}
 	if got != 8_000_000 {
 		t.Errorf("lastOutTimeUS = %d, want 8000000", got)
+	}
+}
+
+// TestShowThenImprove pins the show-first contract end to end on a folder
+// video that needs a full re-encode: after the show phase the episode is on
+// the shelf playing its original (Owned false, File = the real path, no
+// conversion run yet), and after the improve phase the same episode id
+// points at the converted, app-owned copy.
+func TestShowThenImprove(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	h := newHarness(t, helpers)
+	before := sha256File(t, f.rotatedMP4)
+	id := h.enqueue(t, f.rotatedMP4)
+	// Show phase only: probe, plan, show.
+	h.runStages(t, id, 3)
+	if h.pub.Called() != 1 {
+		t.Fatalf("after the show phase, published %d times, want 1", h.pub.Called())
+	}
+	ep := h.pub.Published()[0]
+	if ep.Owned {
+		t.Errorf("show-phase episode Owned = true, want false")
+	}
+	if ep.File != f.rotatedMP4 {
+		t.Errorf("show-phase File = %q, want the original %q", ep.File, f.rotatedMP4)
+	}
+	if ep.DurationSec != 4 {
+		t.Errorf("show-phase DurationSec = %d, want 4 (from the probe)", ep.DurationSec)
+	}
+	pl := h.payloadOf(t, id)
+	if _, err := os.Stat(filepath.Join(h.mediaDir, "library", string(pl.EpisodeID)+".mp4")); !os.IsNotExist(err) {
+		t.Errorf("conversion ran during the show phase (err %v)", err)
+	}
+	// The improve phase swaps the same episode id to the converted copy.
+	h.runToEnd(t, id)
+	final, j := suitImprove(t, h, id, f.rotatedMP4)
+	if final.ID != ep.ID {
+		t.Fatalf("improve publish used episode %q, want %q", final.ID, ep.ID)
+	}
+	if !final.Owned {
+		t.Error("converted episode Owned = false, want true")
+	}
+	if want := filepath.Join(h.mediaDir, "library", string(ep.ID)+".mp4"); final.File != want {
+		t.Errorf("converted File = %q, want %q", final.File, want)
+	}
+	assertGoodMP4(t, helpers, final.File)
+	assertIntact(t, f.rotatedMP4, before)
+	assertLibraryClean(t, h.mediaDir)
+	if j.ReservedBytes != 0 {
+		t.Errorf("reservation not released: %d", j.ReservedBytes)
+	}
+}
+
+// TestFailedImprovementKeepsEpisode: when the improvement fails - convert or
+// verify - the episode stays published playing its original, is never
+// unpublished, and the job fails with the keep-as-is words.
+func TestFailedImprovementKeepsEpisode(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	for _, tc := range []struct {
+		name     string
+		run      func(ctx context.Context, name string, args ...string) ([]byte, error)
+		noOutput bool // the conversion itself failed, so no final copy exists
+	}{
+		{"convert", func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			return []byte("ffmpeg: invalid argument\n"), errors.New("exit status 1")
+		}, true},
+		{"verify", func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			// Fail only the through-the-end decode pass, which carries
+			// -xerror; the show thumbnail and the remux itself succeed.
+			for _, a := range args {
+				if a == "-xerror" {
+					return nil, errors.New("exit status 1")
+				}
+			}
+			return runCombined(ctx, name, args...)
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, helpers)
+			h.w.runCmd = tc.run
+			before := sha256File(t, f.remuxMKV)
+			id := h.enqueue(t, f.remuxMKV)
+			h.runToEnd(t, id)
+			j, err := h.q.Get(id)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if j.State != jobs.StateFailed {
+				t.Fatalf("state = %s, want %s", j.State, jobs.StateFailed)
+			}
+			if j.Error != msgKeepAsIs {
+				t.Errorf("error = %q, want the keep-as-is words %q", j.Error, msgKeepAsIs)
+			}
+			// The episode stays published with the original, unowned.
+			if h.pub.Called() != 1 {
+				t.Fatalf("published %d times, want exactly the one show publish", h.pub.Called())
+			}
+			if ep := h.pub.Published()[0]; ep.File != f.remuxMKV || ep.Owned {
+				t.Errorf("episode after the failed improvement = %+v, want the original %q, unowned", ep, f.remuxMKV)
+			}
+			if tc.noOutput {
+				if _, err := os.Stat(filepath.Join(h.mediaDir, "library", string(h.payloadOf(t, id).EpisodeID)+".mp4")); !os.IsNotExist(err) {
+					t.Errorf("converted output left for a failed conversion (err %v)", err)
+				}
+			}
+			assertIntact(t, f.remuxMKV, before)
+			assertLibraryClean(t, h.mediaDir)
+			// A retry replaces the failed job, exactly like today.
+			if _, err := h.q.Recover(); err != nil {
+				t.Fatalf("Recover: %v", err)
+			}
+		})
+	}
+}
+
+// TestClaimShowsBeforeImprovements pins the claim order a folder added next
+// week must see: show jobs (priority 0) claim before an older
+// already-shown job's improvement, no matter when either was enqueued.
+func TestClaimShowsBeforeImprovements(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	h := newHarness(t, helpers)
+	// B is an older job whose show phase already ran: it sits queued at
+	// convert, waiting for its (remux) improvement.
+	b := h.enqueue(t, f.remuxMKV)
+	h.runStages(t, b, 3) // probe, plan, show: requeued for its remux improvement
+	if j, _ := h.q.Get(b); j.Priority != prioRemux {
+		t.Fatalf("B priority = %d, want %d", j.Priority, prioRemux)
+	}
+	// A and C are fresh show jobs enqueued after B. They must be distinct
+	// files: Enqueue is idempotent per source, so three jobs enqueued for
+	// one path would be one job.
+	aFile := filepath.Join(t.TempDir(), "a.mkv")
+	cFile := filepath.Join(t.TempDir(), "c.mkv")
+	for _, dst := range []string{aFile, cFile} {
+		if b, err := os.ReadFile(f.remuxMKV); err != nil {
+			t.Fatalf("read remux fixture: %v", err)
+		} else if err := os.WriteFile(dst, b, 0o644); err != nil {
+			t.Fatalf("write remux copy: %v", err)
+		}
+	}
+	a := h.enqueue(t, aFile)
+	c := h.enqueue(t, cFile)
+	for i, want := range []string{a, c, b} {
+		job, err := h.q.Claim(JobKind)
+		if err != nil {
+			t.Fatalf("Claim %d: %v", i, err)
+		}
+		if job == nil || job.ID != want {
+			t.Fatalf("Claim %d = %+v, want %s (show jobs claim before older improvements)", i, job, want)
+		}
+	}
+}
+
+// TestImprovementPriorityOrder pins the ordering among improvements: audio
+// re-encodes first, then full re-encodes, then remuxes.
+func TestImprovementPriorityOrder(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	for _, tc := range []struct {
+		name         string
+		in           string
+		wantAction   Action
+		wantPriority int
+	}{
+		{"audio", f.ac3MKV, ActionAudio, prioAudio},
+		{"full", f.rotatedMP4, ActionFull, prioFull},
+		{"remux", f.remuxMKV, ActionRemux, prioRemux},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, helpers)
+			id := h.enqueue(t, tc.in)
+			h.runStages(t, id, 3) // probe, plan, show: requeued for its improvement
+			j, err := h.q.Get(id)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if j.State != jobs.StateQueued || j.Stage != StageConvert {
+				t.Fatalf("after show: state=%s stage=%s, want queued at convert", j.State, j.Stage)
+			}
+			if j.Priority != tc.wantPriority {
+				t.Errorf("priority = %d, want %d for %s", j.Priority, tc.wantPriority, tc.wantAction)
+			}
+		})
+	}
+}
+
+// TestSafariSettingRemux decides the remux improvement by the household
+// setting: off, an MKV with H.264+AAC is published in place and the job is
+// done with no conversion; on, it is published in place first and remuxed
+// later, with the remux improvement priority.
+func TestSafariSettingRemux(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	t.Run("off", func(t *testing.T) {
+		h := newHarness(t, helpers)
+		h.w.WithSafariSetting(func(context.Context) (bool, error) { return false, nil })
+		before := sha256File(t, f.remuxMKV)
+		id := h.enqueue(t, f.remuxMKV)
+		h.runToEnd(t, id)
+		ep, j := suit(t, h, id) // exactly one publish: final in place
+		if ep.File != f.remuxMKV {
+			t.Errorf("File = %q, want the original %q (published in place)", ep.File, f.remuxMKV)
+		}
+		if ep.Owned {
+			t.Error("Owned = true, want false")
+		}
+		pl := h.payloadOf(t, id)
+		if _, err := os.Stat(filepath.Join(h.mediaDir, "library", string(pl.EpisodeID)+".mp4")); !os.IsNotExist(err) {
+			t.Errorf("conversion ran with the Safari setting off (err %v)", err)
+		}
+		if j.Priority != 0 {
+			t.Errorf("priority = %d, want 0 (no improvement job)", j.Priority)
+		}
+		if j.Attempts != 0 {
+			t.Errorf("attempts = %d, want 0 (never requeued)", j.Attempts)
+		}
+		assertIntact(t, f.remuxMKV, before)
+		assertLibraryClean(t, h.mediaDir)
+	})
+	t.Run("on", func(t *testing.T) {
+		h := newHarness(t, helpers)
+		id := h.enqueue(t, f.remuxMKV)
+		h.runStages(t, id, 3)
+		if j, _ := h.q.Get(id); j.Priority != prioRemux {
+			t.Fatalf("improvement priority = %d, want %d", j.Priority, prioRemux)
+		}
+		h.runToEnd(t, id)
+		suitImprove(t, h, id, f.remuxMKV)
+	})
+}
+
+// TestRecoveredImprovementNeverShownShowsFirst simulates a job from before
+// the show-first change: it was running at its (old) convert stage with a
+// payload that carries no shown marker. After Recover it must do the show
+// phase first (publish the original) and only then convert.
+func TestRecoveredImprovementNeverShownShowsFirst(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	h := newHarness(t, helpers)
+	id := h.enqueue(t, f.remuxMKV)
+	job, err := h.q.Claim(JobKind)
+	if err != nil || job == nil || job.ID != id {
+		t.Fatalf("Claim = %+v, %v", job, err)
+	}
+	for i := range 2 { // probe, plan
+		if done := h.w.processOne(context.Background(), id); done {
+			t.Fatalf("job finished after %d stages", i)
+		}
+	}
+	// Rewind to the old convert stage, as a job killed before the
+	// show-first change would look: Action planned, nothing shown.
+	if err := h.q.Advance(id, StageConvert, h.payloadOf(t, id)); err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if _, err := h.q.Recover(); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	h.runToEnd(t, id)
+	suitImprove(t, h, id, f.remuxMKV)
+}
+
+// TestYouTubeRecoveredAfterPublishPublishesOnce pins the legacy skip in
+// stagePublish: a YouTube job recovered at the publish stage with the old
+// Published marker must finish without publishing a second time - the
+// YouTube path stays download -> convert -> publish once.
+func TestYouTubeRecoveredAfterPublishPublishesOnce(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	h := newHarness(t, helpers)
+	id, err := h.iq.Enqueue(context.Background(), f.keep, core.Source{
+		Kind:  core.SourceYouTube,
+		Path:  "https://www.youtube.com/watch?v=abc123",
+		Title: testTitle,
+		Show:  testShow,
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	job, err := h.q.Claim(JobKind)
+	if err != nil || job == nil || job.ID != id {
+		t.Fatalf("Claim = %+v, %v", job, err)
+	}
+	// Run probe, plan, convert, verify, thumbnail: the job now sits at the
+	// publish stage with a real converted file, exactly where a kill could
+	// leave it.
+	for i := range 5 {
+		if done := h.w.processOne(context.Background(), id); done {
+			t.Fatalf("job finished after %d stages", i)
+		}
+	}
+	if j, _ := h.q.Get(id); j.Stage != StagePublish {
+		t.Fatalf("stage = %s, want publish", j.Stage)
+	}
+	pl := h.payloadOf(t, id)
+	// The pre-show-first stagePublish persisted Published=true after its
+	// publish; a recovered call must not publish a second time.
+	pl.Published = true
+	if next, err := h.w.stagePublish(context.Background(), id, &pl); next != "" || err != nil {
+		t.Fatalf("stagePublish with the legacy Published marker = (%q, %v), want a no-op", next, err)
+	}
+	if h.pub.Called() != 0 {
+		t.Fatalf("legacy Published marker republished the episode")
+	}
+	// With no marker the stage does publish the converted, app-owned file.
+	pl.Published = false
+	if next, err := h.w.stagePublish(context.Background(), id, &pl); next != "" || err != nil {
+		t.Fatalf("stagePublish = (%q, %v)", next, err)
+	}
+	pubs := h.pub.Published()
+	if len(pubs) != 1 || !pubs[0].Owned {
+		t.Fatalf("published %+v, want the app-owned converted episode", pubs)
+	}
+	if err := h.q.Done(id); err != nil {
+		t.Fatalf("Done: %v", err)
+	}
+	ep, _ := suit(t, h, id)
+	if !ep.Owned {
+		t.Error("YouTube episode Owned = false, want true")
 	}
 }

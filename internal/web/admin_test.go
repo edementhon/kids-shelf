@@ -717,6 +717,26 @@ func TestAdminBudgets(t *testing.T) {
 	}
 }
 
+func TestAdminSafariScreens(t *testing.T) {
+	ts, _, _ := newTestAdmin(t)
+	settings := state(t, ts)["settings"].(map[string]any)
+	if on := settings["safari_screens"]; on != true {
+		t.Errorf("safari_screens = %v, want the default true", on)
+	}
+	if resp, _ := post(t, ts.URL+"/api/admin/settings/safari", map[string]any{"on": false}); resp.StatusCode != http.StatusOK {
+		t.Errorf("safari off: status %d, want 200", resp.StatusCode)
+	}
+	if on := state(t, ts)["settings"].(map[string]any)["safari_screens"]; on != false {
+		t.Error("safari_screens should be false after the toggle")
+	}
+	if resp, _ := post(t, ts.URL+"/api/admin/settings/safari", map[string]any{"on": true}); resp.StatusCode != http.StatusOK {
+		t.Errorf("safari on: status %d, want 200", resp.StatusCode)
+	}
+	if on := state(t, ts)["settings"].(map[string]any)["safari_screens"]; on != true {
+		t.Error("safari_screens should be true after the toggle back")
+	}
+}
+
 func TestAdminDefaultMinutes(t *testing.T) {
 	ts, _, _ := newTestAdmin(t)
 	if m := state(t, ts)["default_minutes"]; m != float64(10) {
