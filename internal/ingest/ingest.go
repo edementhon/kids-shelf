@@ -1174,6 +1174,21 @@ func runCombined(ctx context.Context, name string, args ...string) ([]byte, erro
 	return out, err
 }
 
+// runStdout runs a helper and returns its standard output alone; standard
+// error only goes into the error when the helper fails. ffprobe prints
+// warnings on stderr even when it succeeds, and mixed into its JSON they
+// made perfectly readable files look damaged.
+func runStdout(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := proc.CommandContext(ctx, name, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return out, fmt.Errorf("%w: %s", err, bytes.TrimSpace(stderr.Bytes()))
+	}
+	return out, nil
+}
+
 // libraryDir is where converted episodes and thumbnails land.
 func (w *Worker) libraryDir() string {
 	return filepath.Join(w.mediaDir, "library")

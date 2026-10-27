@@ -143,17 +143,23 @@ On the parent page, click **Add videos & libraries**:
   kids-shelf downloads every video and keeps a copy, so the kids never see YouTube itself.
 - **Add a folder or NAS share**: type the path to a folder of videos and click **Add folder**.
   kids-shelf looks through it right away, and every video it can read appears on the shelf
-  within minutes, playing your own file. **Scan now** picks up videos you add later.
+  within minutes. **Scan now** picks up videos you add later.
 - **Offline libraries**: search for a library (Wikipedia, Vikidia, PhET science simulations and
   others) and click **Download**.
 
 ## How much space
 
-Every video from a folder plays from where it is, straight away. A video browsers cannot play
-well as it is (for example one with Dolby or DTS sound, which plays silent, or HEVC video, which
-may play black) also gets a better copy, made slowly in the background, and the shelf switches
-to that copy when it is ready. kids-shelf never changes or deletes your own files. Videos
-downloaded from YouTube live in kids-shelf's own folder.
+Videos that browsers play well as they are (most MP4 files) play from where they are, with no
+copy. A video browsers cannot play well (for example one with Dolby or DTS sound, which would
+play silent, or HEVC video, which may play black) appears on the shelf marked **Getting ready**
+while kids-shelf makes a better copy in the background; the quick fixes come first and the long
+ones last, and the episode starts playing once its copy is done. The **Fixing videos** card on
+the **Add videos & libraries** page shows how many are waiting. kids-shelf never changes or
+deletes your own files. Videos downloaded from YouTube live in kids-shelf's own folder.
+
+Making those copies is hard work for the computer. kids-shelf uses the computer's graphics chip
+when it can, which is much faster; Settings on the parent page shows which it uses under
+**Use the graphics chip to convert videos**.
 
 MKV files need a copy only for iPads, iPhones and Macs using Safari, which cannot open them. If
 none of your screens use Safari, untick **Some screens are iPads, iPhones or Macs using Safari**

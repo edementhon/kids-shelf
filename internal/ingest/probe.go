@@ -161,7 +161,7 @@ func (p ProbeInfo) MarshalJSON() ([]byte, error) {
 // missing - surfaces as a non-nil error. It is exported for cmd/ks-survey,
 // which probes whole folders with the exact same helper call ingest uses.
 func ProbeFile(ctx context.Context, ffprobe, path string) (*ProbeInfo, error) {
-	out, err := runCombined(ctx, ffprobe,
+	out, err := runStdout(ctx, ffprobe,
 		"-v", "error", "-print_format", "json", "-show_format", "-show_streams", path)
 	if err != nil {
 		return nil, fmt.Errorf("ingest: probe %s: %w", path, err)

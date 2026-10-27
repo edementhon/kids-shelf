@@ -498,7 +498,7 @@ EOF
         --disable-everything --disable-autodetect --disable-doc --disable-network \
         --disable-stripping --enable-gpl --enable-static --disable-shared --enable-libx264 \
         ${HW_OPTS[@]+"${HW_OPTS[@]}"} \
-        --enable-decoder=h264,hevc,aac,ac3,eac3,dca,mp3,vp9,av1,mpeg4,opus${HW_DECODERS:+,$HW_DECODERS} \
+        --enable-decoder=h264,hevc,aac,ac3,eac3,dca,mp3,mp2,vorbis,flac,vp9,av1,mpeg4,opus${HW_DECODERS:+,$HW_DECODERS} \
         --enable-encoder=libx264,aac,mjpeg,wrapped_avframe,pcm_s16le${HW_ENCODERS:+,$HW_ENCODERS} \
         --enable-parser=aac,ac3,dca,h264,hevc,mpeg4video,mpegaudio,opus,vp9,av1 \
         --enable-demuxer=mov,matroska,mpegts,avi \
@@ -715,7 +715,7 @@ EOF
           --disable-stripping --disable-ffplay --disable-ffprobe --enable-indev=lavfi \
           --enable-gpl --enable-static --disable-shared --enable-libx264 \
           --enable-libvpl --enable-ffnvcodec --enable-nvenc --enable-vaapi \
-          --enable-decoder=h264,hevc,aac,ac3,eac3,dca,mp3,vp9,av1,mpeg4,opus,wrapped_avframe \
+          --enable-decoder=h264,hevc,aac,ac3,eac3,dca,mp3,mp2,vorbis,flac,vp9,av1,mpeg4,opus,wrapped_avframe \
           --enable-encoder=libx264,aac,mjpeg,wrapped_avframe,pcm_s16le,h264_vaapi,h264_nvenc,h264_qsv \
           --enable-parser=aac,ac3,dca,h264,hevc,mpeg4video,mpegaudio,opus,vp9,av1 \
           --enable-demuxer=mov,matroska,mpegts,avi \

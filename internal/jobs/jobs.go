@@ -371,6 +371,38 @@ func (q *Queue) Recover() (int, error) {
 	return int(n), nil
 }
 
+// RetryFailedSources puts failed jobs of kind whose payload's source kind
+// (the "source"."Kind" key: ingest payloads embed core.Source, which has no
+// JSON tags) is one of sourceKinds back at the start of the queue: queued,
+// no stage, no error, no attempts, priority 0. It returns how many. The app
+// calls it once per new app version, because an update may carry the fix
+// for what made them fail, and failed folder videos have no Retry button.
+func (q *Queue) RetryFailedSources(kind string, sourceKinds ...string) (int, error) {
+	if len(sourceKinds) == 0 {
+		return 0, nil
+	}
+	in := "?"
+	for range sourceKinds[1:] {
+		in += ", ?"
+	}
+	args := []any{q.now().UTC().Format(time.RFC3339Nano), kind}
+	for _, k := range sourceKinds {
+		args = append(args, k)
+	}
+	res, err := q.store.DB().Exec(`
+UPDATE jobs SET state = 'queued', stage = '', error = '', attempts = 0, priority = 0, updated = ?
+WHERE kind = ? AND state = 'failed'
+  AND json_extract(payload, '$.source.Kind') IN (`+in+`)`, args...)
+	if err != nil {
+		return 0, fmt.Errorf("jobs: retry failed: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("jobs: retry failed: %w", err)
+	}
+	return int(n), nil
+}
+
 // Requeue moves a running job back to queued at the given stage and
 // priority, so the worker's claim ends and the queue hands the job out
 // again by its new ordering. The ingest show phase requeues a published

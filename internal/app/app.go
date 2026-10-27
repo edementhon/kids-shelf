@@ -316,6 +316,13 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	if _, err := queue.Recover(); err != nil {
 		return fail("recover jobs", err)
 	}
+	if n, err := retryFailedAfterUpgrade(st, queue, cfg.Version); err != nil {
+		// A failed retry bookkeeping step never blocks startup: the
+		// videos simply stay failed until the next version.
+		logf("retry failed videos after the update: %v", err)
+	} else if n > 0 {
+		logf("trying %d videos that failed before again, after the update to %s", n, cfg.Version)
+	}
 
 	b, err := budget.New(st)
 	if err != nil {

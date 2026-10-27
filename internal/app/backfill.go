@@ -34,4 +34,14 @@ FROM (
 WHERE episodes.id = j.episode
   AND episodes.app_owned = 0
   AND episodes.issue = '' AND episodes.fix = '';`,
+}, {
+	// v2: small key/value state the app keeps for itself; first key
+	// "retried_version" (retryFailedAfterUpgrade).
+	Owner:   "app",
+	Version: 2,
+	SQL: `
+CREATE TABLE app_state (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);`,
 }}
