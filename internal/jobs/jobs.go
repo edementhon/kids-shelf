@@ -85,24 +85,32 @@ ALTER TABLE jobs ADD COLUMN fs_key TEXT NOT NULL DEFAULT '';`,
 	// always claims before an already-visible video's conversion (1-3), no
 	// matter how old the conversion is. See internal/ingest.
 	//
-	// The same migration gives failed folder/NAS ingest jobs from before
-	// the show-first change a second chance: their files are readable by
-	// ffprobe (the old rules could fail them on decode checks the show
-	// phase no longer runs), so they are requeued at the start with no
-	// stage and no error and take the new show-then-improve path. The
-	// source kind lives in the payload JSON, which SQLite's json_extract
-	// reads; jobs whose payload does not decode stay failed. This runs
-	// exactly once because Migrate records the (owner, version) pair.
+	// v4 first shipped with the second-chance UPDATE that v5 now holds, but
+	// matching '$.source.kind': ingest payloads embed core.Source, which has
+	// no JSON tags, so the key is "Kind" and SQLite's JSON paths are case
+	// sensitive. That UPDATE never matched a real job anywhere it ran, so
+	// removing it here changes no database.
 	Owner:   "jobs",
 	Version: 4,
 	SQL: `
-ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
-
+ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;`,
+}, {
+	// A second chance for folder/NAS ingest jobs that failed before the
+	// show-first change: their files are readable by ffprobe (the old rules
+	// could fail them on decode checks the show phase no longer runs), so
+	// they are requeued at the start with no stage and no error and take
+	// the show-then-improve path. Only jobs that were never shown: a failed
+	// improvement already left its episode on the shelf and keeps its
+	// failure. This runs once (Migrate records the owner and version).
+	Owner:   "jobs",
+	Version: 5,
+	SQL: `
 UPDATE jobs
-SET state = 'queued', stage = '', error = '', attempts = 0,
+SET state = 'queued', stage = '', error = '', attempts = 0, priority = 0,
     updated = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE kind = 'ingest' AND state = 'failed'
-  AND json_extract(payload, '$.source.kind') IN ('folder', 'nas');`,
+  AND json_extract(payload, '$.source.Kind') IN ('folder', 'nas')
+  AND COALESCE(json_extract(payload, '$.shown'), 0) = 0;`,
 }}
 
 // ErrNotFound is returned by Get when no job has the requested id.

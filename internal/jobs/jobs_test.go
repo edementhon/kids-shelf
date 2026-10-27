@@ -1,12 +1,14 @@
 package jobs
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
 
+	"github.com/edementhon/kids-shelf/internal/core"
 	"github.com/edementhon/kids-shelf/internal/store"
 )
 
@@ -555,11 +557,13 @@ func TestClaimOrdersByPriorityThenSeq(t *testing.T) {
 	}
 }
 
-// TestFailedFolderJobsRequeuedByMigration pins the v4 migration's second
-// chance: ingest jobs failed under the old rules (their folder/NAS source
-// is readable from the payload JSON) are requeued at the start, staged for
-// the new show phase with no error and priority 0; failed YouTube jobs keep
-// their failure (they have their own Retry button).
+// TestFailedFolderJobsRequeuedByMigration pins the second chance (v5):
+// ingest jobs failed under the old rules with a folder/NAS source are
+// requeued at the start, staged for the show phase with no error and
+// priority 0; failed YouTube jobs and failed improvements (already shown)
+// keep their failure. The payloads are marshalled from core.Source, the
+// shape ingest really writes: its fields carry no JSON tags, so the key is
+// "Kind", and v4's first version matched "kind" and never fired.
 func TestFailedFolderJobsRequeuedByMigration(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "test.sqlite"))
 	if err != nil {
@@ -571,27 +575,36 @@ func TestFailedFolderJobsRequeuedByMigration(t *testing.T) {
 		t.Fatalf("migrate v1-v3: %v", err)
 	}
 	now := "2026-10-01T00:00:00Z"
-	insert := func(id, payload string) {
+	insert := func(id string, src core.Source, shown bool) {
 		t.Helper()
+		payload, err := json.Marshal(struct {
+			File   string      `json:"file"`
+			Source core.Source `json:"source"`
+			Shown  bool        `json:"shown,omitempty"`
+		}{src.Path, src, shown})
+		if err != nil {
+			t.Fatal(err)
+		}
 		if _, err := s.DB().Exec(
 			`INSERT INTO jobs (id, kind, stage, state, payload, error, created, updated, seq)
 			 VALUES (?, 'ingest', 'convert', 'failed', ?, 'something broke', ?, ?, 1)`,
-			id, payload, now, now,
+			id, string(payload), now, now,
 		); err != nil {
 			t.Fatalf("insert %s: %v", id, err)
 		}
 	}
-	insert("folder", `{"file":"/mnt/a.mkv","source":{"kind":"folder","path":"/mnt/a.mkv","title":"A","show":"S"}}`)
-	insert("nas", `{"file":"/nas/b.mp4","source":{"kind":"nas","path":"/nas/b.mp4","title":"B","show":"S"}}`)
-	insert("youtube", `{"file":"/dl/c.mp4","source":{"kind":"youtube","path":"https://www.youtube.com/watch?v=abc","title":"C","show":"S"}}`)
+	insert("folder", core.Source{Kind: core.SourceFolder, Path: "/mnt/a.mkv", Title: "A", Show: "S"}, false)
+	insert("nas", core.Source{Kind: core.SourceNAS, Path: "/nas/b.mp4", Title: "B", Show: "S"}, false)
+	insert("youtube", core.Source{Kind: core.SourceYouTube, Path: "https://www.youtube.com/watch?v=abc", Title: "C", Show: "S"}, false)
+	insert("shown", core.Source{Kind: core.SourceFolder, Path: "/mnt/d.mkv", Title: "D", Show: "S"}, true)
 
-	// The new migration: priority column plus the one-time requeue.
+	// The show-first migrations: priority column, then the requeue.
 	if err := s.Migrate(Migrations[3:]...); err != nil {
-		t.Fatalf("migrate v4: %v", err)
+		t.Fatalf("migrate v4-v5: %v", err)
 	}
-	// Applying it again is a no-op (recorded in schema_migrations).
+	// Applying them again is a no-op (recorded in schema_migrations).
 	if err := s.Migrate(Migrations[3:]...); err != nil {
-		t.Fatalf("re-migrate v4: %v", err)
+		t.Fatalf("re-migrate v4-v5: %v", err)
 	}
 	q, err := New(s)
 	if err != nil {
@@ -604,6 +617,7 @@ func TestFailedFolderJobsRequeuedByMigration(t *testing.T) {
 		{"folder", StateQueued, "", "", 0, 0},
 		{"nas", StateQueued, "", "", 0, 0},
 		{"youtube", StateFailed, "convert", "something broke", 0, 0},
+		{"shown", StateFailed, "convert", "something broke", 0, 0},
 	} {
 		j, err := q.Get(tc.id)
 		if err != nil {
