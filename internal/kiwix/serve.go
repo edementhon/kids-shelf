@@ -1,8 +1,9 @@
 // The kiwix-serve supervisor. It keeps one kiwix-serve process running on
 // the loopback interface for the installed ZIMs, restarts it when the
-// installed set changes (Sync) or the process crashes (with a backoff),
-// and exposes the process's base URL through Backend while it is up and
-// ready, so the app can proxy the /kiwix/ routes to it.
+// installed set changes (Sync), the ZIM files on disk change (a periodic
+// recheck) or the process crashes (with a backoff), and exposes the
+// process's base URL through Backend while it is up and ready, so the app
+// can proxy the /kiwix/ routes to it.
 package kiwix
 
 import (
@@ -14,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -33,6 +33,11 @@ const (
 	portAttempts       = 3               // fresh ports tried per launch before giving up
 	lineLogBufferCap   = 64 << 10        // a line longer than this is flushed as-is
 	readyClientTimeout = 2 * time.Second
+	// fileRecheck is how often the supervisor looks at the ZIM files on
+	// disk again on its own: a file that comes back (a drive plugged in
+	// again) is served, and a running set that no longer matches the disk
+	// is restarted, without waiting for an install or a removal.
+	fileRecheck = 20 * time.Second
 )
 
 // Server supervises one kiwix-serve process for the installed ZIMs. bin is
@@ -43,6 +48,8 @@ const (
 type Server struct {
 	bin   string
 	books func() ([]Installed, error)
+	// recheck is the fileRecheck pacing; tests shorten it before Run.
+	recheck time.Duration
 
 	mu      sync.Mutex
 	started bool
@@ -64,7 +71,7 @@ type Server struct {
 // supervisor does not start until Run is called.
 func NewServer(bin string, books func() ([]Installed, error)) *Server {
 	return &Server{
-		bin: bin, books: books,
+		bin: bin, books: books, recheck: fileRecheck,
 		syncCh: make(chan struct{}, 1), stateCh: make(chan struct{}, 1),
 		quiescedCh: make(chan struct{}),
 	}
@@ -232,11 +239,13 @@ func (s *Server) Run(ctx context.Context) {
 		books, ok := s.list()
 		if !ok || len(books) == 0 {
 			// Nothing to serve: no books, the lookup failed, or the binary
-			// is gone. Stay down until the set changes or ctx ends.
+			// is gone. Stay down until the set changes, ctx ends, or the
+			// next file recheck finds something to serve (a missing file
+			// that came back needs no install to bring the server up).
 			s.setBackend("")
 			backoff = 0
 			healthySince = time.Time{}
-			if !waitSignal(ctx, s.syncCh, s.stateCh) {
+			if !waitSignalOrSleep(ctx, s.syncCh, s.stateCh, s.recheck) {
 				return
 			}
 			continue
@@ -258,31 +267,25 @@ func (s *Server) Run(ctx context.Context) {
 
 		s.setBackend(kp.base)
 		healthySince = time.Now()
-		select {
-		case <-ctx.Done():
+		switch s.waitServing(ctx, kp, books) {
+		case servingDone:
 			// exec.CommandContext kills the process with ctx; wait for the
 			// exit so Run only returns once the process is gone.
 			s.setBackend("")
 			<-kp.exited
 			return
-		case <-s.syncCh:
-			// The installed set changed: restart with the new list. The
-			// moment the restart begins, the backend goes away.
+		case servingRestart:
+			// The installed set or the files on disk changed, or a pause
+			// request landed mid-serve: stop the process. The loop head
+			// decides whether to hold (paused, possibly resumed in the
+			// meantime) or restart with the current list. The moment the
+			// restart begins, the backend goes away.
 			s.setBackend("")
 			stopProc(kp)
 			backoff = 0 // a deliberate restart is not a crash
 			healthySince = time.Time{}
 			continue
-		case <-s.stateCh:
-			// A pause request landed mid-serve: stop the process; the loop
-			// head decides whether to hold (paused, possibly resumed in the
-			// meantime) or restart with the current list.
-			s.setBackend("")
-			stopProc(kp)
-			backoff = 0 // a deliberate stop is not a crash
-			healthySince = time.Time{}
-			continue
-		case <-kp.exited:
+		case servingExited:
 			// The process died on its own: clear the backend and restart
 			// with a backoff, doubling until the process survives long
 			// enough to prove it is healthy again.
@@ -296,6 +299,52 @@ func (s *Server) Run(ctx context.Context) {
 			continue
 		}
 	}
+}
+
+// What ended a waitServing wait.
+const (
+	servingDone    = iota // ctx ended
+	servingRestart        // Sync, a pause/resume ping, or the files on disk changed
+	servingExited         // the process died on its own
+)
+
+// waitServing holds while kp serves books and reports what ended the wait.
+// Every recheck it lists the files on disk again; a set that differs from
+// the one kp was started with (a file came back or went away) ends the
+// wait like a Sync, so the server follows the disk on its own.
+func (s *Server) waitServing(ctx context.Context, kp *kiwixProc, books []Installed) int {
+	for {
+		select {
+		case <-ctx.Done():
+			return servingDone
+		case <-s.syncCh:
+			return servingRestart
+		case <-s.stateCh:
+			return servingRestart
+		case <-kp.exited:
+			return servingExited
+		case <-time.After(s.recheck):
+			now, _ := s.list()
+			if !sameFiles(now, books) {
+				log.Printf("kiwix-serve: the library files on disk changed; restarting")
+				return servingRestart
+			}
+		}
+	}
+}
+
+// sameFiles reports whether a and b name the same ZIM files in the same
+// order (list keeps the installed order, so a reorder is a real change).
+func sameFiles(a, b []Installed) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].File != b[i].File {
+			return false
+		}
+	}
+	return true
 }
 
 // list returns the installed ZIMs whose files exist on disk, or ok=false
@@ -332,46 +381,6 @@ type kiwixProc struct {
 	exited <-chan struct{}
 }
 
-// customIndex returns the path of the "back to the app" home page for
-// kiwix-serve's --customIndex, or "" when the app's public port is unknown
-// (a kiwix-serve run outside the launcher) or no library directory exists
-// to write it into. The page is written next to the ZIMs, atomically, and
-// sends the kid's browser back to /libraries on the app origin: the host is
-// the one the browser is already using, and the app's public port comes
-// from the launcher's KS_PUBLIC_PORT.
-func (s *Server) customIndex(books []Installed) string {
-	appPort := os.Getenv("KS_PUBLIC_PORT")
-	if appPort == "" {
-		return ""
-	}
-	for _, b := range books {
-		if b.File == "" {
-			continue
-		}
-		path := filepath.Join(filepath.Dir(b.File), "kiwix-index.html")
-		if err := writeCustomIndex(path, appPort); err != nil {
-			// The home link is a nicety: a page that cannot be written must
-			// not stop kiwix-serve from serving.
-			log.Printf("kiwix-serve: writing the libraries home page %s: %v", path, err)
-			return ""
-		}
-		return path
-	}
-	return ""
-}
-
-// writeCustomIndex writes one kiwix-index.html atomically (temp file +
-// rename): a tiny page whose script sends the browser to /libraries on the
-// app origin (location.hostname is the host the kid is already on).
-func writeCustomIndex(path, appPort string) error {
-	page := []byte(fmt.Sprintf("<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Back to Kids Shelf</title></head>\n<body>\n<script>\n// kiwix-serve serves this page on the libraries origin; the kid's\n// libraries live at /libraries on the app origin: the same host the\n// browser is already on, on the app's public port %s.\nlocation.replace(location.protocol + '//' + location.hostname + ':' + %s + '/libraries');\n</script>\n</body>\n</html>\n", appPort, appPort))
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, page, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
 // launch starts kiwix-serve for books on a free loopback port, polls until
 // it answers /kiwix/ with 200, and returns the running process. A launch
 // that fails (no free port, it never becomes ready, it dies immediately)
@@ -379,7 +388,10 @@ func writeCustomIndex(path, appPort string) error {
 // The returned process's exited channel closes when the process exits.
 func (s *Server) launch(ctx context.Context, books []Installed) (*kiwixProc, error) {
 	var lastErr error
-	customIndex := s.customIndex(books)
+	// --blockexternal makes the viewer send every outside link to
+	// /kiwix/catch/external, which the app's libraries origin answers with
+	// its own page (no link out). The app also answers /kiwix/ itself, so
+	// kiwix-serve's welcome page is never shown to a kid.
 	for range portAttempts {
 		port, err := freePort()
 		if err != nil {
@@ -393,9 +405,6 @@ func (s *Server) launch(ctx context.Context, books []Installed) (*kiwixProc, err
 			"--blockexternal",
 			"--skipInvalid",
 			fmt.Sprintf("--attachToProcess=%d", os.Getpid()),
-		}
-		if customIndex != "" {
-			args = append(args, "--customIndex="+customIndex)
 		}
 		for _, b := range books {
 			args = append(args, b.File)
@@ -488,23 +497,10 @@ func nextBackoff(cur time.Duration, healthySince time.Time) time.Duration {
 	return cur
 }
 
-// waitSignal waits for a Sync request, a pause/resume state change, or ctx.
-// It reports false when ctx ended.
-func waitSignal(ctx context.Context, syncCh, stateCh <-chan struct{}) bool {
-	select {
-	case <-ctx.Done():
-		return false
-	case <-syncCh:
-		return true
-	case <-stateCh:
-		return true
-	}
-}
-
 // waitSignalOrSleep waits for a Sync request, a pause/resume state change,
-// the backoff timer, or ctx. It reports false when ctx ended. A Sync cuts
-// the wait short; the caller re-reads the set, so the latest state still
-// wins.
+// the timer (a crash backoff or a file recheck), or ctx. It reports false
+// when ctx ended. A Sync cuts the wait short; the caller re-reads the set,
+// so the latest state still wins.
 func waitSignalOrSleep(ctx context.Context, syncCh, stateCh <-chan struct{}, d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()

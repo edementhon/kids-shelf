@@ -453,3 +453,221 @@ func TestSourcesCRUD(t *testing.T) {
 		t.Errorf("Sources after remove = %+v, want empty", srcs)
 	}
 }
+
+// TestScannerLooseFilesFormRootShow: videos placed straight in an added
+// folder were silently ignored (one show had to be one subfolder). They now
+// join a show named after the folder itself, with the usual skip rules and
+// the allowlist naming that show.
+func TestScannerLooseFilesFormRootShow(t *testing.T) {
+	lib := newTestLibrary(t)
+	root := filepath.Join(t.TempDir(), "Cartoons")
+	writeFile(t, filepath.Join(root, "Cartoon.mp4"), "v")
+	writeFile(t, filepath.Join(root, "#skip.mp4"), "v")
+	writeFile(t, filepath.Join(root, ".hidden.mp4"), "v")
+	writeFile(t, filepath.Join(root, "notes.txt"), "not a video")
+	writeFile(t, filepath.Join(root, "Bluey", "ep1.mp4"), "v")
+	if err := lib.AddSource(context.Background(), root, core.SourceFolder, nil); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+	q := core.NewFakeIngestQueue(nil)
+	n, err := lib.ScanNew(context.Background(), q)
+	if err != nil {
+		t.Fatalf("ScanNew: %v", err)
+	}
+	if n != 2 || q.Enqueued() != 2 {
+		t.Fatalf("scan handed over %d (queue saw %d), want 2", n, q.Enqueued())
+	}
+	var loose *core.EnqueueCall
+	for _, c := range q.Calls() {
+		if c.Source.Path == filepath.ToSlash(filepath.Join(root, "Cartoon.mp4")) {
+			loose = &c
+		}
+	}
+	if loose == nil {
+		t.Fatalf("the loose video was not enqueued: %+v", q.Calls())
+	}
+	if loose.Source.Show != "Cartoons" || loose.Source.Title != "Cartoon" {
+		t.Errorf("loose video show/title = %q/%q, want Cartoons/Cartoon", loose.Source.Show, loose.Source.Title)
+	}
+
+	// Nothing changed: nothing new, and ScanNew says so.
+	if n, err := lib.ScanNew(context.Background(), q); err != nil || n != 0 {
+		t.Fatalf("second ScanNew = %d, %v; want 0 new", n, err)
+	}
+
+	// A later loose file is found once the root's mtime changes.
+	writeFile(t, filepath.Join(root, "Second.mkv"), "v")
+	bumpMtime(t, root)
+	if n, err := lib.ScanNew(context.Background(), q); err != nil || n != 1 {
+		t.Fatalf("ScanNew after a new loose file = %d, %v; want 1", n, err)
+	}
+
+	// An allowlist limits loose files by the root show's name.
+	lib2 := newTestLibrary(t)
+	if err := lib2.AddSource(context.Background(), root, core.SourceFolder, []string{"Bluey"}); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+	q2 := core.NewFakeIngestQueue(nil)
+	if err := lib2.Scan(context.Background(), q2); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if q2.Enqueued() != 1 || q2.Calls()[0].Source.Show != "Bluey" {
+		t.Errorf("allowlist [Bluey] enqueued %+v, want only Bluey/ep1.mp4", q2.Calls())
+	}
+}
+
+func TestLooseShowName(t *testing.T) {
+	for in, want := range map[string]string{
+		"/media/Kids":  "Kids",
+		"/media/Kids/": "Kids",
+		"/":            "Videos",
+	} {
+		if got := looseShowName(in); got != want {
+			t.Errorf("looseShowName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// retryQueue is an ingest queue with the real queue's failure rule:
+// Enqueue returns the live job of a source, and only a failed job is
+// replaced by a new one.
+type retryQueue struct {
+	next   int
+	src    map[string]core.Source
+	failed map[string]bool
+	ep     map[string]core.EpisodeID
+	calls  []string // job ids handed out by Enqueue, in order
+}
+
+func newRetryQueue() *retryQueue {
+	return &retryQueue{src: map[string]core.Source{}, failed: map[string]bool{}, ep: map[string]core.EpisodeID{}}
+}
+
+func (q *retryQueue) Enqueue(ctx context.Context, file string, src core.Source) (string, error) {
+	for id, s := range q.src {
+		if s.Kind == src.Kind && s.Path == src.Path && !q.failed[id] {
+			q.calls = append(q.calls, id)
+			return id, nil
+		}
+	}
+	q.next++
+	id := "job-" + string(rune('0'+q.next))
+	q.src[id] = src
+	q.calls = append(q.calls, id)
+	return id, nil
+}
+
+func (q *retryQueue) IngestStatus(ctx context.Context, id string) (core.EpisodeID, bool, error) {
+	if q.failed[id] {
+		return "", true, nil
+	}
+	if ep, ok := q.ep[id]; ok {
+		return ep, true, nil
+	}
+	return "", false, nil
+}
+
+// TestScannerRetriesChangedFailedFile: a file whose conversion failed was
+// remembered forever, so replacing it with a good copy never brought it
+// back. Now a changed size or modification time gets a new job once the
+// old one failed, even when the folder's own mtime did not change (a copy
+// over the old file), and an unchanged broken file is left alone.
+func TestScannerRetriesChangedFailedFile(t *testing.T) {
+	ctx := context.Background()
+	lib := newTestLibrary(t)
+	root := t.TempDir()
+	show := filepath.Join(root, "Broken")
+	file := filepath.Join(show, "Bad.mp4")
+	writeFile(t, file, "broken")
+	if err := lib.AddSource(ctx, root, core.SourceFolder, nil); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+	q := newRetryQueue()
+	if n, err := lib.ScanNew(ctx, q); err != nil || n != 1 {
+		t.Fatalf("first ScanNew = %d, %v; want 1", n, err)
+	}
+	q.failed["job-1"] = true
+
+	// Unchanged and failed: not retried.
+	if n, err := lib.ScanNew(ctx, q); err != nil || n != 0 {
+		t.Fatalf("ScanNew of an unchanged failed file = %d, %v; want 0", n, err)
+	}
+
+	// The parent copies a good file over it; the folder's mtime stays.
+	dirInfo, err := os.Stat(show)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, file, "a good copy")
+	if err := os.Chtimes(show, dirInfo.ModTime(), dirInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := lib.ScanNew(ctx, q); err != nil || n != 1 {
+		t.Fatalf("ScanNew of a changed failed file = %d, %v; want 1", n, err)
+	}
+	if last := q.calls[len(q.calls)-1]; last != "job-2" {
+		t.Fatalf("changed file got job %q, want a new job-2", last)
+	}
+
+	// Changed while its job still runs: left alone, and retried once
+	// that job fails.
+	future := time.Now().Add(3 * time.Hour)
+	if err := os.Chtimes(file, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := lib.ScanNew(ctx, q); err != nil || n != 0 {
+		t.Fatalf("ScanNew while the job runs = %d, %v; want 0", n, err)
+	}
+	q.failed["job-2"] = true
+	if n, err := lib.ScanNew(ctx, q); err != nil || n != 1 {
+		t.Fatalf("ScanNew after the running job failed = %d, %v; want 1", n, err)
+	}
+	if last := q.calls[len(q.calls)-1]; last != "job-3" {
+		t.Fatalf("retry got job %q, want job-3", last)
+	}
+}
+
+// TestScannerNeverReaddsRemovedEpisode: a file whose job finished with an
+// episode the parent later removed is not enqueued again when it changes.
+func TestScannerNeverReaddsRemovedEpisode(t *testing.T) {
+	ctx := context.Background()
+	lib := newTestLibrary(t)
+	root := t.TempDir()
+	file := filepath.Join(root, "Show", "ep.mp4")
+	writeFile(t, file, "v")
+	if err := lib.AddSource(ctx, root, core.SourceFolder, nil); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+	q := newRetryQueue()
+	if n, err := lib.ScanNew(ctx, q); err != nil || n != 1 {
+		t.Fatalf("first ScanNew = %d, %v; want 1", n, err)
+	}
+	q.ep["job-1"] = "ep-1" // finished; no episode row (removed since)
+	writeFile(t, file, "changed")
+	future := time.Now().Add(3 * time.Hour)
+	if err := os.Chtimes(file, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := lib.ScanNew(ctx, q); err != nil || n != 0 {
+		t.Fatalf("ScanNew of a changed, finished file = %d, %v; want 0", n, err)
+	}
+}
+
+func TestCountVideos(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "loose.mp4"), "v")
+	writeFile(t, filepath.Join(root, "Show", "a.mkv"), "v")
+	writeFile(t, filepath.Join(root, "Show", "Season 1", "b.MP4"), "v")
+	writeFile(t, filepath.Join(root, "Show", "notes.txt"), "v")
+	writeFile(t, filepath.Join(root, "#old", "c.mp4"), "v")
+	writeFile(t, filepath.Join(root, ".hidden", "d.mp4"), "v")
+	if n, err := CountVideos(context.Background(), root); err != nil || n != 3 {
+		t.Fatalf("CountVideos = %d, %v; want 3", n, err)
+	}
+	if n, err := CountVideos(context.Background(), t.TempDir()); err != nil || n != 0 {
+		t.Fatalf("CountVideos(empty) = %d, %v; want 0", n, err)
+	}
+	if _, err := CountVideos(context.Background(), filepath.Join(root, "nope")); err == nil {
+		t.Fatal("CountVideos of a missing folder: want an error")
+	}
+}

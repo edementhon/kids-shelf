@@ -39,17 +39,16 @@ const (
 // hwCandidate is one opportunistic hardware H.264 encoder: which helper
 // binary runs it, the global device args (always placed before -i), the
 // video filter tail appended after the shared scale filter, and the
-// encoder's own options. bitrate marks the resolution-based encoders
-// (videotoolbox, Media Foundation, V4L2) that take -b:v instead of a
-// quality knob.
+// encoder's own options. Every candidate takes the resolution-based -b:v
+// average and a rate-control mode that honors the shared -maxrate and
+// -bufsize caps (see encArgs).
 type hwCandidate struct {
-	label   string
-	bin     string
-	global  []string
-	chain   string
-	vcodec  string
-	vopts   []string
-	bitrate bool
+	label  string
+	bin    string
+	global []string
+	chain  string
+	vcodec string
+	vopts  []string
 }
 
 // hwCandidates returns the running platform's hardware candidates (see
@@ -71,13 +70,13 @@ func hwCandidatesFor(goos, goarch string, dir *tools.Dir, devices []string) []hw
 			return nil
 		}
 		return []hwCandidate{{
-			label:   "Apple video engine (VideoToolbox)",
-			bin:     dir.FFmpeg,
-			vcodec:  "h264_videotoolbox",
-			bitrate: true,
+			label:  "Apple video engine (VideoToolbox)",
+			bin:    dir.FFmpeg,
+			vcodec: "h264_videotoolbox",
 			// -pix_fmt yuv420p: 8-bit 4:2:0 output, the only variant
 			// every target device decodes. -profile:v high: H.264
-			// High profile.
+			// High profile. The bitrate and the -maxrate cap become
+			// AverageBitRate and DataRateLimits (videotoolboxenc.c).
 			vopts: []string{"-pix_fmt", "yuv420p", "-profile:v", "high"},
 		}}
 	case "windows":
@@ -89,12 +88,7 @@ func hwCandidatesFor(goos, goarch string, dir *tools.Dir, devices []string) []hw
 				label:  "NVIDIA graphics (NVENC)",
 				bin:    dir.FFmpeg,
 				vcodec: "h264_nvenc",
-				// -preset p5: NVENC's slower, better-quality tier.
-				// -tune hq: high-quality tuning. -rc vbr: variable
-				// bitrate. -cq 23: constant-quality target, close
-				// to x264 CRF 21. -b:v 0: let the quality target
-				// set the bitrate, not a fixed average.
-				vopts: []string{"-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq", "23", "-b:v", "0"},
+				vopts:  nvencOpts,
 			},
 			{
 				label:  "Intel graphics (Quick Sync)",
@@ -107,25 +101,27 @@ func hwCandidatesFor(goos, goarch string, dir *tools.Dir, devices []string) []hw
 				// format=nv12,hwupload: 8-bit 4:2:0 frames into
 				// the device's frame pool.
 				chain: "format=nv12,hwupload",
-				// -global_quality 23: QSV's constant-quality knob,
-				// on the same 1-51 scale as x264 CRF.
-				vopts: []string{"-global_quality", "23"},
+				// No options of its own: a bitrate below the
+				// -maxrate cap and no -global_quality select VBR,
+				// which carries MaxKbps and the buffer size
+				// (qsvenc.c select_rc_mode); -global_quality
+				// would make it ICQ or CQP, which have no cap.
 			},
 			{
 				label:  "AMD graphics (AMF)",
 				bin:    dir.FFmpeg,
 				vcodec: "h264_amf",
 				// -quality balanced: AMF's speed-versus-size
-				// balance. -rc cqp: constant quantizer. -qp_i 22
-				// -qp_p 24: I-frame and P-frame quantizers near
-				// x264 CRF 21.
-				vopts: []string{"-quality", "balanced", "-rc", "cqp", "-qp_i", "22", "-qp_p", "24"},
+				// balance. -rc vbr_peak: peak-constrained VBR,
+				// the -b:v average under the -maxrate peak and
+				// the -bufsize VBV buffer (constant-QP mode would
+				// ignore all three).
+				vopts: []string{"-quality", "balanced", "-rc", "vbr_peak"},
 			},
 			{
-				label:   "Windows video encoder (Media Foundation)",
-				bin:     dir.FFmpeg,
-				vcodec:  "h264_mf",
-				bitrate: true,
+				label:  "Windows video encoder (Media Foundation)",
+				bin:    dir.FFmpeg,
+				vcodec: "h264_mf",
 				// -hw_encoding 1: only a hardware encoder will do
 				// (the default lets Media Foundation fall back to
 				// Microsoft's software one, which would pass the
@@ -133,8 +129,10 @@ func hwCandidatesFor(goos, goarch string, dir *tools.Dir, devices []string) []hw
 				// -profile:v high: H.264 High profile where Media
 				// Foundation exposes it; an encoder that does not
 				// take the option only warns and keeps its own
-				// default.
-				vopts: []string{"-hw_encoding", "1", "-profile:v", "high"},
+				// default. -rate_control pc_vbr: peak-constrained
+				// VBR, so the -maxrate cap (AVEncCommonMaxBitRate)
+				// applies.
+				vopts: []string{"-hw_encoding", "1", "-profile:v", "high", "-rate_control", "pc_vbr"},
 			},
 		}
 	case "linux":
@@ -160,16 +158,13 @@ func hwCandidatesFor(goos, goarch string, dir *tools.Dir, devices []string) []hw
 					// format=nv12,hwupload: 8-bit 4:2:0 frames
 					// into the device's frame pool.
 					chain: "format=nv12,hwupload",
-					// No -rc_mode: with a bitrate and a quality both
-					// set, ffmpeg tries QVBR, then ICQ, then CQP,
-					// whichever the driver supports (vaapi_encode.c
-					// "Rate control mode selection"). An explicit
-					// QVBR needs -b:v or ffmpeg refuses to start, and
-					// -qp only applies to CQP. -global_quality 23:
-					// the quality target, close to x264 CRF 21;
-					// bitrate: the resolution-based -b:v target.
-					bitrate: true,
-					vopts:   []string{"-global_quality", "23"},
+					// No -rc_mode and no -global_quality: with a
+					// bitrate below -maxrate and a -bufsize, ffmpeg
+					// tries VBR (capped at -maxrate under the HRD
+					// buffer), then CBR at -b:v, whichever the
+					// driver supports (vaapi_encode.c "Rate control
+					// mode selection"). A quality would try QVBR,
+					// then ICQ and CQP, which have no bitrate cap.
 				})
 			}
 			return append(cands,
@@ -177,7 +172,7 @@ func hwCandidatesFor(goos, goarch string, dir *tools.Dir, devices []string) []hw
 					label:  "NVIDIA graphics (NVENC)",
 					bin:    dir.FFmpegHW,
 					vcodec: "h264_nvenc",
-					vopts:  []string{"-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq", "23", "-b:v", "0"},
+					vopts:  nvencOpts,
 				},
 				hwCandidate{
 					label:  "Intel graphics (Quick Sync)",
@@ -185,7 +180,6 @@ func hwCandidatesFor(goos, goarch string, dir *tools.Dir, devices []string) []hw
 					vcodec: "h264_qsv",
 					global: []string{"-init_hw_device", "qsv=hw", "-filter_hw_device", "hw"},
 					chain:  "format=nv12,hwupload",
-					vopts:  []string{"-global_quality", "23"},
 				},
 			)
 		}
@@ -204,12 +198,15 @@ func hwCandidatesFor(goos, goarch string, dir *tools.Dir, devices []string) []hw
 			// h264_v4l2m2m finds the memory-to-memory encoder node among
 			// /dev/video* by itself. The self-test decides whether it works.
 			return []hwCandidate{{
-				label:   "Raspberry Pi video encoder",
-				bin:     dir.FFmpeg,
-				vcodec:  "h264_v4l2m2m",
-				bitrate: true,
+				label:  "Raspberry Pi video encoder",
+				bin:    dir.FFmpeg,
+				vcodec: "h264_v4l2m2m",
 				// -pix_fmt yuv420p: 8-bit 4:2:0 frames, what the Pi
 				// encoder takes and every target device decodes.
+				// ffmpeg's V4L2 encoder sets only the -b:v average
+				// with frame-level rate control and never reads
+				// -maxrate; the -fs output cap (fullEncodeArgs)
+				// bounds its output.
 				vopts: []string{"-pix_fmt", "yuv420p"},
 			}}
 		}
@@ -245,27 +242,32 @@ func namedDevices(dir, prefix string) []string {
 	return out
 }
 
-// encArgs returns the encoder's -c:v and its own options, capped by the
-// shared -maxrate 8M -bufsize 16M like the software path, so the disk
-// reservation (reservedBytes, 8.16 Mbit/s worst case) stays honest for
-// every encoder. Backends whose rate control ignores the cap (CQP-style
-// quality modes) accept the options without error.
+// nvencOpts are NVENC's options on every platform: -preset p5, the
+// slower, better-quality tier; -tune hq, high-quality tuning; -rc vbr,
+// variable bitrate around the -b:v average under the -maxrate peak and the
+// -bufsize VBV buffer. No -cq: a target quality makes NVENC drop the
+// average and the VBV buffer (nvenc.c, "CQ mode shall discard avg
+// bitrate/vbv buffer size").
+var nvencOpts = []string{"-preset", "p5", "-tune", "hq", "-rc", "vbr"}
+
+// encArgs returns the encoder's -c:v, the resolution-based -b:v average,
+// its own options, and the shared -maxrate 8M -bufsize 16M caps of the
+// software path. Every candidate's options select a rate-control mode that
+// honors the caps (no constant-quality or constant-QP mode), so the disk
+// reservation (reservedBytes, 8.16 Mbit/s worst case) stays honest;
+// TestHWRateControlBounds pins each one against the FFmpeg source.
 func (c *hwCandidate) encArgs(p *ProbeInfo) []string {
-	args := []string{"-c:v", c.vcodec}
-	if c.bitrate {
-		args = append(args, "-b:v", bitrateTarget(p))
-	}
+	args := []string{"-c:v", c.vcodec, "-b:v", bitrateTarget(p)}
 	args = append(args, c.vopts...)
 	return append(args, "-maxrate", "8M", "-bufsize", "16M")
 }
 
-// bitrateTarget picks the average bitrate of the resolution-based hardware
-// encoders (videotoolbox, Media Foundation, V4L2): about 5 Mbit/s at 1080p,
-// 3 at 720p, 1.5 below, never over the 8M cap. The class follows the
-// display height - the smaller dimension after the rotation turn, which is
-// 1080 for both a 1920x1080 landscape frame and a phone's 1080x1920
-// portrait - exactly the size the scale filter clamps to, so a 4K input
-// lands in the 1080p class.
+// bitrateTarget picks the average bitrate of the hardware encoders: about
+// 5 Mbit/s at 1080p, 3 at 720p, 1.5 below, never over the 8M cap. The
+// class follows the display height - the smaller dimension after the
+// rotation turn, which is 1080 for both a 1920x1080 landscape frame and a
+// phone's 1080x1920 portrait - exactly the size the scale filter clamps
+// to, so a 4K input lands in the 1080p class.
 func bitrateTarget(p *ProbeInfo) string {
 	wide, tall := 0, 0
 	if p != nil {
@@ -410,7 +412,12 @@ func (w *Worker) pickHardware(ctx context.Context, cands []hwCandidate) *hwCandi
 // input would not attach to the decoder), the plan's stream maps, the
 // scale filter plus the candidate's filter chain, the encoder's args, and
 // the audio and faststart args shared with the software path. enc is nil
-// for the libx264 software path.
+// for the libx264 software path. A hardware run also carries -fs at the
+// job's disk reservation: ffmpeg stops writing once the file reaches it,
+// so a driver that ignores the requested rate control (Media Foundation
+// does not check its settings; ffmpeg's V4L2 encoder has no peak cap at
+// all) can never write past the reservation. libx264's own -maxrate and
+// -bufsize are enforced, so the software path needs no -fs.
 func (w *Worker) fullEncodeArgs(enc *hwCandidate, pl *payload, out string) []string {
 	args := []string{"-y"}
 	if enc != nil {
@@ -427,6 +434,7 @@ func (w *Worker) fullEncodeArgs(enc *hwCandidate, pl *payload, out string) []str
 	args = append(args, "-vf", filter)
 	if enc != nil {
 		args = append(args, enc.encArgs(pl.Probe)...)
+		args = append(args, "-fs", strconv.FormatUint(reservedBytes(pl), 10))
 	} else {
 		args = append(args,
 			"-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
@@ -439,23 +447,35 @@ func (w *Worker) fullEncodeArgs(enc *hwCandidate, pl *payload, out string) []str
 // encoder. A hardware run that fails - anything but a full disk, which
 // pauses the job - falls back to libx264 in the same stage, once per job,
 // and counts toward the process-wide cutoff; a job that already retried
-// (or whose output failed verify earlier) goes straight to software.
+// (or whose output failed verify earlier) goes straight to software. A
+// hardware output that reached the -fs cap was cut short by ffmpeg (its
+// encoder overshot the bitrate the reservation assumes), so it counts as
+// a failed hardware run too.
 func (w *Worker) fullConvert(ctx context.Context, pl *payload, tmp string) ([]byte, error) {
 	enc := w.chooseEncoder(ctx)
 	if enc != nil && !pl.HwRetried {
 		out, err := w.run(ctx, enc.bin, w.fullEncodeArgs(enc, pl, tmp)...)
-		if err != nil {
-			if isDiskFullErr(err, out) {
-				return out, err
-			}
-			w.hw.noteFailure()
-			pl.HwRetried = true
-		} else {
+		switch {
+		case err != nil && isDiskFullErr(err, out):
+			return out, err
+		case err == nil && !reachedCap(tmp, reservedBytes(pl)):
 			pl.EncHw = true
 			return out, nil
+		case err == nil:
+			log.Printf("ingest: hardware encode: %s output reached the %d-byte reservation, redoing with software", enc.label, reservedBytes(pl))
 		}
+		w.hw.noteFailure()
+		pl.HwRetried = true
 	}
 	return w.run(ctx, w.dir.FFmpeg, w.fullEncodeArgs(nil, pl, tmp)...)
+}
+
+// reachedCap reports whether the file at path has reached limit bytes, the
+// -fs cap at which ffmpeg stops writing packets (fftools/ffmpeg_mux.c
+// write_packet). A file that cannot be read has not.
+func reachedCap(path string, limit uint64) bool {
+	st, err := os.Stat(path)
+	return err == nil && uint64(st.Size()) >= limit
 }
 
 // hwState is the process-wide hardware selection: probed once, lazily,

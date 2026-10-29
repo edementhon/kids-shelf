@@ -19,8 +19,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edementhon/kids-shelf/internal/core"
 	"github.com/edementhon/kids-shelf/internal/disk"
@@ -42,16 +44,23 @@ func contentTestStore(t *testing.T) *store.Store {
 	return s
 }
 
+// contentTestServer serves the app with the parent PIN already made
+// (setUpParent), so the helpers below call /api/admin/content/* as the
+// signed-in parent, like the page does.
 func contentTestServer(t *testing.T, deps Deps) *httptest.Server {
 	t.Helper()
+	if deps.DataDir == "" {
+		deps.DataDir = t.TempDir() // never the shared temp dir's PIN file
+	}
 	ts := httptest.NewServer(NewApp("content-test", deps).Mux())
 	t.Cleanup(ts.Close)
+	setUpParent(t, ts)
 	return ts
 }
 
 func contentTestGet(t *testing.T, ts *httptest.Server, path string) (int, []byte) {
 	t.Helper()
-	resp, err := http.Get(ts.URL + path)
+	resp, err := parentClient(ts.URL).Get(ts.URL + path)
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
@@ -77,7 +86,7 @@ func contentTestPost(t *testing.T, ts *httptest.Server, path string, body any) (
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://"+req.Host)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := parentClient(ts.URL).Do(req)
 	if err != nil {
 		t.Fatalf("POST %s: %v", path, err)
 	}
@@ -186,7 +195,8 @@ func TestContentYouTubeAddListRetry(t *testing.T) {
 		t.Errorf("running job = %+v", j)
 	}
 
-	// A failure shows its plain message; retry enqueues the same URL again.
+	// A failure shows its plain message; retry enqueues the same URL again,
+	// and the failed job it replaces leaves the list.
 	if err := q.Fail(added.ID, errors.New("The download stopped.")); err != nil {
 		t.Fatalf("fail: %v", err)
 	}
@@ -196,6 +206,7 @@ func TestContentYouTubeAddListRetry(t *testing.T) {
 	if j.State != "failed" || j.Message != "The download stopped." {
 		t.Errorf("failed job = %+v", j)
 	}
+	failedID := added.ID
 	code, body = contentTestPost(t, ts, "/api/admin/content/youtube/retry", map[string]any{"id": added.ID})
 	if code != http.StatusOK {
 		t.Fatalf("retry: status %d: %s", code, body)
@@ -203,8 +214,8 @@ func TestContentYouTubeAddListRetry(t *testing.T) {
 	contentTestDecode(t, body, &added)
 	code, body = contentTestGet(t, ts, "/api/admin/content/youtube")
 	contentTestDecode(t, body, &list)
-	if len(list.Jobs) != 2 {
-		t.Fatalf("after retry: %d jobs, want 2", len(list.Jobs))
+	if len(list.Jobs) != 1 || list.Jobs[0].ID == failedID {
+		t.Fatalf("after retry: jobs %+v, want only the new job", list.Jobs)
 	}
 	if list.Jobs[0].State != "queued" || list.Jobs[0].URL != url || list.Jobs[0].Title != url {
 		t.Errorf("retried job = %+v", list.Jobs[0])
@@ -261,28 +272,44 @@ func TestContentYouTubeLinkGating(t *testing.T) {
 		"https://www.youtube.com/embed/dQw4w9WgXcQ",
 		"https://www.youtube.com/watch?v=short",
 		"https://youtu.be/",
+		"evil.example/watch?v=dQw4w9WgXcQ",
+		"javascript:alert(1)",
 	} {
 		code, body := contentTestPost(t, ts, "/api/admin/content/youtube", map[string]any{"url": bad})
 		if code != http.StatusBadRequest {
 			t.Errorf("bad link %q: status %d, want 400 (%s)", bad, code, body)
 		}
-		if msg := contentTestError(t, body); msg != "That doesn't look like a YouTube link." {
-			t.Errorf("bad link %q error = %q", bad, msg)
+		if msg := contentTestError(t, body); msg != msgContentBadLink || !strings.Contains(msg, "Copy link") {
+			t.Errorf("bad link %q error = %q, want the message with its next step", bad, msg)
 		}
+	}
+
+	// A link typed without https:// is still a YouTube link.
+	code, body = contentTestPost(t, ts, "/api/admin/content/youtube",
+		map[string]any{"url": "youtube.com/watch?v=jNQXAC9IVRw"})
+	if code != http.StatusOK {
+		t.Fatalf("scheme-less add: status %d: %s", code, body)
+	}
+	if got := queuedURL(); got != "https://www.youtube.com/watch?v=jNQXAC9IVRw" {
+		t.Errorf("scheme-less canonical = %q, want the watch URL", got)
 	}
 	_, body = contentTestGet(t, ts, "/api/admin/content/youtube")
 	var list struct {
 		Jobs []any `json:"jobs"`
 	}
 	contentTestDecode(t, body, &list)
-	if len(list.Jobs) != 1 {
-		t.Errorf("jobs after rejected links = %d, want only the youtu.be one", len(list.Jobs))
+	if len(list.Jobs) != 2 {
+		t.Errorf("jobs after rejected links = %d, want the youtu.be and scheme-less ones", len(list.Jobs))
 	}
 }
 
-// TestContentSourcesAddListRemove exercises source registration (folder and
-// NAS kinds, an upsert replacing the kind), path validation, scanning and
-// removal through the real library service.
+// TestContentSourcesAddListRemove exercises source registration through the
+// real library service: a folder with videos is added and reports how many
+// it holds; a file, an empty folder, a folder already on the list (also
+// written with a trailing slash or as another kind), a relative path, an
+// unknown kind and a missing path are refused with plain words; Explorer's
+// quoted "Copy as path" is accepted; Scan says how many files it handed
+// over; a folder that went missing is flagged; removal works by path.
 func TestContentSourcesAddListRemove(t *testing.T) {
 	s := contentTestStore(t)
 	q, err := jobs.New(s)
@@ -296,51 +323,127 @@ func TestContentSourcesAddListRemove(t *testing.T) {
 	ingQ := ingest.NewQueue(q)
 	ts := contentTestServer(t, Deps{Library: lib, Ingest: ingQ, DataDir: t.TempDir()})
 
-	dir := t.TempDir()
-	code, body := contentTestPost(t, ts, "/api/admin/content/sources", map[string]any{"path": dir, "kind": "folder"})
-	if code != http.StatusOK {
-		t.Fatalf("add folder: status %d: %s", code, body)
+	add := func(path, kind string) (int, string, int) {
+		t.Helper()
+		code, body := contentTestPost(t, ts, "/api/admin/content/sources", map[string]any{"path": path, "kind": kind})
+		if code != http.StatusOK {
+			return code, contentTestError(t, body), 0
+		}
+		var ok struct {
+			Videos int `json:"videos"`
+		}
+		contentTestDecode(t, body, &ok)
+		return code, "", ok.Videos
 	}
 
-	// Re-adding the same path as a NAS share replaces the registration.
-	code, body = contentTestPost(t, ts, "/api/admin/content/sources", map[string]any{"path": dir, "kind": "nas"})
-	if code != http.StatusOK {
-		t.Fatalf("add nas: status %d: %s", code, body)
+	dir := t.TempDir()
+	for _, f := range []string{"Loose.mp4", filepath.Join("Bluey", "ep1.mkv"), filepath.Join("Bluey", "notes.txt")} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("v"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	code, body = contentTestGet(t, ts, "/api/admin/content/sources")
+	if code, msg, n := add(dir, "folder"); code != http.StatusOK || n != 2 {
+		t.Fatalf("add folder: status %d %q, %d videos; want 200 with 2 videos", code, msg, n)
+	}
+
+	refusals := []struct {
+		name, path, kind, want string
+	}{
+		{"same folder again", dir, "folder", "already on the list"},
+		{"same folder, trailing slash", dir + string(filepath.Separator), "folder", "already on the list"},
+		{"same folder as a NAS", dir, "nas", "already on the list"},
+		{"a file", filepath.Join(dir, "Loose.mp4"), "folder", "file, not a folder"},
+		{"an empty folder", t.TempDir(), "folder", "no videos in that folder"},
+		{"a relative path", "Videos", "folder", "whole path"},
+		{"an unknown kind", dir, "usb", "Choose"},
+		{"a missing path", filepath.Join(dir, "nope"), "folder", "couldn't find"},
+	}
+	for _, r := range refusals {
+		code, msg, _ := add(r.path, r.kind)
+		if code != http.StatusBadRequest || !strings.Contains(msg, r.want) {
+			t.Errorf("%s: status %d error %q, want 400 saying %q", r.name, code, msg, r.want)
+		}
+	}
+	textOnly := t.TempDir()
+	if err := os.WriteFile(filepath.Join(textOnly, "readme.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, msg, _ := add(textOnly, "folder"); code != http.StatusBadRequest || !strings.Contains(msg, "no videos") {
+		t.Errorf("folder with no videos: status %d error %q", code, msg)
+	}
+
+	// Windows Explorer's "Copy as path" wraps the path in quotes.
+	nas := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(nas, "Show"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nas, "Show", "a.mp4"), []byte("v"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, msg, n := add(` "`+nas+`" `, "nas"); code != http.StatusOK || n != 1 {
+		t.Fatalf("quoted path: status %d %q, %d videos; want 200 with 1 video", code, msg, n)
+	}
+
 	var list struct {
 		Sources []struct {
-			Path string `json:"path"`
-			Kind string `json:"kind"`
+			Path    string `json:"path"`
+			Kind    string `json:"kind"`
+			Problem string `json:"problem"`
 		} `json:"sources"`
 	}
+	_, body := contentTestGet(t, ts, "/api/admin/content/sources")
 	contentTestDecode(t, body, &list)
-	if len(list.Sources) != 1 || list.Sources[0].Path != dir || list.Sources[0].Kind != "nas" {
-		t.Fatalf("sources = %+v, want one NAS entry for %s", list.Sources, dir)
+	if len(list.Sources) != 2 {
+		t.Fatalf("sources = %+v, want the folder and the NAS share", list.Sources)
+	}
+	for _, src := range list.Sources {
+		if src.Path != dir && src.Path != nas {
+			t.Errorf("source path %q, want the cleaned, unquoted path", src.Path)
+		}
+		if src.Problem != "" {
+			t.Errorf("source %s problem %q, want none", src.Path, src.Problem)
+		}
 	}
 
-	// Unknown kinds and paths that do not exist are refused with plain words.
-	code, body = contentTestPost(t, ts, "/api/admin/content/sources", map[string]any{"path": dir, "kind": "usb"})
-	if code != http.StatusBadRequest {
-		t.Errorf("bad kind: status %d, want 400", code)
-	}
-	code, body = contentTestPost(t, ts, "/api/admin/content/sources", map[string]any{"path": filepath.Join(dir, "nope"), "kind": "folder"})
-	if code != http.StatusBadRequest || !strings.Contains(contentTestError(t, body), "couldn't find") {
-		t.Errorf("missing path: status %d error %q", code, contentTestError(t, body))
+	// Scan reports what it handed over: the loose video, the show's video
+	// and the NAS video, then nothing on a second pass.
+	for i, want := range []int{3, 0} {
+		code, body := contentTestPost(t, ts, "/api/admin/content/scan", nil)
+		if code != http.StatusOK {
+			t.Fatalf("scan %d: status %d: %s", i, code, body)
+		}
+		var res struct {
+			Added int `json:"added"`
+		}
+		contentTestDecode(t, body, &res)
+		if res.Added != want {
+			t.Errorf("scan %d added %d, want %d", i, res.Added, want)
+		}
 	}
 
-	// Scanning an empty folder succeeds.
-	code, body = contentTestPost(t, ts, "/api/admin/content/scan", nil)
-	if code != http.StatusOK {
-		t.Fatalf("scan: status %d: %s", code, body)
+	// A share that is no longer there is flagged in plain words.
+	if err := os.RemoveAll(nas); err != nil {
+		t.Fatal(err)
+	}
+	_, body = contentTestGet(t, ts, "/api/admin/content/sources")
+	contentTestDecode(t, body, &list)
+	for _, src := range list.Sources {
+		if src.Path == nas && !strings.Contains(src.Problem, "NAS") {
+			t.Errorf("missing NAS share problem = %q, want the NAS hint", src.Problem)
+		}
 	}
 
 	// Removal by path.
-	code, body = contentTestPost(t, ts, "/api/admin/content/sources/remove", map[string]any{"path": dir})
-	if code != http.StatusOK {
-		t.Fatalf("remove: status %d: %s", code, body)
+	for _, p := range []string{dir, nas} {
+		code, body := contentTestPost(t, ts, "/api/admin/content/sources/remove", map[string]any{"path": p})
+		if code != http.StatusOK {
+			t.Fatalf("remove: status %d: %s", code, body)
+		}
 	}
-	code, body = contentTestGet(t, ts, "/api/admin/content/sources")
+	_, body = contentTestGet(t, ts, "/api/admin/content/sources")
 	contentTestDecode(t, body, &list)
 	if len(list.Sources) != 0 {
 		t.Errorf("after remove: %d sources, want 0", len(list.Sources))
@@ -941,5 +1044,369 @@ func TestContentFixes(t *testing.T) {
 		if newest.Show != "Failed Show" || newest.Title != "Episode 11" || newest.Issue != core.IssueSound {
 			t.Errorf("newest failed = %+v, want Failed Show / Episode 11 / sound", newest)
 		}
+	}
+}
+
+// TestContentIngestRetry: a failed conversion had no way back. The list now
+// flags failed conversions that can be retried, explains the ones that
+// cannot, hides failures a newer job replaced and finished jobs older than a
+// day; the retry endpoint requeues the same file and source as a new job,
+// refuses a job that is not the newest failure for its file, and sits
+// behind the parent PIN.
+func TestContentIngestRetry(t *testing.T) {
+	s := contentTestStore(t)
+	q, err := jobs.New(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, err := library.New(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ingQ := ingest.NewQueue(q)
+	ts := contentTestServer(t, Deps{Library: lib, Ingest: ingQ, DataDir: t.TempDir()})
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	enqueue := func(name string, kind core.SourceKind, create bool) string {
+		t.Helper()
+		file := filepath.Join(dir, name)
+		if create {
+			if err := os.WriteFile(file, []byte("v"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		path := filepath.ToSlash(file)
+		if kind == core.SourceYouTube {
+			path = "https://www.youtube.com/watch?v=" + strings.Repeat(name[:1], 11)
+		}
+		id, err := ingQ.Enqueue(ctx, file, core.Source{Kind: kind, Path: path, Title: name, Show: "Show"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+
+	// A conversion that finished two days ago drops off the list.
+	old := enqueue("old.mp4", core.SourceFolder, true)
+	if _, err := q.Claim(ingest.JobKind); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Done(old); err != nil {
+		t.Fatal(err)
+	}
+	broken := enqueue("broken.mp4", core.SourceFolder, true)
+	gone := enqueue("gone.mp4", core.SourceFolder, false)
+	ytGone := enqueue("y.mp4", core.SourceYouTube, false)
+	shelved := enqueue("shelved.mp4", core.SourceFolder, true)
+	for _, id := range []string{broken, gone, ytGone, shelved} {
+		if err := q.Fail(id, errors.New("This file is damaged or incomplete and can't be played.")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// shelved's first copy is on the shelf (a failed improvement).
+	if err := lib.Publish(ctx, core.Episode{
+		ID: "ep-shelved", ShowID: "s-1", Title: "shelved", File: "/out/x.mp4", DurationSec: 10,
+		Source: core.Source{Kind: core.SourceFolder, Path: filepath.ToSlash(filepath.Join(dir, "shelved.mp4")), Title: "shelved", Show: "Show"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB().Exec(`UPDATE jobs SET updated = ? WHERE id = ?`,
+		time.Now().Add(-48*time.Hour).UTC().Format(time.RFC3339Nano), old); err != nil {
+		t.Fatal(err)
+	}
+
+	type row struct {
+		ID    string `json:"id"`
+		State string `json:"state"`
+		Retry bool   `json:"retry"`
+		Hint  string `json:"hint"`
+	}
+	listed := func() map[string]row {
+		t.Helper()
+		code, body := contentTestGet(t, ts, "/api/admin/content/ingest")
+		if code != http.StatusOK {
+			t.Fatalf("list: status %d: %s", code, body)
+		}
+		var l struct {
+			Jobs []row `json:"jobs"`
+		}
+		contentTestDecode(t, body, &l)
+		out := map[string]row{}
+		for _, j := range l.Jobs {
+			out[j.ID] = j
+		}
+		return out
+	}
+	got := listed()
+	if _, ok := got[old]; ok {
+		t.Errorf("a conversion done two days ago is still listed")
+	}
+	if r := got[broken]; !r.Retry || r.Hint != "" {
+		t.Errorf("failed job with its file present = %+v, want retry", r)
+	}
+	if r := got[gone]; r.Retry || !strings.Contains(r.Hint, "not in its folder") {
+		t.Errorf("failed job with its file gone = %+v, want the put-it-back hint", r)
+	}
+	if r := got[ytGone]; r.Retry || !strings.Contains(r.Hint, "YouTube link") {
+		t.Errorf("failed YouTube job with its file gone = %+v, want the add-again hint", r)
+	}
+	if r := got[shelved]; r.Retry || !strings.Contains(r.Hint, "on the shelf") {
+		t.Errorf("failed job of a video on the shelf = %+v, want no retry", r)
+	}
+
+	// The retry gate is the parent PIN.
+	if resp, _ := visitorReq(t, http.MethodPost, ts.URL+"/api/admin/content/ingest/retry", map[string]any{"id": broken}); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("retry without the PIN: status %d, want 401", resp.StatusCode)
+	}
+
+	code, body := contentTestPost(t, ts, "/api/admin/content/ingest/retry", map[string]any{"id": broken})
+	if code != http.StatusOK {
+		t.Fatalf("retry: status %d: %s", code, body)
+	}
+	var res struct {
+		ID string `json:"id"`
+	}
+	contentTestDecode(t, body, &res)
+	if res.ID == "" || res.ID == broken {
+		t.Fatalf("retry id = %q, want a new job", res.ID)
+	}
+	got = listed()
+	if _, ok := got[broken]; ok {
+		t.Error("the replaced failure is still listed")
+	}
+	if r := got[res.ID]; r.State != "queued" {
+		t.Errorf("new job = %+v, want queued", r)
+	}
+	j, err := q.Get(res.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pl struct {
+		File   string      `json:"file"`
+		Source core.Source `json:"source"`
+	}
+	if err := j.DecodePayload(&pl); err != nil {
+		t.Fatal(err)
+	}
+	if pl.File != filepath.Join(dir, "broken.mp4") || pl.Source.Path != filepath.ToSlash(filepath.Join(dir, "broken.mp4")) || pl.Source.Kind != core.SourceFolder {
+		t.Errorf("new job payload = %+v, want the same file and source", pl)
+	}
+
+	for _, c := range []struct{ name, id, want string }{
+		{"the replaced failure", broken, ""},
+		{"a queued job", res.ID, ""},
+		{"a job with its file gone", gone, "not in its folder"},
+		{"a video on the shelf", shelved, "on the shelf"},
+		{"an unknown job", "nope", ""},
+	} {
+		code, body := contentTestPost(t, ts, "/api/admin/content/ingest/retry", map[string]any{"id": c.id})
+		if code != http.StatusBadRequest || !strings.Contains(contentTestError(t, body), c.want) {
+			t.Errorf("retry %s: status %d %s, want 400 %q", c.name, code, body, c.want)
+		}
+	}
+}
+
+// TestContentKiwixEditionsAndMissing: two editions of one library looked
+// alike, the catalog offered Download for an edition already installed,
+// finished downloads stayed forever, and a library whose file went missing
+// looked fine. The state now names each edition and flags a missing file,
+// lists a finished download only while its library is installed, and the
+// catalog marks installed editions.
+func TestContentKiwixEditionsAndMissing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/catalog/v2/entries" {
+			http.ServeFile(w, r, filepath.Join("..", "kiwix", "testdata", "entries_eng_20.xml"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	s := contentTestStore(t)
+	q, err := jobs.New(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	libDir := filepath.Join(t.TempDir(), "libraries")
+	km, err := kiwix.NewManager(s, q, disk.NewReservations(q), libDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := kiwix.NewCatalog(srv.URL, kiwix.AllowLoopback(srv.Client()))
+	ts := contentTestServer(t, Deps{Catalog: catalog, Kiwix: km, DataDir: t.TempDir()})
+
+	code, body := contentTestGet(t, ts, "/api/admin/content/kiwix/catalog?lang=eng&count=20")
+	if code != http.StatusOK {
+		t.Fatalf("catalog: status %d", code)
+	}
+	var cat struct {
+		Entries []struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			Flavour   string `json:"flavour"`
+			Installed bool   `json:"installed"`
+		} `json:"entries"`
+	}
+	contentTestDecode(t, body, &cat)
+	first := cat.Entries[0]
+	for _, e := range cat.Entries {
+		if e.Installed {
+			t.Fatalf("entry %s marked installed before anything is installed", e.Name)
+		}
+	}
+
+	// Two editions of one library: the first catalog entry's own edition
+	// (file present) and a text-only one whose file is gone.
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	present := first.Name + "_" + first.Flavour + "_2026-09.zim"
+	if err := os.WriteFile(filepath.Join(libDir, present), []byte("zim"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range [][]any{
+		{"other-id", first.Name, "Same Library", "eng", present, 3},
+		{"gone-id", first.Name, "Same Library", "eng", first.Name + "_nopic_2026-09.zim", 2},
+	} {
+		if _, err := s.DB().Exec(`INSERT INTO installed (id, name, title, language, file, size, installed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			append(row, time.Now().UTC().Format(time.RFC3339Nano))...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A finished download of an edition that is no longer installed.
+	stale, err := q.Enqueue(kiwix.Kind, map[string]any{"entry": kiwix.Entry{ID: "removed-id", Name: "removed_lib", Flavour: "maxi", Title: "Removed"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.Claim(kiwix.Kind); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Done(stale); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body = contentTestGet(t, ts, "/api/admin/content/kiwix")
+	if code != http.StatusOK {
+		t.Fatalf("state: status %d: %s", code, body)
+	}
+	var state struct {
+		Installed []struct {
+			ID      string `json:"id"`
+			Flavour string `json:"flavour"`
+			Missing bool   `json:"missing"`
+		} `json:"installed"`
+		Downloads []struct {
+			ID string `json:"id"`
+		} `json:"downloads"`
+	}
+	contentTestDecode(t, body, &state)
+	byID := map[string]struct {
+		flavour string
+		missing bool
+	}{}
+	for _, in := range state.Installed {
+		byID[in.ID] = struct {
+			flavour string
+			missing bool
+		}{in.Flavour, in.Missing}
+	}
+	if got := byID["other-id"]; got.flavour != first.Flavour || got.missing {
+		t.Errorf("present edition = %+v, want flavour %q and not missing", got, first.Flavour)
+	}
+	if got := byID["gone-id"]; got.flavour != "nopic" || !got.missing {
+		t.Errorf("edition whose file is gone = %+v, want nopic and missing", got)
+	}
+	if len(state.Downloads) != 0 {
+		t.Errorf("downloads = %+v, want the finished download of a removed library left out", state.Downloads)
+	}
+
+	// The catalog now marks the installed edition (same name and edition,
+	// another id) and only that one.
+	_, body = contentTestGet(t, ts, "/api/admin/content/kiwix/catalog?lang=eng&count=20")
+	contentTestDecode(t, body, &cat)
+	for _, e := range cat.Entries {
+		want := e.Name == first.Name && (e.Flavour == first.Flavour || e.Flavour == "nopic")
+		if e.Installed != want {
+			t.Errorf("entry %s/%s installed = %v, want %v", e.Name, e.Flavour, e.Installed, want)
+		}
+	}
+}
+
+// TestContentSourcesMissingOriginals: kids now see only "This one can't
+// play right now" when an in-place video's original is gone, so the folder
+// list tells the parent, per folder, how many videos from it can't be
+// found: all of them when the folder itself is gone (a NAS that is off),
+// the ones whose files moved when it is there. Converted copies never
+// count.
+func TestContentSourcesMissingOriginals(t *testing.T) {
+	s := contentTestStore(t)
+	lib, err := library.New(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := contentTestServer(t, Deps{Library: lib, DataDir: t.TempDir()})
+	ctx := context.Background()
+	here, gone := t.TempDir(), filepath.Join(t.TempDir(), "nas")
+	n := 0
+	pub := func(root, name string, owned, create bool) {
+		t.Helper()
+		file := filepath.Join(root, "Show", name)
+		if create {
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte("v"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		n++
+		kind := core.SourceFolder
+		if root == gone {
+			kind = core.SourceNAS
+		}
+		play := file
+		if owned {
+			play = "/media/out/" + name
+		}
+		if err := lib.Publish(ctx, core.Episode{
+			ID: core.EpisodeID(fmt.Sprintf("ep-%d", n)), ShowID: "show", Title: name, File: play, DurationSec: 10, Owned: owned,
+			Source: core.Source{Kind: kind, Path: filepath.ToSlash(file), Title: name, Show: "Show"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pub(here, "a.mp4", false, true)
+	pub(here, "b.mp4", false, false) // moved away
+	pub(here, "c.mp4", true, false)  // converted copy: its original does not matter
+	pub(gone, "d.mp4", false, false)
+	pub(gone, "e.mp4", false, false)
+	if err := lib.AddSource(ctx, here, core.SourceFolder, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.AddSource(ctx, gone, core.SourceNAS, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := contentTestGet(t, ts, "/api/admin/content/sources")
+	if code != http.StatusOK {
+		t.Fatalf("sources: status %d: %s", code, body)
+	}
+	var list struct {
+		Sources []struct {
+			Path    string `json:"path"`
+			Missing int    `json:"missing"`
+			Problem string `json:"problem"`
+		} `json:"sources"`
+	}
+	contentTestDecode(t, body, &list)
+	got := map[string][2]string{}
+	for _, src := range list.Sources {
+		got[src.Path] = [2]string{strconv.Itoa(src.Missing), src.Problem}
+	}
+	if g := got[here]; g[0] != "1" || !strings.HasPrefix(g[1], "1 video from this folder can't be found") {
+		t.Errorf("folder with a moved file = %v, want 1 missing with the can't-be-found warning", g)
+	}
+	if g := got[gone]; g[0] != "2" || !strings.Contains(g[1], "2 videos from it can't play") || !strings.Contains(g[1], "NAS") {
+		t.Errorf("NAS share that is gone = %v, want 2 missing with the NAS warning", g)
 	}
 }

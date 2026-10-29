@@ -231,61 +231,86 @@ func TestServeOneBookReady(t *testing.T) {
 	}
 }
 
-// TestServeWritesCustomIndexHomePage: with the launcher's KS_PUBLIC_PORT
-// set, kiwix-serve starts with --customIndex pointing at an atomically
-// written kiwix-index.html next to the ZIMs whose page sends the kid back
-// to /libraries on the app origin.
-func TestServeWritesCustomIndexHomePage(t *testing.T) {
+// TestServeRecheckStartsWhenFileReturns: an installed book whose file is
+// missing keeps the server down; once the file is back, the periodic
+// recheck brings the server up on its own, with no Sync (nothing was
+// installed or removed, a drive was just plugged in again).
+func TestServeRecheckStartsWhenFileReturns(t *testing.T) {
 	t.Setenv("KS_SERVE_TEST_FAKE", "1")
-	t.Setenv("KS_PUBLIC_PORT", "8070")
-	zim := makeZIM(t, "one.zim")
-	argvFile := fakeArgvFile(t)
+	zim := filepath.Join(t.TempDir(), "later.zim")
+	_ = fakeArgvFile(t)
 	books := &bookList{}
 	books.add(zim)
 	s := NewServer(fakeServe(t), books.snapshot())
+	s.recheck = 100 * time.Millisecond
 	_, _, _ = startServer(t, s)
 
-	await(t, "backend up", 15*time.Second, func() (bool, string) { return s.Backend() != "", s.Backend() })
-
-	index := filepath.Join(filepath.Dir(zim), "kiwix-index.html")
-	b, err := os.ReadFile(index)
-	if err != nil {
-		t.Fatalf("the custom index page was not written next to the ZIMs: %v", err)
+	time.Sleep(300 * time.Millisecond)
+	if b := s.Backend(); b != "" {
+		t.Fatalf("Backend = %q with the only ZIM file missing, want \"\"", b)
 	}
-	if !strings.Contains(string(b), "8070") || !strings.Contains(string(b), "/libraries") {
-		t.Errorf("the index page must send the kid back to /libraries on the app port 8070:\n%s", b)
+	if err := os.WriteFile(zim, []byte("not a real zim"), 0o644); err != nil {
+		t.Fatalf("write zim: %v", err)
 	}
-	argv, err := os.ReadFile(argvFile)
-	if err != nil {
-		t.Fatalf("the fake never recorded its argv: %v", err)
-	}
-	if !strings.Contains(string(argv), "--customIndex="+index) {
-		t.Errorf("argv missing --customIndex=%s:\n%s", index, argv)
-	}
+	await(t, "backend up after the file came back", 15*time.Second, func() (bool, string) {
+		return s.Backend() != "", s.Backend()
+	})
 }
 
-// TestServeSkipsCustomIndexWithoutAppPort: outside the launcher there is no
-// KS_PUBLIC_PORT and no custom index is written or passed.
-func TestServeSkipsCustomIndexWithoutAppPort(t *testing.T) {
+// TestServeRecheckRestartsWhenFileReturns: the server runs with the one
+// book whose file exists; when the other book's file appears, the recheck
+// restarts it with both ZIMs, again with no Sync.
+func TestServeRecheckRestartsWhenFileReturns(t *testing.T) {
 	t.Setenv("KS_SERVE_TEST_FAKE", "1")
-	zim := makeZIM(t, "one.zim")
+	zim1 := makeZIM(t, "one.zim")
+	zim2 := filepath.Join(t.TempDir(), "two.zim")
 	argvFile := fakeArgvFile(t)
 	books := &bookList{}
-	books.add(zim)
+	books.add(zim1)
+	books.add(zim2)
 	s := NewServer(fakeServe(t), books.snapshot())
+	s.recheck = 100 * time.Millisecond
 	_, _, _ = startServer(t, s)
 
-	await(t, "backend up", 15*time.Second, func() (bool, string) { return s.Backend() != "", s.Backend() })
+	await(t, "backend up with the one file there", 15*time.Second, func() (bool, string) {
+		return s.Backend() != "", s.Backend()
+	})
+	if argv, err := os.ReadFile(argvFile); err != nil || strings.Contains(string(argv), zim2) {
+		t.Fatalf("first argv (err %v) must hold only the file on disk:\n%s", err, argv)
+	}
+	if err := os.WriteFile(zim2, []byte("not a real zim"), 0o644); err != nil {
+		t.Fatalf("write zim: %v", err)
+	}
+	await(t, "argv with both ZIMs after the recheck", 15*time.Second, func() (bool, string) {
+		argv, err := os.ReadFile(argvFile)
+		if err != nil {
+			return false, err.Error()
+		}
+		a := string(argv)
+		return strings.Contains(a, zim1) && strings.Contains(a, zim2) && s.Backend() != "", a
+	})
+}
 
-	if _, err := os.Stat(filepath.Join(filepath.Dir(zim), "kiwix-index.html")); !os.IsNotExist(err) {
-		t.Fatal("a custom index page was written without an app port")
+// TestManagerOnDisk: OnDisk follows the file in the library directory, and
+// a stored name that escapes the directory is never reported as present.
+func TestManagerOnDisk(t *testing.T) {
+	m, q, lib := newTestManager(t)
+	_, final := publishTestZIM(t, m, q, lib)
+	if !m.OnDisk(Installed{File: "a.zim"}) {
+		t.Fatal("OnDisk = false with the file in the library directory")
 	}
-	argv, err := os.ReadFile(argvFile)
-	if err != nil {
-		t.Fatalf("the fake never recorded its argv: %v", err)
+	if err := os.Remove(final); err != nil {
+		t.Fatalf("remove: %v", err)
 	}
-	if strings.Contains(string(argv), "--customIndex") {
-		t.Errorf("argv has --customIndex without an app port:\n%s", argv)
+	if m.OnDisk(Installed{File: "a.zim"}) {
+		t.Fatal("OnDisk = true after the file was removed")
+	}
+	outside := filepath.Join(filepath.Dir(lib), "outside.zim")
+	if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if m.OnDisk(Installed{File: "../outside.zim"}) || m.OnDisk(Installed{}) {
+		t.Fatal("OnDisk = true for a name outside the library directory or an empty name")
 	}
 }
 

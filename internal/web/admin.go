@@ -14,14 +14,17 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edementhon/kids-shelf/internal/budget"
 	"github.com/edementhon/kids-shelf/internal/core"
 	"github.com/edementhon/kids-shelf/internal/firewall"
 	"github.com/edementhon/kids-shelf/internal/library"
+	"github.com/edementhon/kids-shelf/internal/update"
 )
 
 // go:embed is handled in init-free form: the admin area's static files live
@@ -30,11 +33,13 @@ import (
 //go:embed static/admin
 var adminFiles embed.FS
 
-// adminPinCookie is the cookie POST /api/admin/pin issues once the optional
-// dashboard PIN verifies; every /api/admin route of the parent dashboard
-// requires it while the PIN is set (Settings; off by default, not part of
-// setup). The value is a random server-side session token (adminSessions),
-// never the PIN itself, so the raw PIN cannot be replayed as a cookie.
+// adminPinCookie is the cookie POST /api/admin/pin (or the first-run POST
+// /api/admin/pin/setup) issues once the parent PIN verifies; every
+// /api/admin route of the parent page requires it. The parent page always
+// has a PIN: the kids can see the Grown-ups link, so with no PIN set the
+// gate answers "make one" instead of opening. The value is a random
+// server-side session token (adminSessions), never the PIN itself, so the
+// raw PIN cannot be replayed as a cookie.
 const adminPinCookie = "ks_admin_pin"
 
 // adminSessionLifetime is how long a verified dashboard session lasts.
@@ -100,11 +105,17 @@ const (
 	msgAdminServiceDown   = "This copy is not running the parent dashboard service."
 	msgLibraryServiceDown = "This copy is not running the library service."
 	msgEnterParentPIN     = "Enter the parent PIN to see this page."
+	msgMakeParentPIN      = "Make a parent PIN to open this page."
+	msgParentPINExists    = "There is already a parent PIN. Enter it to open this page."
+	msgParentPINNeeded    = "The parent page always needs a PIN."
+	msgPINFourDigits      = "The PIN must be exactly 4 digits."
+	msgResetOnComputer    = "Reset the PIN on the computer kids-shelf runs on."
 	msgWrongPIN           = "That PIN is not right. Try again."
 	msgNoSuchKid          = "No such kid."
 	msgNoSuchShow         = "That show was not found."
 	msgKidNameExists      = "A kid with that name already exists."
 	msgNegativeMinutes    = "Minutes cannot be negative."
+	msgMinutesNumber      = "Type a number of minutes, like 30."
 	msgSaveFailed         = "That could not be saved."
 	msgUpdatesOff         = "This copy does not update itself."
 	msgFirewallDenied     = "Windows did not get permission. Try again and choose Yes."
@@ -132,6 +143,9 @@ func init() {
 		m.HandleFunc("POST /api/admin/adjust", s.handleAdminAdjust)
 		m.HandleFunc("POST /api/admin/bin", s.handleAdminSetBin)
 		m.HandleFunc("POST /api/admin/pin", s.handleAdminPIN)
+		m.HandleFunc("GET /api/admin/pin/status", s.handleAdminPINStatus)
+		m.HandleFunc("POST /api/admin/pin/setup", s.handleAdminPINSetup)
+		m.HandleFunc("POST /api/admin/pin/reset", s.handleAdminPINReset)
 		m.HandleFunc("POST /api/admin/logout", s.handleAdminLogout)
 		m.HandleFunc("POST /api/admin/settings/grownup", s.handleAdminGrownupPIN)
 		m.HandleFunc("POST /api/admin/settings/dashboard", s.handleAdminDashboardPIN)
@@ -149,7 +163,7 @@ func init() {
 
 // ─── dashboard PIN gate ────────────────────────────────────────────────────
 
-// dashboardPinPath is the file holding the optional dashboard PIN. It is a
+// dashboardPinPath is the file holding the parent PIN. It is a
 // single small JSON file owned by this area, not a database table: the web
 // package has no store handle in Deps, and the budget package owns every
 // settings table (its household row holds the grown-up watch-together PIN,
@@ -162,8 +176,9 @@ func (s *Server) dashboardPinPath() string {
 	return filepath.Join(dir, "dashboard-pin.json")
 }
 
-// readDashboardPIN returns the stored dashboard PIN; "" means the dashboard
-// is open (the default; a missing or unreadable file reads as "").
+// readDashboardPIN returns the stored parent PIN; "" means none is set yet
+// (a fresh install, or a reset on the computer itself; a missing or
+// unreadable file reads as ""), and the parent page then asks for one.
 func (s *Server) readDashboardPIN() string {
 	b, err := os.ReadFile(s.dashboardPinPath())
 	if err != nil {
@@ -179,7 +194,7 @@ func (s *Server) readDashboardPIN() string {
 }
 
 // writeDashboardPIN stores the dashboard PIN atomically (temp file + rename)
-// and removes the file when the PIN is cleared.
+// and removes the file when the PIN is cleared (only the local reset does).
 func (s *Server) writeDashboardPIN(pin string) error {
 	path := s.dashboardPinPath()
 	if pin == "" {
@@ -209,15 +224,35 @@ func pinsEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare(da[:], db[:]) == 1
 }
 
-// requireAdminPIN gates one parent-dashboard route: when the optional
-// dashboard PIN is set (Settings), the request must carry the session cookie
-// that POST /api/admin/pin issued after verifying it. It writes the 401
-// plain message and returns false when the gate is closed; handlers
+// dashboardPinMu serializes the check-then-write steps on the parent PIN
+// file (first-run setup, a change in Settings, a local reset), so two
+// browsers racing to make the first PIN cannot both win.
+var dashboardPinMu sync.Mutex
+
+// adminGateError is the 401 body when no parent PIN exists yet: Setup tells
+// the page to show the "make a parent PIN" form instead of the PIN lock.
+type adminGateError struct {
+	Error string `json:"error"`
+	Setup bool   `json:"setup"`
+}
+
+// writeSetupNeeded answers 401 with setup true: no parent PIN is set, so
+// nothing behind the gate opens until one is made.
+func writeSetupNeeded(w http.ResponseWriter) {
+	writeJSON(w, http.StatusUnauthorized, adminGateError{Error: msgMakeParentPIN, Setup: true})
+}
+
+// requireAdminPIN gates one parent-page route: the request must carry the
+// session cookie that POST /api/admin/pin (or /api/admin/pin/setup) issued.
+// With no parent PIN set it answers 401 with setup true, so a fresh install
+// leads with "make a parent PIN" and the page is never open. It writes the
+// 401 plain message and returns false when the gate is closed; handlers
 // (including the /admin/content area) call it first and return when it
 // reports false.
 func (s *Server) requireAdminPIN(w http.ResponseWriter, r *http.Request) bool {
 	if s.readDashboardPIN() == "" {
-		return true // off by default
+		writeSetupNeeded(w)
+		return false
 	}
 	ck, err := r.Cookie(adminPinCookie)
 	if err != nil || !adminSessions.valid(ck.Value, s.now()) {
@@ -225,6 +260,15 @@ func (s *Server) requireAdminPIN(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+// clientIsLocal reports whether the real client is this computer itself: a
+// loopback address after clientIP has resolved the launcher proxy's trusted
+// X-KS-Client header. A tablet on the home network is never local, and a
+// spoofed X-KS-Client from anything but the proxy is ignored by clientIP.
+func (s *Server) clientIsLocal(r *http.Request) bool {
+	ip := net.ParseIP(s.clientIP(r))
+	return ip != nil && ip.IsLoopback()
 }
 
 // issueAdminCookie marks the request's client as a parent who verified the
@@ -280,10 +324,26 @@ func validPIN(pin string, emptyOK bool) bool {
 }
 
 // validName reports whether name is a usable kid/profile name: 1-40 trimmed
-// characters.
+// letters, counted as characters (an accented letter or an emoji is one),
+// not bytes.
 func validName(name string) bool {
 	name = strings.TrimSpace(name)
-	return name != "" && len(name) <= 40
+	return name != "" && utf8.RuneCountInString(name) <= 40
+}
+
+// takenKidName reports whether err refuses a name another kid already has
+// (any letter case), and that kid's name as stored.
+func takenKidName(err error) (string, bool) {
+	var taken *budget.KidNameTakenError
+	if !errors.As(err, &taken) {
+		return "", false
+	}
+	return taken.Name, true
+}
+
+// msgKidCalled is the plain refusal for a name another kid already has.
+func msgKidCalled(name string) string {
+	return "A kid called " + name + " already exists. Pick another name."
 }
 
 // adminErrStatus picks the HTTP status for a service error surfaced to the
@@ -292,6 +352,8 @@ func adminErrStatus(err error) int {
 	switch {
 	case errors.Is(err, budget.ErrNoSuchKid):
 		return http.StatusNotFound
+	case errors.As(err, new(*budget.KidNameTakenError)):
+		return http.StatusConflict
 	case errors.Is(err, library.ErrNotFound):
 		return http.StatusNotFound
 	case strings.Contains(err.Error(), "UNIQUE constraint failed: kids.name"):
@@ -304,6 +366,9 @@ func adminErrStatus(err error) int {
 // plainAdminError turns a service error into the plain words a parent can
 // read; unknown errors collapse to a generic sentence.
 func plainAdminError(err error) string {
+	if have, ok := takenKidName(err); ok {
+		return msgKidCalled(have)
+	}
 	switch {
 	case errors.Is(err, budget.ErrNoSuchKid):
 		return msgNoSuchKid
@@ -326,18 +391,33 @@ func serviceError(w http.ResponseWriter, err error) {
 
 // ─── page and static files ─────────────────────────────────────────────────
 
-// handleAdminPage serves the dashboard shell to everyone: with the optional
-// dashboard PIN set, the page shows the PIN form until /api/admin/pin
-// verifies: all data is behind requireAdminPIN, never the shell.
+// handleAdminPage serves the parent page shell to everyone: the page shows
+// the "make a parent PIN" form (no PIN yet) or the PIN lock until a session
+// exists; all data is behind requireAdminPIN, never the shell.
 func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 	b, err := adminFiles.ReadFile("static/admin/index.html")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "The parent page is missing from this copy.")
 		return
 	}
+	page := strings.ReplaceAll(string(b), "__KS_REOPEN__", reopenWhere())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Write(b)
+	w.Write([]byte(page))
+}
+
+// reopenWhere names where a parent opens kids-shelf again on this computer,
+// for the Quit confirmation, the "stopped" screen and the problems banner:
+// a Mac has the Dock and Applications, not a desktop icon.
+func reopenWhere() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "the Dock or the Applications folder"
+	case "windows":
+		return "the desktop icon or the Start menu"
+	default:
+		return "the desktop icon or the applications menu"
+	}
 }
 
 // handleAdminStatic serves the area's embedded files (admin.js, admin.css,
@@ -403,10 +483,9 @@ type adminBins struct {
 }
 
 type adminSettings struct {
-	DashboardPINSet bool   `json:"dashboard_pin_set"`
-	Counter         string `json:"counter,omitempty"` // absent when practice is not running
-	Address         string `json:"address"`
-	QRSVG           string `json:"qr_svg"`
+	Counter string `json:"counter,omitempty"` // absent when practice is not running
+	Address string `json:"address"`
+	QRSVG   string `json:"qr_svg"`
 	// SafariScreens is the "some screens are iPads, iPhones or Macs using
 	// Safari" setting: while on, remux-only files are converted to MP4 in
 	// the background after they appear on the shelf.
@@ -417,12 +496,18 @@ type adminSettings struct {
 	// the chosen hardware encoder, "this computer's processor" for
 	// software, or "not checked yet" before the first selection.
 	VideoEncoder string `json:"video_encoder"`
+	// GrownupPINSet says whether a watch-together PIN exists, so the
+	// Settings row can show "A PIN is set" or "No PIN yet" (never the PIN).
+	GrownupPINSet bool `json:"grownup_pin_set"`
 }
 
 type adminUpdate struct {
 	State   string `json:"state"`
 	Message string `json:"message"`
 	Staged  string `json:"staged"`
+	// Applying is true while a staged update is already being set up (the
+	// launcher restarts on its own), so the page hides Restart to update.
+	Applying bool `json:"applying"`
 }
 
 type adminState struct {
@@ -509,7 +594,6 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 	}
 
 	// Settings.
-	st.Settings.DashboardPINSet = s.readDashboardPIN() != ""
 	if p := s.deps.Practice; p != nil {
 		st.Settings.Counter, _ = p.Counter()
 	}
@@ -526,21 +610,64 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 	if s.deps.VideoEncoder != nil {
 		st.Settings.VideoEncoder = s.deps.VideoEncoder()
 	}
+	st.Settings.GrownupPINSet = b.GrownupPINSet(ctx)
 	// Updates (may be nil: plain words tell the parent this copy has none).
 	st.Updates.Message = msgUpdatesOff
 	if s.deps.Updates != nil {
 		u := s.deps.Updates.Status()
 		st.Updates.State = u.State
 		st.Updates.Staged = u.Staged
-		st.Updates.Message = u.Message
-		if u.State == "off" {
-			// "off" means no signing key was built into this copy: updates
-			// genuinely cannot run, and the parent should hear that in
-			// plain words, not the key's jargon.
-			st.Updates.Message = msgUpdatesOff
-		}
+		st.Updates.Message = plainUpdateMessage(u)
+		st.Updates.Applying = updateApplying(u)
 	}
 	return st, nil
+}
+
+// updateApplying reports whether a staged update is already being applied
+// (the updater's trial state), when there is nothing left to restart for.
+func updateApplying(u update.Status) bool {
+	return u.State == update.StateStaged && strings.Contains(u.Message, "being applied")
+}
+
+// plainUpdateMessage turns the updater's status into words a parent can act
+// on: what happened and what (if anything) to do next. The updater's own
+// words are terse and technical ("checksum", "signed", "staged"); the
+// failure reasons are matched to the few plain cases a family can act on.
+func plainUpdateMessage(u update.Status) string {
+	switch u.State {
+	case update.StateOff:
+		// No signing key was built into this copy: updates genuinely
+		// cannot run.
+		return msgUpdatesOff
+	case update.StateChecking:
+		return "Looking for a new version of kids-shelf."
+	case update.StateIdle:
+		return "kids-shelf is up to date."
+	case update.StateStaged:
+		if updateApplying(u) {
+			return "A new version is being set up. kids-shelf restarts on its own, and this page comes back when it is ready."
+		}
+		return "A new version (" + u.Staged + ") is ready. Press Restart to update to start using it. Videos stop for a moment while kids-shelf restarts."
+	case update.StateFailed:
+		m := u.Message
+		switch {
+		case strings.Contains(m, "went back to"):
+			return "The new version did not start properly, so kids-shelf went back to the one it had before. Nothing else changed."
+		case strings.Contains(m, "disk space"):
+			return "The update needs more free space on this computer. Remove some videos; kids-shelf tries again tomorrow."
+		case strings.Contains(m, "cannot be written"):
+			return "kids-shelf could not save the new version on this computer. It tries again tomorrow."
+		case strings.Contains(m, "not newer"):
+			return "kids-shelf is up to date."
+		case strings.Contains(m, "could not check"):
+			return "kids-shelf could not reach the update server. Check that this computer is on the internet; it tries again tomorrow."
+		default:
+			// Bad signature, bad checksum, a mismatched or unusable release:
+			// the download was not used, nothing changed.
+			return "The new version that was downloaded was damaged, so it was not used. Nothing changed; kids-shelf tries again tomorrow."
+		}
+	}
+	return "kids-shelf is up to date."
 }
 
 func (s *Server) handleAdminState(w http.ResponseWriter, r *http.Request) {
@@ -663,8 +790,15 @@ func (s *Server) handleAdminCreateKid(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "The PIN must be exactly 4 digits.")
 		return
 	}
-	id, err := b.CreateKid(r.Context(), name, req.PIN)
+	// AddKid, not migrate's idempotent CreateKid: a name that is already a
+	// kid's (any letter case) is refused, so the parent is never told "added"
+	// while the new PIN is quietly dropped.
+	id, err := b.AddKid(r.Context(), name, req.PIN)
 	if err != nil {
+		if have, ok := takenKidName(err); ok {
+			writeError(w, http.StatusConflict, msgKidCalled(have)+" To give "+have+" a new PIN, use ⋯ on "+have+"'s card.")
+			return
+		}
 		serviceError(w, err)
 		return
 	}
@@ -735,18 +869,24 @@ func (s *Server) handleAdminKidMinutes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, msgAdminServiceDown)
 		return
 	}
+	// Minutes is a pointer so a missing or null value (an emptied box) is
+	// refused instead of silently saving 0 minutes a day.
 	var req struct {
-		Minutes float64 `json:"minutes"`
+		Minutes *float64 `json:"minutes"`
 	}
 	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "That didn't look right. Try again.")
+		writeError(w, http.StatusBadRequest, msgMinutesNumber)
 		return
 	}
-	if req.Minutes < 0 {
+	if req.Minutes == nil {
+		writeError(w, http.StatusBadRequest, msgMinutesNumber)
+		return
+	}
+	if *req.Minutes < 0 {
 		writeError(w, http.StatusBadRequest, msgNegativeMinutes)
 		return
 	}
-	if err := b.SetDailyMinutes(r.Context(), core.KidID(r.PathValue("id")), req.Minutes); err != nil {
+	if err := b.SetDailyMinutes(r.Context(), core.KidID(r.PathValue("id")), *req.Minutes); err != nil {
 		serviceError(w, err)
 		return
 	}
@@ -837,10 +977,11 @@ func (s *Server) handleAdminSetBin(w http.ResponseWriter, r *http.Request) {
 
 // ─── PIN entry and logout ──────────────────────────────────────────────────
 
-// handleAdminPIN verifies the dashboard PIN and issues the session cookie.
-// It is the one /api/admin route the gate leaves open, so a parent can
-// always get in (or back in after a new PIN was set elsewhere). Wrong tries
-// feed the dashboard throttle (per client IP).
+// handleAdminPIN verifies the parent PIN and issues the session cookie.
+// It is one of the few /api/admin routes the gate leaves open, so a parent
+// can always get in (or back in after a new PIN was set elsewhere). Wrong
+// tries feed the dashboard throttle (per client IP). With no PIN set yet
+// it answers like the gate: 401 with setup true.
 func (s *Server) handleAdminPIN(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PIN string `json:"pin"`
@@ -851,10 +992,7 @@ func (s *Server) handleAdminPIN(w http.ResponseWriter, r *http.Request) {
 	}
 	stored := s.readDashboardPIN()
 	if stored == "" {
-		// PIN off by default: nothing to verify; a stale cookie is
-		// cleared so the parent lands in the open dashboard.
-		s.clearAdminCookie(w)
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		writeSetupNeeded(w)
 		return
 	}
 	if s.pinLocked(w, r, realmDashboard, "") {
@@ -869,6 +1007,79 @@ func (s *Server) handleAdminPIN(w http.ResponseWriter, r *http.Request) {
 	}
 	pinThrottle.ok(realmDashboard, s.clientIP(r), "")
 	s.issueAdminCookie(w)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// adminPINStatus is the GET /api/admin/pin/status body: whether a parent
+// PIN exists and whether this browser runs on the kids-shelf computer
+// itself (where the PIN can be reset). Nothing else is revealed.
+type adminPINStatus struct {
+	Set   bool `json:"set"`
+	Local bool `json:"local"`
+}
+
+// handleAdminPINStatus answers without a session: the lock and setup forms
+// need it before anyone is signed in.
+func (s *Server) handleAdminPINStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, adminPINStatus{
+		Set:   s.readDashboardPIN() != "",
+		Local: s.clientIsLocal(r),
+	})
+}
+
+// handleAdminPINSetup makes the first parent PIN. It works only while no PIN
+// is set (409 otherwise, so it can never replace a PIN), goes through the
+// same same-origin middleware and dashboard throttle as POST /api/admin/pin,
+// and issues the session cookie so the parent continues straight in.
+func (s *Server) handleAdminPINSetup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PIN string `json:"pin"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, msgPINFourDigits)
+		return
+	}
+	if s.pinLocked(w, r, realmDashboard, "") {
+		return
+	}
+	dashboardPinMu.Lock()
+	defer dashboardPinMu.Unlock()
+	if s.readDashboardPIN() != "" {
+		writeError(w, http.StatusConflict, msgParentPINExists)
+		return
+	}
+	if !validPIN(req.PIN, false) {
+		writeError(w, http.StatusBadRequest, msgPINFourDigits)
+		return
+	}
+	if err := s.writeDashboardPIN(req.PIN); err != nil {
+		writeError(w, http.StatusInternalServerError, msgSaveFailed)
+		return
+	}
+	pinThrottle.ok(realmDashboard, s.clientIP(r), "")
+	s.issueAdminCookie(w)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleAdminPINReset clears a forgotten parent PIN, but only for a browser
+// on the kids-shelf computer itself (clientIsLocal); anyone else gets 403.
+// Every session ends, and the next visit leads with the setup form. The
+// computer's own wrong tries are forgotten too, so a parent who guessed a
+// few times before resetting can make the new PIN right away.
+func (s *Server) handleAdminPINReset(w http.ResponseWriter, r *http.Request) {
+	if !s.clientIsLocal(r) {
+		writeError(w, http.StatusForbidden, msgResetOnComputer)
+		return
+	}
+	dashboardPinMu.Lock()
+	defer dashboardPinMu.Unlock()
+	if err := s.writeDashboardPIN(""); err != nil {
+		writeError(w, http.StatusInternalServerError, msgSaveFailed)
+		return
+	}
+	adminSessions.clear()
+	pinThrottle.ok(realmDashboard, s.clientIP(r), "")
+	s.clearAdminCookie(w)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -901,7 +1112,7 @@ func (s *Server) handleAdminGrownupPIN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validPIN(req.PIN, true) {
-		writeError(w, http.StatusBadRequest, "The PIN must be exactly 4 digits.")
+		writeError(w, http.StatusBadRequest, msgPINFourDigits)
 		return
 	}
 	if err := b.SetGrownupPIN(r.Context(), req.PIN); err != nil {
@@ -911,10 +1122,11 @@ func (s *Server) handleAdminGrownupPIN(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleAdminDashboardPIN sets or clears the optional dashboard PIN. Setting
-// it revokes every outstanding dashboard session (the PIN gate means
-// "verified since this PIN was set") and reissues the cookie so the
-// parent's current browser stays in; clearing it drops the sessions too.
+// handleAdminDashboardPIN changes the parent PIN; it can never clear it (an
+// empty PIN answers 400: the parent page always needs one). Changing it
+// revokes every outstanding session (the PIN gate means "verified since
+// this PIN was set") and reissues the cookie so the parent's current
+// browser stays in.
 func (s *Server) handleAdminDashboardPIN(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
@@ -926,20 +1138,22 @@ func (s *Server) handleAdminDashboardPIN(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "That didn't look right. Try again.")
 		return
 	}
-	if !validPIN(req.PIN, true) {
-		writeError(w, http.StatusBadRequest, "The PIN must be exactly 4 digits.")
+	if req.PIN == "" {
+		writeError(w, http.StatusBadRequest, msgParentPINNeeded)
 		return
 	}
+	if !validPIN(req.PIN, false) {
+		writeError(w, http.StatusBadRequest, msgPINFourDigits)
+		return
+	}
+	dashboardPinMu.Lock()
+	defer dashboardPinMu.Unlock()
 	if err := s.writeDashboardPIN(req.PIN); err != nil {
 		writeError(w, http.StatusInternalServerError, msgSaveFailed)
 		return
 	}
 	adminSessions.clear()
-	if req.PIN == "" {
-		s.clearAdminCookie(w)
-	} else {
-		s.issueAdminCookie(w)
-	}
+	s.issueAdminCookie(w)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -982,18 +1196,23 @@ func (s *Server) handleAdminDefaultMinutes(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusServiceUnavailable, msgAdminServiceDown)
 		return
 	}
+	// A pointer, like the per-kid minutes: an emptied box never saves 0.
 	var req struct {
-		Minutes float64 `json:"minutes"`
+		Minutes *float64 `json:"minutes"`
 	}
 	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "That didn't look right. Try again.")
+		writeError(w, http.StatusBadRequest, msgMinutesNumber)
 		return
 	}
-	if req.Minutes < 0 {
+	if req.Minutes == nil {
+		writeError(w, http.StatusBadRequest, msgMinutesNumber)
+		return
+	}
+	if *req.Minutes < 0 {
 		writeError(w, http.StatusBadRequest, msgNegativeMinutes)
 		return
 	}
-	if err := b.SetDefaultMinutes(r.Context(), req.Minutes); err != nil {
+	if err := b.SetDefaultMinutes(r.Context(), *req.Minutes); err != nil {
 		serviceError(w, err)
 		return
 	}

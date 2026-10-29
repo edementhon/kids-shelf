@@ -391,6 +391,7 @@ type harness struct {
 	pub      *core.FakePublisher
 	fix      *core.FakeFixRecorder
 	q        *jobs.Queue
+	st       *store.Store
 	mediaDir string
 }
 
@@ -418,6 +419,7 @@ func newHarness(t *testing.T, helpers string) harness {
 		pub:      pub,
 		fix:      fix,
 		q:        q,
+		st:       s,
 		mediaDir: mediaDir,
 	}
 }
@@ -1007,6 +1009,340 @@ func TestMissingHelpersFailJobPlainly(t *testing.T) {
 	}
 	if h.pub.Called() != 0 {
 		t.Errorf("published %d times without helpers", h.pub.Called())
+	}
+}
+
+// claimAt enqueues an ingest job with the given payload, moves it to stage
+// and claims it, the way a resumed improvement reaches processOne.
+func claimAt(t *testing.T, q *jobs.Queue, pl payload, stage string) string {
+	t.Helper()
+	id, err := q.Enqueue(JobKind, pl)
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if err := q.Requeue(id, stage, fixPriority(pl.Action, pl.DurationSec)); err != nil {
+		t.Fatalf("Requeue: %v", err)
+	}
+	job, err := q.Claim(JobKind)
+	if err != nil || job == nil || job.ID != id {
+		t.Fatalf("Claim = %v, %v; want %s", job, err, id)
+	}
+	return id
+}
+
+// TestTerminalFailuresMarkShownFixFailed: every way processOne fails a job
+// whose episode is already shown marks the episode's fix "failed" through
+// the fix recorder, so a pending episode never stays "Getting ready" behind
+// a job that will not run again. A job that never reached the show phase,
+// or whose improved copy is already published, marks nothing.
+func TestTerminalFailuresMarkShownFixFailed(t *testing.T) {
+	shown := payload{
+		File:        "/videos/a.mkv",
+		Source:      core.Source{Kind: core.SourceFolder, Path: "/videos/a.mkv", Title: "A", Show: "S"},
+		EpisodeID:   "ep-shown",
+		DurationSec: 60,
+		Action:      ActionFull,
+		Shown:       true,
+		Published:   true,
+	}
+	notShown := shown
+	notShown.EpisodeID, notShown.Shown, notShown.Published = "ep-new", false, false
+	improved := shown
+	improved.EpisodeID, improved.Improved = "ep-improved", true
+
+	fileAsDir := filepath.Join(t.TempDir(), "media")
+	if err := os.WriteFile(fileAsDir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		dir      *tools.Dir
+		mediaDir string
+		pl       payload
+		stage    string
+		wantMsg  string
+		wantMark bool
+	}{
+		{"no helpers", nil, "", shown, StageConvert, msgNoHelpers, true},
+		{"library dir unusable", &tools.Dir{}, fileAsDir, shown, StageConvert, msgGeneric, true},
+		{"no helpers before the show phase", nil, "", notShown, StageProbe, msgNoHelpers, false},
+		{"no helpers after the improved publish", nil, "", improved, StagePublish, msgNoHelpers, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := store.Open(filepath.Join(t.TempDir(), "test.sqlite"))
+			if err != nil {
+				t.Fatalf("store.Open: %v", err)
+			}
+			t.Cleanup(func() { s.Close() })
+			q, err := jobs.New(s)
+			if err != nil {
+				t.Fatalf("jobs.New: %v", err)
+			}
+			mediaDir := tc.mediaDir
+			if mediaDir == "" {
+				mediaDir = t.TempDir()
+			}
+			fix := &core.FakeFixRecorder{}
+			w := NewWorker(q, tc.dir, &core.FakePublisher{}, mediaDir).WithFixRecorder(fix)
+			id := claimAt(t, q, tc.pl, tc.stage)
+			if !w.processOne(context.Background(), id) {
+				t.Fatal("processOne did not reach a terminal state")
+			}
+			j, err := q.Get(id)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if j.State != jobs.StateFailed || j.Error != tc.wantMsg {
+				t.Fatalf("job = (%s, %q), want (failed, %q)", j.State, j.Error, tc.wantMsg)
+			}
+			got := fix.Failed()
+			if tc.wantMark && (len(got) != 1 || got[0] != tc.pl.EpisodeID) {
+				t.Errorf("fix marked failed for %v, want [%s]", got, tc.pl.EpisodeID)
+			}
+			if !tc.wantMark && len(got) != 0 {
+				t.Errorf("fix marked failed for %v, want none", got)
+			}
+		})
+	}
+}
+
+// blockedCopy returns a copy of dir whose named helper exists but cannot
+// start (not executable), the way Windows Smart App Control refused the
+// freshly extracted ffprobe.exe and ffmpeg.exe: the process never runs.
+func blockedCopy(t *testing.T, dir *tools.Dir, ffprobe, ffmpeg bool) *tools.Dir {
+	t.Helper()
+	d := *dir
+	block := func(path string) string {
+		b := filepath.Join(t.TempDir(), filepath.Base(path))
+		if err := os.WriteFile(b, []byte("#!/bin/sh\nexit 0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	if ffprobe {
+		d.FFprobe = block(d.FFprobe)
+	}
+	if ffmpeg {
+		d.FFmpeg = block(d.FFmpeg)
+	}
+	return &d
+}
+
+// TestHelperCannotStartPausesJob: a helper that cannot start (the process
+// never ran) pauses the job with plain words instead of failing it as a
+// damaged file, publishes nothing wrongly and flags the worker, and once
+// the helper starts again the resumed job publishes. ffprobe blocked stops
+// the job at probe; ffmpeg blocked lets the plain original show and holds
+// its improvement. A helper that runs and rejects the file still fails it
+// with the damaged-file words.
+func TestHelperCannotStartPausesJob(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+
+	t.Run("ffprobe blocked", func(t *testing.T) {
+		h := newHarness(t, helpers)
+		good := h.w.dir
+		h.w.dir = blockedCopy(t, good, true, true)
+		id := h.enqueue(t, f.keep)
+		h.runToEnd(t, id)
+		j, err := h.q.Get(id)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if j.State != jobs.StatePaused || j.Error != MsgHelpersWaiting {
+			t.Fatalf("job = (%s, %q), want paused with %q", j.State, j.Error, MsgHelpersWaiting)
+		}
+		if h.pub.Called() != 0 {
+			t.Errorf("published %d times while ffprobe could not start", h.pub.Called())
+		}
+		if !h.w.HelpersBlocked() {
+			t.Error("worker does not report the blocked helpers")
+		}
+		// The helpers start again: the app clears the flag and resumes.
+		h.w.dir = good
+		h.w.ClearHelpersBlocked()
+		if n, err := h.q.ResumePaused(JobKind, MsgHelpersWaiting); err != nil || n != 1 {
+			t.Fatalf("ResumePaused = %d, %v; want 1", n, err)
+		}
+		h.runToEnd(t, id)
+		if j, _ := h.q.Get(id); j.State != jobs.StateDone {
+			t.Fatalf("resumed job = (%s, %q), want done", j.State, j.Error)
+		}
+		if h.pub.Called() != 1 {
+			t.Errorf("publishes after the resume = %d, want 1", h.pub.Called())
+		}
+	})
+
+	t.Run("ffmpeg blocked", func(t *testing.T) {
+		h := newHarness(t, helpers)
+		h.w.hw.mu.Lock()
+		h.w.hw.tried, h.w.hw.chosen = true, nil // software only
+		h.w.hw.mu.Unlock()
+		good := h.w.dir
+		h.w.dir = blockedCopy(t, good, false, true)
+		id := h.enqueue(t, f.rotatedMP4)
+		h.runToEnd(t, id)
+		j, err := h.q.Get(id)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if j.State != jobs.StatePaused || j.Error != MsgHelpersWaiting || j.Stage != StageConvert {
+			t.Fatalf("job = (%s, %s, %q), want paused at convert with %q", j.State, j.Stage, j.Error, MsgHelpersWaiting)
+		}
+		if got := h.fix.Failed(); len(got) != 0 {
+			t.Errorf("fix marked failed for %v while ffmpeg could not start", got)
+		}
+		if eps := h.pub.Published(); len(eps) != 1 || eps[0].Fix != core.FixPending {
+			t.Fatalf("publishes = %+v, want the original shown with its fix pending", eps)
+		}
+		h.w.dir = good
+		h.w.ClearHelpersBlocked()
+		if n, err := h.q.ResumePaused(JobKind, MsgHelpersWaiting); err != nil || n != 1 {
+			t.Fatalf("ResumePaused = %d, %v; want 1", n, err)
+		}
+		h.runToEnd(t, id)
+		ep, j := suitImprove(t, h, id, f.rotatedMP4)
+		if j.State != jobs.StateDone || !ep.Owned {
+			t.Fatalf("resumed improvement = (%s, %q, owned %v), want done with the converted copy", j.State, j.Error, ep.Owned)
+		}
+	})
+
+	t.Run("helper runs and rejects the file", func(t *testing.T) {
+		h := newHarness(t, helpers)
+		bad := filepath.Join(t.TempDir(), "not-a-video.mp4")
+		if err := os.WriteFile(bad, []byte("this is not a video"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		id := h.enqueue(t, bad)
+		h.runToEnd(t, id)
+		j, err := h.q.Get(id)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if j.State != jobs.StateFailed || j.Error != msgDamaged {
+			t.Fatalf("job = (%s, %q), want failed with the damaged-file words", j.State, j.Error)
+		}
+		if h.w.HelpersBlocked() {
+			t.Error("worker reports blocked helpers for a file ffprobe rejected")
+		}
+	})
+}
+
+// TestRetriedImprovementGoesBackToPending: a shown episode whose
+// improvement failed (fix "failed", playing its original) and whose job the
+// per-version retry requeues with RetryPayload goes through the show phase
+// again: the same episode id is republished with the issue and fix
+// "pending" of the new plan, so it reads "Getting ready" while the better
+// copy is made again, and the job is requeued for its improvement.
+func TestRetriedImprovementGoesBackToPending(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	h := newHarness(t, helpers)
+	h.w.hw.mu.Lock()
+	h.w.hw.tried, h.w.hw.chosen = true, nil // software only
+	h.w.hw.mu.Unlock()
+	real := h.w.runCmd
+	h.w.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if contains(args, "libx264") {
+			return []byte("x264: broken\n"), errors.New("exit status 1")
+		}
+		return real(ctx, name, args...)
+	}
+	id := h.enqueue(t, f.rotatedMP4)
+	h.runToEnd(t, id)
+	j, err := h.q.Get(id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if j.State != jobs.StateFailed {
+		t.Fatalf("state = %s, want the improvement failed", j.State)
+	}
+	first := h.pub.Published()
+	if len(first) != 1 || first[0].Fix != core.FixPending || first[0].Issue != core.IssuePicture {
+		t.Fatalf("show-phase publishes = %+v, want one pending picture fix", first)
+	}
+	ep := first[0].ID
+	if got := h.fix.Failed(); len(got) != 1 || got[0] != ep {
+		t.Fatalf("fix marked failed for %v, want [%s]", got, ep)
+	}
+
+	tx, err := h.st.DB().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := h.q.RetryFailedSources(tx, JobKind, []string{string(core.SourceFolder)}, func(j *jobs.Job) (json.RawMessage, bool, error) {
+		p, gotEp, src, err := RetryPayload(j.Payload)
+		if err == nil && (gotEp != ep || src.Path != f.rotatedMP4) {
+			t.Errorf("RetryPayload names (%s, %s), want (%s, %s)", gotEp, src.Path, ep, f.rotatedMP4)
+		}
+		return p, err == nil, err
+	})
+	if err != nil || n != 1 {
+		t.Fatalf("RetryFailedSources = %d, %v; want 1", n, err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	h.w.runCmd = real
+	h.runStages(t, id, 3) // probe, plan, show
+	all := h.pub.Published()
+	if len(all) != 2 {
+		t.Fatalf("publishes = %d, want the retry's show-phase publish too", len(all))
+	}
+	again := all[1]
+	if again.ID != ep || again.Fix != core.FixPending || again.Issue != core.IssuePicture || again.Owned {
+		t.Errorf("retry publish = %+v, want episode %s on its original with a pending picture fix", again, ep)
+	}
+	j, err = h.q.Get(id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if j.State != jobs.StateQueued || j.Stage != StageConvert {
+		t.Errorf("job = (%s, %s), want queued at convert for the improvement", j.State, j.Stage)
+	}
+}
+
+// TestLegacyPublishedJobFinishes: a folder job from before the show-first
+// change that persisted Published=true (the old single publish) but not
+// Done resumes with Shown=false. It is finished, not redirected to the show
+// stage, which would skip its publish and requeue it at convert forever.
+func TestLegacyPublishedJobFinishes(t *testing.T) {
+	for _, stage := range []string{StageConvert, StageVerify, StageThumbnail, StagePublish} {
+		t.Run(stage, func(t *testing.T) {
+			s, err := store.Open(filepath.Join(t.TempDir(), "test.sqlite"))
+			if err != nil {
+				t.Fatalf("store.Open: %v", err)
+			}
+			t.Cleanup(func() { s.Close() })
+			q, err := jobs.New(s)
+			if err != nil {
+				t.Fatalf("jobs.New: %v", err)
+			}
+			pub := &core.FakePublisher{}
+			w := NewWorker(q, &tools.Dir{}, pub, t.TempDir())
+			id := claimAt(t, q, payload{
+				File:        "/videos/old.avi",
+				Source:      core.Source{Kind: core.SourceFolder, Path: "/videos/old.avi", Title: "Old", Show: "S"},
+				EpisodeID:   "ep-old",
+				DurationSec: 60,
+				Action:      ActionFull,
+				Output:      "/media/library/ep-old.mp4",
+				Published:   true,
+			}, stage)
+			if !w.processOne(context.Background(), id) {
+				t.Fatal("processOne did not reach a terminal state")
+			}
+			j, err := q.Get(id)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if j.State != jobs.StateDone {
+				t.Fatalf("state = %s at stage %s (error %q), want done", j.State, j.Stage, j.Error)
+			}
+			if pub.Called() != 0 {
+				t.Errorf("published %d times, want none (the old flow already did)", pub.Called())
+			}
+		})
 	}
 }
 

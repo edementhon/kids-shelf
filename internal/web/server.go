@@ -178,10 +178,20 @@ func (s *Server) Mux() http.Handler {
 // LibrariesMux returns the route table of the separate libraries origin,
 // wrapped in the same security middleware as Mux: ZIM pages are third-party
 // HTML and JavaScript, so they run only on their own origin, where this mux
-// routes nothing but /kiwix/ and the app's APIs are unreachable.
+// routes nothing but /kiwix/ (plus the kid pages and files the libraries
+// add to it) and the app's APIs are unreachable. The front door (/ and
+// kiwix-serve's /kiwix/ welcome page) and the outside-link page are
+// answered here, never by kiwix-serve, so the way home and the "not in the
+// library" page work whether or not the libraries are running.
 func (s *Server) LibrariesMux() http.Handler {
 	m := http.NewServeMux()
+	m.HandleFunc("GET /{$}", s.handleLibrariesHome)
+	m.HandleFunc("GET /kiwix", s.handleLibrariesHome)
+	m.HandleFunc("GET /kiwix/{$}", s.handleLibrariesHome)
+	m.HandleFunc("GET /kiwix/catch/external", s.handleKiwixExternal)
 	m.HandleFunc("GET /kiwix/", s.handleKiwixProxy)
+	m.HandleFunc("GET /ks/{file}", s.handleLibraryAsset)
+	m.HandleFunc("GET /", s.handleLibrariesNotHere)
 	return s.security(m)
 }
 

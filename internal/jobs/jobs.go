@@ -102,16 +102,33 @@ ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;`,
 	// they are requeued at the start with no stage and no error and take
 	// the show-then-improve path. Only jobs that were never shown: a failed
 	// improvement already left its episode on the shelf and keeps its
-	// failure. This runs once (Migrate records the owner and version).
+	// failure. Only a source's current job (its latest, and only when no
+	// job of that source is anything but failed): Enqueue replaces a failed
+	// job with a new one, so an older failure is superseded and requeuing
+	// it would publish the same file twice. The first version of this
+	// UPDATE lacked that rule; it ran on the one live database, where no
+	// source had more than one job, and on fresh databases the table is
+	// empty when it runs, so it never requeued a superseded job and no
+	// repair is needed. This runs once (Migrate records the owner and
+	// version).
 	Owner:   "jobs",
 	Version: 5,
 	SQL: `
 UPDATE jobs
 SET state = 'queued', stage = '', error = '', attempts = 0, priority = 0,
     updated = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-WHERE kind = 'ingest' AND state = 'failed'
-  AND json_extract(payload, '$.source.Kind') IN ('folder', 'nas')
-  AND COALESCE(json_extract(payload, '$.shown'), 0) = 0;`,
+WHERE id IN (
+	SELECT id FROM (
+		SELECT id, payload,
+		       ROW_NUMBER() OVER (PARTITION BY json_extract(payload, '$.source.Kind'), json_extract(payload, '$.source.Path')
+		                          ORDER BY seq DESC, id DESC) AS latest,
+		       SUM(state != 'failed') OVER (PARTITION BY json_extract(payload, '$.source.Kind'), json_extract(payload, '$.source.Path')) AS live
+		FROM jobs WHERE kind = 'ingest'
+	)
+	WHERE latest = 1 AND live = 0
+	  AND json_extract(payload, '$.source.Kind') IN ('folder', 'nas')
+	  AND COALESCE(json_extract(payload, '$.shown'), 0) = 0
+);`,
 }, {
 	// Live databases queued their improvements under the old scheme
 	// (audio 1, full 2, remux 3). The fix lane claims by the new formula
@@ -325,6 +342,27 @@ func (q *Queue) Pause(id, reason string) error {
 	return nil
 }
 
+// ResumePaused puts every job of kind paused with exactly reason back in
+// the queue, at the stage it paused on and with its priority, and returns
+// how many. Jobs paused for another reason (a full disk) stay paused.
+// internal/app resumes the ingest jobs that waited for helper programs
+// that could not start, once they start again.
+func (q *Queue) ResumePaused(kind, reason string) (int, error) {
+	now := q.now().UTC().Format(time.RFC3339Nano)
+	res, err := q.store.DB().Exec(
+		`UPDATE jobs SET state = 'queued', error = '', updated = ? WHERE kind = ? AND state = 'paused' AND error = ?`,
+		now, kind, reason,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("jobs: resume paused: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("jobs: resume paused: %w", err)
+	}
+	return int(n), nil
+}
+
 // Done marks a job finished successfully.
 func (q *Queue) Done(id string) error {
 	now := q.now().UTC().Format(time.RFC3339Nano)
@@ -371,13 +409,21 @@ func (q *Queue) Recover() (int, error) {
 	return int(n), nil
 }
 
-// RetryFailedSources puts failed jobs of kind whose payload's source kind
-// (the "source"."Kind" key: ingest payloads embed core.Source, which has no
-// JSON tags) is one of sourceKinds back at the start of the queue: queued,
-// no stage, no error, no attempts, priority 0. It returns how many. The app
-// calls it once per new app version, because an update may carry the fix
-// for what made them fail, and failed folder videos have no Retry button.
-func (q *Queue) RetryFailedSources(kind string, sourceKinds ...string) (int, error) {
+// RetryFailedSources requeues, inside the caller's tx, the current failed
+// job of every source of kind whose payload's source kind (the
+// "source"."Kind" key: ingest payloads embed core.Source, which has no JSON
+// tags) is one of sourceKinds: queued, no stage, no error, no attempts,
+// priority 0, with the payload prepare returns. A source is its (Kind,
+// Path) pair and its current job is its latest (highest seq); a source
+// with any job that has not failed, or a failed job with a later job of
+// the same source, is never retried: Enqueue replaces only a failed job,
+// so the later job is the source's real one and retrying the older one
+// would publish the same file twice. prepare sees each candidate and may
+// leave it failed (ok false), the caller's own rules. It returns how many
+// went back to the queue; nothing lands before tx commits. The app calls
+// it once per new app version, because an update may carry the fix for
+// what made them fail, and failed folder videos have no Retry button.
+func (q *Queue) RetryFailedSources(tx *sql.Tx, kind string, sourceKinds []string, prepare func(j *Job) (payload json.RawMessage, ok bool, err error)) (int, error) {
 	if len(sourceKinds) == 0 {
 		return 0, nil
 	}
@@ -385,22 +431,57 @@ func (q *Queue) RetryFailedSources(kind string, sourceKinds ...string) (int, err
 	for range sourceKinds[1:] {
 		in += ", ?"
 	}
-	args := []any{q.now().UTC().Format(time.RFC3339Nano), kind}
+	args := []any{kind}
 	for _, k := range sourceKinds {
 		args = append(args, k)
 	}
-	res, err := q.store.DB().Exec(`
-UPDATE jobs SET state = 'queued', stage = '', error = '', attempts = 0, priority = 0, updated = ?
-WHERE kind = ? AND state = 'failed'
-  AND json_extract(payload, '$.source.Kind') IN (`+in+`)`, args...)
+	rows, err := tx.Query(`
+WITH ranked AS (
+	SELECT id, json_extract(payload, '$.source.Kind') AS skind,
+	       ROW_NUMBER() OVER src_latest AS latest,
+	       SUM(state != 'failed') OVER src_all AS live
+	FROM jobs WHERE kind = ?
+	WINDOW src_all AS (PARTITION BY json_extract(payload, '$.source.Kind'), json_extract(payload, '$.source.Path')),
+	       src_latest AS (src_all ORDER BY seq DESC, id DESC)
+)
+`+selectJob+`
+WHERE id IN (SELECT id FROM ranked WHERE latest = 1 AND live = 0 AND skind IN (`+in+`))
+ORDER BY seq`, args...)
 	if err != nil {
 		return 0, fmt.Errorf("jobs: retry failed: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
+	var cands []Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("jobs: retry failed: %w", err)
+		}
+		cands = append(cands, *j)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("jobs: retry failed: %w", err)
 	}
-	return int(n), nil
+	now := q.now().UTC().Format(time.RFC3339Nano)
+	n := 0
+	for i := range cands {
+		j := &cands[i]
+		payload, ok, err := prepare(j)
+		if err != nil {
+			return 0, fmt.Errorf("jobs: retry %s: %w", j.ID, err)
+		}
+		if !ok {
+			continue
+		}
+		if _, err := tx.Exec(`
+UPDATE jobs SET state = 'queued', stage = '', error = '', attempts = 0, priority = 0, payload = ?, updated = ?
+WHERE id = ? AND state = 'failed'`, string(payload), now, j.ID); err != nil {
+			return 0, fmt.Errorf("jobs: retry %s: %w", j.ID, err)
+		}
+		n++
+	}
+	return n, nil
 }
 
 // Requeue moves a running job back to queued at the given stage and

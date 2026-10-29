@@ -1,100 +1,101 @@
 // Math practice and check-up pages share this script: one page renders in
 // two modes via window.CHECKUP (round size, milestone rules, wording).
 // The server grades every answer; this page only measures answer time.
-const API='/api/practice';
+// Every answer names its round and the position of the question on screen,
+// and the page takes no new answer until the next question shows, so a
+// double Enter or double tap can never grade a question the kid has not
+// seen.
 const kid=window.KID;
 const CHECKUP=!!window.CHECKUP;
 const MODES=['add','sub','mul','div'];
 const LABELS={add:'➕ Addition',sub:'➖ Subtraction',mul:'✖️ Multiplication',div:'➗ Division'};
-const $=id=>document.getElementById(id);
-let mode=MODES[0],qs=[],idx=0,results=[],t0=0;
+const SIGNS={add:'➕',sub:'➖',mul:'✖️',div:'➗'};
+const BACK=CHECKUP?{label:'← Math',go:()=>{location.href=`/practice/${kid}/math`;}}
+  :{label:'← Back',go:()=>{location.href='/practice';}};
+let mode=MODES[0],qs=[],round='',idx=0,cur=null,results=[],t0=0,busy=false,play=0;
+let openModes=new Set(MODES);
 
-function renderMenu(){
-  $('play').style.display='none';$('done').style.display='none';
-  const m=$('menu');m.style.display='block';
-  fetch(`${API}/status?kid=${kid}`).then(r=>r.json()).then(d=>{
-    let h='';
-    if(d.ok){
-      const open=new Set(d.open_modes||MODES);
-      h=`<div class=muted style="text-align:center">Pick a type. Beat your records and earn coins toward watching minutes</div>
-         <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px">`;
-      for(const mo of MODES){
-        const g=(d.gates||{})[mo];
-        if(open.has(mo)){
-          h+=`<button class="choice" onclick="pickMode('${mo}')">${LABELS[mo]}</button>`;
-        }else{
-          const pct=Math.round(((g?g.have:0)/(g?g.need:1))*100);
-          h+=`<div class="choice" style="opacity:.55;cursor:default;flex-direction:column">
-              <span>${LABELS[mo]} 🔒</span>
-              <span class=muted style="font-size:.75em">${g?g.label:''}. ${pct}% there</span></div>`;
-        }
-      }
-      if(d.tables_top)h+=`<div class=muted style="text-align:center;margin-top:4px">✖️ tables: 1 to ${d.tables_top}</div>`;
-      const bits=[];
-      for(const [m2,p] of Object.entries(d.promo||{})){
-        if(open.has(m2))bits.push(`${LABELS[m2]}: ${Math.round(p.pct*100)}% mastered`);
-      }
-      h+=`</div><div id=menustatus class=muted style="text-align:center;margin-top:8px">${bits.join(' · ')}`
-        +(d.earned_today>0?` · minutes earned today: ${Math.floor(d.earned_today)} of ${Math.floor(d.cap)}`:'')+`</div>`;
+function menuEl(){show('menu');return $('menu');}
+
+async function renderMenu(note){
+  play++;cur=null;busy=false;
+  const m=menuEl();
+  const d=await api(`/status?kid=${kid}`);
+  if(!d.ok)return failPanel(m,d,"Can't reach practice right now.",()=>renderMenu(note),BACK);
+  openModes=new Set(d.open_modes||MODES);
+  const capped=isCapped(d);
+  let h=note?`<p class="lead note">${esc(note)}</p>`:'';
+  if(CHECKUP)h+=`<p class="lead">A check-up is a quick test to see how you are doing. Do your best!</p>`;
+  else h+=`<p class="lead">${capped?'Pick one and beat your records!':'Pick one. Beat your records to earn coins for watching.'}</p>`;
+  if(capped)h+=`<p class="lead capped">🎮 ${CAPPED_MSG}</p>`;
+  for(const mo of MODES){
+    const g=(d.gates||{})[mo];
+    if(openModes.has(mo)){
+      h+=`<button type="button" class="choice" data-mode="${mo}">${LABELS[mo]}</button>`;
     }else{
-      h=`<div class=muted style="text-align:center">Loading…</div>`;
+      const pct=Math.min(100,Math.round(((g?g.have:0)/((g&&g.need)||1))*100));
+      h+=`<div class="choice locked"><span>${LABELS[mo]} 🔒</span>
+          <div class="progress"><div class="bar" style="width:${pct}%"></div></div>
+          <span class="sub">${esc(g?g.label:'')}</span></div>`;
     }
-    if(!CHECKUP) h+=`<button class="choice" style="border-color:#e08c3f" onclick="location='/practice/${kid}/checkup'">🩺 Check-up</button>`;
-    if(!CHECKUP&&d.boss) h+=`<button class="choice" style="border-color:#d94b4b;background:#3d1f2a" onclick="location='/practice/${kid}/boss'">⚔️ Boss: ${d.boss.emoji} ${d.boss.name}. Win 🪙${d.boss_coins}!</button>`;
-    h+=`<button class="choice" style="background:#1f2c3d;border-color:#39506b;font-size:1em" onclick="location='/practice'">← Who's practicing?</button>`;
-    m.innerHTML=h;
-  });
+  }
+  const bits=[];
+  for(const mo of MODES){
+    const p=(d.promo||{})[mo];
+    if(p&&openModes.has(mo))bits.push(`${SIGNS[mo]} ${p.mastered} of ${p.total} quick`);
+  }
+  if(bits.length)h+=`<p class="muted center">${bits.join(' · ')}</p>`;
+  if(d.tables_top&&openModes.has('mul'))h+=`<p class="muted center">✖️ Times tables up to ${d.tables_top}</p>`;
+  if(!capped)h+=`<p class="muted center">${esc(todayText(d,CAPPED_MSG))}</p>`;
+  if(!CHECKUP){
+    h+=`<a class="choice" style="border-color:#e08c3f" href="/practice/${kid}/checkup">🩺 Check-up<span class="sub">A quick test of everything</span></a>`;
+    if(d.boss)h+=`<a class="choice" style="border-color:#d94b4b;background:#3d1f2a" href="/practice/${kid}/boss">⚔️ Boss: ${d.boss.emoji} ${esc(d.boss.name)}${capped?'':`<span class="sub">Win 🪙${d.boss_coins}!</span>`}</a>`;
+    h+=`<a class="choice" style="border-color:#3fae6a" href="/practice/${kid}/spell">🔤 Spelling</a>`;
+  }
+  m.innerHTML=h;
+  m.appendChild(button(BACK.label,'btn gray',BACK.go));
+  for(const b of m.querySelectorAll('button[data-mode]'))b.addEventListener('click',()=>pickMode(b.dataset.mode));
+  focusKey(m.querySelector('button[data-mode]'));
 }
 
 function pickMode(m){mode=m;start();}
 
-async function loadBar(){
-  const d=await fetch(`${API}/status?kid=${kid}`).then(r=>r.json());
-  if(d.ok){
-    updateJar(d);
-    if(d.best_ms&&d.best_ms[mode]!=null){
-      $('bar-line').textContent=`🎯 Beat your record. Your usual speed: ${(d.best_ms[mode]/1000).toFixed(1)}s per answer. 9 out of 10 right`;
-    } else {
-      $('bar-line').textContent=`🎯 A first good round sets your record. Get 9 out of 10 right`;
-    }
-  }
+function goalLine(d){
+  if(CHECKUP)return 'Check-up. Do your best!';
+  if(d.best_ms&&d.best_ms[mode]!=null)
+    return `🎯 Beat your record: about ${(d.best_ms[mode]/1000).toFixed(1)}s per answer. Get 9 of 10 right.`;
+  return '🎯 Get 9 of 10 right to set your first record.';
 }
 
-function updateJar(d){
-  const j=$('jar');if(!j)return;
-  // coins toward the next 🎮 minute: 10 coins = 1 minute banked
-  if(d.coins!=null&&d.cap!=null&&d.earned_today!=null){
-    const room=Math.max(0, d.cap-d.earned_today);
-    if(room<=0){
-      j.textContent=`🪙 jar paused. You earned all ${Math.floor(d.cap)} minutes today`;
-      if($('bar-line'))$('bar-line').textContent=`🎮 All ${Math.floor(d.cap)} minutes earned for today. Coins come back tomorrow!`;
-      return;
-    }
-    const left=d.coins_per_minute-d.coins;
-    j.textContent=`🪙 ${d.coins} of ${d.coins_per_minute} coins. ${left} more coins = 1 more minute of watching`;
-  }
+async function refreshJar(){
+  const d=await api(`/status?kid=${kid}`);
+  if(d.ok){$('jar').textContent=jarText(d,CAPPED_MSG);return d;}
+  return null;
 }
 
 async function start(){
-  const r=await fetch(`${API}/round?kid=${kid}&mode=${mode}`+(CHECKUP?'&checkup=1':''));
-  const d=await r.json();
+  const token=++play;
+  const m=menuEl();
+  m.innerHTML='<p class="lead">Loading…</p>';
+  const d=await api(`/round?kid=${kid}&mode=${mode}`+(CHECKUP?'&checkup=1':''));
+  if(token!==play)return;
   if(!d.ok){
-    if(d.err==='locked'){
-      $('earned').textContent=`🔒 ${d.label}. ${Math.round((d.have/(d.need||1))*100)}% there!`;
-      setTimeout(()=>{$('earned').textContent='';},4000);
-    }else{
-      $('fb').textContent='Could not load questions. Try again';
-    }
-    return renderMenu();
+    if(d.status===403)return renderMenu(`🔒 ${LABELS[mode]} is still locked. Keep practicing the open ones.`);
+    return failPanel(m,d,"Couldn't load the questions.",start,{label:'Menu',go:()=>renderMenu()});
   }
-  if(!d.questions||!d.questions.length){
-    $('fb').textContent='Could not load questions. Try again';return renderMenu();
+  if(!d.questions||!d.questions.length)
+    return failPanel(m,d,"Couldn't load the questions.",start,{label:'Menu',go:()=>renderMenu()});
+  qs=d.questions;round=d.round;idx=0;results=[];
+  show('play');
+  $('earned').textContent='';$('jar').textContent='';$('banner').hidden=true;
+  $('bar-line').textContent=CHECKUP?goalLine({}):'';
+  if(!CHECKUP){
+    api(`/status?kid=${kid}`).then(s=>{
+      if(!s.ok||token!==play)return;
+      $('jar').textContent=jarText(s,CAPPED_MSG);
+      $('bar-line').textContent=goalLine(s);
+    });
   }
-  qs=d.questions;idx=0;results=[];
-  $('menu').style.display='none';$('play').style.display='block';
-  $('done').style.display='none';
-  if(CHECKUP){$('earned').textContent='Check-up. Do your best!';}
-  else{loadBar();}
   next();
 }
 
@@ -102,106 +103,112 @@ async function start(){
 // stay graded, the rest of the round is just skipped.
 function stopRound(){renderMenu();}
 
+function setBusy(b){busy=b;$('ans').disabled=b;$('gobtn').disabled=b;}
+
 function next(){
   if(idx>=qs.length)return finish();
   const q=qs[idx];
-  $('q').textContent=`${q.a} ${q.op} ${q.b} =`;
+  cur={n:idx,q};
+  $('q').textContent=`${q.a} ${q.op==='x'?'×':q.op==='/'?'÷':q.op} ${q.b} =`;
   $('ans').value='';$('fb').textContent='';$('fb').className='feedback';
   $('bar').style.width=(100*idx/qs.length)+'%';
+  setBusy(false);
   $('ans').focus();t0=Date.now();
 }
 
-async function submit(){
-  const q=qs[idx];if(!q)return;
+function submit(){
+  if(busy||!cur)return;
   const v=$('ans').value.trim();
   if(v===''){$('ans').focus();return;}
-  const given=parseInt(v,10);
-  const ms=Date.now()-t0;
-  let d={correct:true,answer:given};
-  try{
-    const r=await fetch(`${API}/answer`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({kid,mode,a:q.a,b:q.b,op:q.op,given,ms})});
-    d=await r.json();
-  }catch(e){}
-  results.push({a:q.a,b:q.b,op:q.op,given,ms});
+  if(!/^\d+$/.test(v)){
+    $('fb').className='feedback no';$('fb').textContent='Type a number.';
+    $('ans').focus();return;
+  }
+  send({n:cur.n,q:cur.q,given:parseInt(v,10),ms:Date.now()-t0});
+}
+
+async function send(p){
+  const token=play;
+  setBusy(true);
+  const d=await api('/answer',{kid,mode,round,n:p.n,a:p.q.a,b:p.q.b,op:p.q.op,given:p.given,ms:p.ms});
+  if(token!==play)return;
+  if(!d.ok){
+    if(d.status===409||d.err==='signin'){
+      return failPanel(menuEl(),d,"That round is over. Let's start a new one.",start,{label:'Menu',go:()=>renderMenu()},'New round');
+    }
+    setBusy(false);
+    answerFailed(d,()=>send(p));
+    return;
+  }
+  results.push({a:p.q.a,b:p.q.b,op:p.q.op,given:p.given,ms:p.ms,correct:!!d.correct});
+  const fb=$('fb');
   if(d.correct){
-    $('fb').className='feedback ok';
-    $('fb').textContent=d.record?`✓ 🏅 ${(ms/1000).toFixed(1)}s. New record!`:'✓';
+    fb.className='feedback ok';
+    fb.textContent=d.record?`✓ ⚡ ${(p.ms/1000).toFixed(1)}s. Your fastest yet!`:'✓';
   }else{
-    $('fb').className='feedback no';
-    $('fb').textContent=`✗  ${q.a} ${q.op} ${q.b} = ${d.answer}`;
+    fb.className='feedback no';
+    fb.textContent=`✗  ${$('q').textContent} ${d.answer}`;
   }
   if(d.coin){
-    if(d.coin.banked){
-      $('earned').textContent=`🎉 +1 🎮 minute earned!`;
-      setTimeout(()=>{if($('earned').textContent.includes('minute earned'))$('earned').textContent='';},3500);
-    }else if(d.coin.kind==='capped'||d.coin.err==='daily cap reached'){
-      $('earned').textContent=`🎮 You earned all your minutes for today. Records start again tomorrow!`;
-    }else if(d.coin.kind==='coin'){
-      $('earned').textContent=`🪙 ${d.coin.coins}/${d.coin.need}`;
+    if(d.coin.banked)banner('🎉 +1 minute of watching earned!');
+    else if(d.coin.kind==='coin'){
+      $('earned').textContent=`🪙 +1 coin! ${d.coin.coins} of ${d.coin.need}`;
       setTimeout(()=>{if($('earned').textContent.includes('🪙'))$('earned').textContent='';},2500);
     }
   }
-  refreshJar();
-  idx++;
-  setTimeout(next, d.correct?350:1400);
-}
-
-async function refreshJar(){
-  try{
-    const d=await fetch(`${API}/status?kid=${kid}`).then(r=>r.json());
-    if(d.ok)updateJar(d);
-  }catch(e){}
+  if(!CHECKUP)refreshJar();
+  idx=p.n+1;cur=null;
+  setTimeout(()=>{if(token===play)next();},d.correct?350:1400);
 }
 
 function fmtMed(ms){return ms?(ms/1000).toFixed(1)+'s':'';}
 
 async function finish(){
-  $('play').style.display='none';$('bar').style.width='100%';
-  let d={ok:false};
-  try{
-    d=await fetch(`${API}/round_result`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({kid,mode,checkup:CHECKUP,results})}).then(r=>r.json());
-  }catch(e){}
-  const done=$('done');done.style.display='block';
+  const token=play;
+  cur=null;
+  $('bar').style.width='100%';
+  const done=$('done');show('done');
+  done.innerHTML='<p class="lead">Saving your round…</p>';
+  const d=await api('/round_result',{kid,mode,checkup:CHECKUP,results});
+  if(token!==play)return;
   if(!d.ok){
-    done.innerHTML=`<h1>Round done!</h1><div class=muted>results saved</div>
-      <button class="btn green" onclick="start()">Another round</button>
-      <button class="btn gray" onclick="renderMenu()">Menu</button>`;
-    return;
+    return failPanel(done,d,"Couldn't save this round. Check the Wi-Fi, then try again.",finish,
+      {label:'Menu',go:()=>renderMenu()});
   }
-  let h=`<h1>${d.correct} / ${d.n} correct</h1>
-    <div class=muted>your usual speed per answer: ${fmtMed(d.median_ms)||'none yet'}</div>`;
-  if(d.promo)for(const [m,p] of Object.entries(d.promo)){
-    h+=`<div class=progress style="max-width:400px;margin-top:8px"><div class=bar style="width:${p.pct*100}%;background:#3fae6a"></div></div>
-        <div class=muted>${LABELS[m]} mastery: ${p.mastered}/${p.total} (${Math.round(p.pct*100)}%)</div>`;
+  let h=`<h1>${d.correct} / ${d.n} right</h1>`;
+  if(d.n>0&&d.correct===d.n)h+=`<div class="award lg">🌟 ${CHECKUP?'A perfect check-up!':'Every one right! Amazing!'}</div>`;
+  if(d.median_ms)h+=`<p class="muted center">About ${fmtMed(d.median_ms)} per answer</p>`;
+  for(const mo of MODES){
+    const p=(d.promo||{})[mo];
+    if(!p||!openModes.has(mo))continue;
+    h+=`<div class="progress"><div class="bar" style="width:${p.pct*100}%;background:#3fae6a"></div></div>
+        <p class="muted center">${LABELS[mo]}: ${p.mastered} of ${p.total} quick</p>`;
   }
-  // the jar on the round-done screen too
-  try{
-    const s=await fetch(`${API}/status?kid=${kid}`).then(r=>r.json());
-    if(s.ok)updateJar(s);
-  }catch(e){}
   // THE verdict: record celebration, missed-the-bar or accuracy-fail, always explicit
   for(const a of (d.awards||[])){
     if(a.kind==='tables'&&a.ok){
-      h+=`<div class="award" style="font-size:1.25em;border-color:#3fae6a;background:#3fae6a22">🚀 ${a.text} New territory!</div>`;
+      h+=`<div class="award lg">🚀 ${esc(a.text)} New tables to practice!</div>`;
     }else if(a.kind!=='record')continue;
     else if(a.ok){
-      h+=`<div class="award" style="font-size:1.2em">⚡ NEW RECORD! Your usual speed: ${(a.new_best_ms/1000).toFixed(1)}s per answer${a.was_best_ms!=null?` (was ${(a.was_best_ms/1000).toFixed(1)}s)`:''}. Keep the coins coming!</div>`;
+      h+=`<div class="award lg">⚡ NEW RECORD! About ${(a.new_best_ms/1000).toFixed(1)}s per answer${a.was_best_ms!=null?` (it was ${(a.was_best_ms/1000).toFixed(1)}s)`:''}.</div>`;
     }else if(a.miss&&!a.acc_fail&&a.was_best_ms!=null){
       const need=(a.was_best_ms*0.98/1000).toFixed(1);
-      h+=`<div class=award style="border-color:#4a90d9;background:#4a90d922">🎯 ${(a.this_ms/1000).toFixed(1)}s. The record to beat: ${need}s. So close!</div>`;
+      h+=`<div class="award blue">🎯 ${(a.this_ms/1000).toFixed(1)}s. Your record to beat: ${need}s. So close!</div>`;
     }else if(a.miss&&a.acc_fail){
-      h+=`<div class=award style="border-color:#4a90d9;background:#4a90d922">🎯 Get 9 out of 10 right to race the record. This round: ${d.correct} of ${d.n}.</div>`;
+      h+=`<div class="award blue">🎯 Get 9 of 10 right to beat your record. This round: ${d.correct} of ${d.n}.</div>`;
     }
   }
-  h+=`<div style="margin-top:14px">
-      <button class="btn green" onclick="start()">Another round</button>
-      <button class="btn gray" onclick="renderMenu()">Menu</button></div>`;
+  h+=`<p class="lead" id="today"></p>`;
   done.innerHTML=h;
+  done.appendChild(button('Another round','btn green',start));
+  done.appendChild(button('Menu','btn gray',()=>renderMenu()));
+  focusKey(done.querySelector('.btn.green'));
+  const s=await api(`/status?kid=${kid}`);
+  if(s.ok&&token===play&&$('today'))$('today').textContent=todayText(s,CAPPED_MSG);
 }
 
 $('stopbtn').addEventListener('click',stopRound);
 $('gobtn').addEventListener('click',submit);
-document.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submit();}});
+$('ans').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submit();}});
+onEscape(()=>{if(!$('play').hidden||!$('done').hidden)renderMenu();else BACK.go();});
 renderMenu();

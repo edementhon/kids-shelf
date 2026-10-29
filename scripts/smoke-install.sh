@@ -13,10 +13,13 @@
 #   4. check the install layout: Linux ~/.local/share/kids-shelf/app,
 #      macOS ~/Library/Application Support/kids-shelf/app, plus the entry
 #      app at ~/Applications/kids-shelf.app.
-#   5. POST /api/admin/remove with the same-origin Origin header and JSON
-#      body the parent page sends, wait for the remover, and check that
-#      only the lock files remain (install.lock, instance.lock,
-#      kids-shelf.db.lock; internal/install/remove.go never unlinks them).
+#   5. make the parent PIN like a parent's first visit does (POST
+#      /api/admin/pin/setup; the parent page always needs one), keep the
+#      session cookie, then POST /api/admin/remove with it, the same-origin
+#      Origin header and the JSON body the parent page sends. Wait for the
+#      remover, and check that only the lock files remain (install.lock,
+#      instance.lock, kids-shelf.db.lock; internal/install/remove.go never
+#      unlinks them).
 #
 # Usage: smoke-install.sh <release.zip>
 # Requirements: bash, unzip, curl, python3 (instance.json), and on macOS
@@ -161,13 +164,27 @@ else
 	ok "install layout verified (install root $INSTALL_DIR)"
 fi
 
-# Remove, exactly like the parent page: same-origin Origin header plus a
-# JSON body. deleteData=true so the data dir is swept too, leaving the
-# three lock files as the only files (the page defaults to false; the
-# smoke test asks for the empty end state).
-echo "smoke-install: POST /api/admin/remove (Origin header, like the parent page)"
+# The parent page always needs a PIN: make one like a parent's first visit
+# does, keeping the session cookie it issues for the removal below.
 ORIGIN="http://127.0.0.1:$PORT"
+COOKIES="$TMP/parent-cookies.txt"
+echo "smoke-install: POST /api/admin/pin/setup (the first parent PIN)"
+SETUP_CODE="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -X POST \
+	-c "$COOKIES" \
+	-H "Content-Type: application/json" \
+	-H "Origin: $ORIGIN" \
+	--data '{"pin":"2468"}' \
+	"$ORIGIN/api/admin/pin/setup" 2>&1 || true)"
+[ "$SETUP_CODE" = "200" ] || fail "parent PIN setup answered $SETUP_CODE, want 200"
+ok "parent PIN made"
+
+# Remove, exactly like the parent page: the session cookie, same-origin
+# Origin header plus a JSON body. deleteData=true so the data dir is swept
+# too, leaving the three lock files as the only files (the page defaults
+# to false; the smoke test asks for the empty end state).
+echo "smoke-install: POST /api/admin/remove (Origin header and session, like the parent page)"
 REMOVE_OUT="$(curl -sS --max-time 30 -X POST \
+	-b "$COOKIES" \
 	-H "Content-Type: application/json" \
 	-H "Origin: $ORIGIN" \
 	--data '{"deleteData":true}' \

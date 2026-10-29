@@ -426,6 +426,36 @@ func TestListShowsPosterFromFirstThumbedEpisode(t *testing.T) {
 	}
 }
 
+// TestSearchShowsUseDerivedPoster: a show found by search carries the same
+// poster as on the shelf (its first thumbed episode), not the never-written
+// shows.poster column, so search results do not show the placeholder.
+func TestSearchShowsUseDerivedPoster(t *testing.T) {
+	lib := newTestLibrary(t)
+	mustPublish(t, lib, core.Episode{
+		ID: "ep-1", ShowID: "shelf", Title: "Episode 1", File: "/out/ep-1.mp4",
+		Source: core.Source{Kind: core.SourceFolder, Path: "Shelf/Episode 1.mp4", Show: "Shelf"},
+	})
+	mustPublish(t, lib, core.Episode{
+		ID: "ep-2", ShowID: "shelf", Title: "Episode 2", File: "/out/ep-2.mp4", Thumb: "/out/ep-2.jpg",
+		Source: core.Source{Kind: core.SourceFolder, Path: "Shelf/Episode 2.mp4", Show: "Shelf"},
+	})
+	mustPublish(t, lib, core.Episode{
+		ID: "nt-1", ShowID: "shelfless", Title: "Only One", File: "/out/nt-1.mp4",
+		Source: core.Source{Kind: core.SourceFolder, Path: "Shelfless/Only One.mp4", Show: "Shelfless"},
+	})
+	res, err := lib.Search(context.Background(), "shelf")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	got := map[core.ShowID]string{}
+	for _, sh := range res.Shows {
+		got[sh.ID] = sh.Poster
+	}
+	if len(got) != 2 || got["shelf"] != "ep-2" || got["shelfless"] != "" {
+		t.Errorf("search posters = %v, want shelf ep-2 and shelfless none", got)
+	}
+}
+
 func TestNaturalLess(t *testing.T) {
 	for _, tc := range []struct {
 		a, b string
@@ -744,5 +774,19 @@ func TestFixingSummary(t *testing.T) {
 	}
 	if got := sum.FailedEpisodes[len(sum.FailedEpisodes)-1].Show; got != "Show failed-02" {
 		t.Errorf("oldest listed = %q, want Show failed-02", got)
+	}
+}
+
+// TestFixingSummaryEmptyLibrary: a fresh install has no episodes, so every
+// count is zero and the list empty, not a scan error on SUM's NULL.
+func TestFixingSummaryEmptyLibrary(t *testing.T) {
+	lib := newTestLibrary(t)
+	sum, err := lib.FixingSummary(context.Background())
+	if err != nil {
+		t.Fatalf("FixingSummary on an empty library: %v", err)
+	}
+	if sum.PendingSound != 0 || sum.PendingPicture != 0 || sum.PendingFormat != 0 || sum.Failed != 0 ||
+		len(sum.FailedEpisodes) != 0 || sum.FailedMore != 0 {
+		t.Errorf("empty summary = %+v, want all zero", sum)
 	}
 }

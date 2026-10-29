@@ -2,15 +2,17 @@
 // register folder and NAS sources, watch conversions (ingest) and manage the
 // Kiwix libraries (catalog, downloads, installed ZIMs).
 //
-// Dashboard PIN: the /admin area owns the gate (admin.go: requireAdminPIN,
+// Parent PIN: the /admin area owns the gate (admin.go: requireAdminPIN,
 // the ks_admin_pin cookie and <DataDir>/dashboard-pin.json). Every data
-// route here calls that gate first, so the optional dashboard PIN set in
-// Settings gates /admin/content exactly like /admin; the page shell is
-// served to everyone and the page asks for the PIN when its first data call
-// comes back 401. This file therefore builds only together with admin.go.
+// route here calls that gate first, so the parent PIN (always required)
+// gates /admin/content exactly like /admin; the page shell is served to
+// everyone and the page asks for the PIN when its first data call comes
+// back 401, or sends the parent to /admin to make one when the 401 says
+// setup. This file therefore builds only together with admin.go.
 package web
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -19,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -28,7 +31,10 @@ import (
 	"github.com/edementhon/kids-shelf/internal/core"
 	"github.com/edementhon/kids-shelf/internal/disk"
 	"github.com/edementhon/kids-shelf/internal/ingest"
+	"github.com/edementhon/kids-shelf/internal/jobs"
 	"github.com/edementhon/kids-shelf/internal/kiwix"
+	"github.com/edementhon/kids-shelf/internal/library"
+	"github.com/edementhon/kids-shelf/internal/youtube"
 )
 
 //go:embed static/content
@@ -42,10 +48,15 @@ const (
 	msgContentIngestDown  = "This copy is not running the conversions service."
 	msgContentKiwixDown   = "This copy is not running the libraries service."
 	msgContentSaveFailed  = "That could not be saved."
-	msgContentBadLink     = "That doesn't look like a YouTube link."
+	msgContentLoadFailed  = "This list couldn't be loaded. Reload the page to try again."
+	msgContentBadLink     = "That doesn't look like a YouTube link. On YouTube, press Share, then Copy link, and paste it here."
 	msgContentBadBody     = "That request couldn't be read."
 	msgContentCatalogDown = "The library catalog couldn't be reached. Check that this computer is online, then try again."
 )
+
+// contentDoneShown is how long a finished conversion stays in the
+// conversions list: long enough to see that today's videos arrived.
+const contentDoneShown = 24 * time.Hour
 
 // contentFreeSpace probes the free bytes on the media drive for the download
 // confirmation and the pre-download space check. Tests stub it to a fixed
@@ -64,6 +75,7 @@ func init() {
 		m.HandleFunc("POST /api/admin/content/sources", s.handleContentSourcesAdd)
 		m.HandleFunc("POST /api/admin/content/sources/remove", s.handleContentSourcesRemove)
 		m.HandleFunc("POST /api/admin/content/scan", s.handleContentScan)
+		m.HandleFunc("POST /api/admin/content/ingest/retry", s.handleContentIngestRetry)
 		m.HandleFunc("GET /api/admin/content/ingest", s.handleContentIngestList)
 		m.HandleFunc("GET /api/admin/content/fixes", s.handleContentFixes)
 		m.HandleFunc("GET /api/admin/content/kiwix/catalog", s.handleContentKiwixCatalog)
@@ -77,9 +89,9 @@ func init() {
 
 // ─── page and static files ─────────────────────────────────────────────────
 
-// handleContentPage serves the page shell to everyone; with the optional
-// dashboard PIN set, the page shows the PIN form when its first data call
-// comes back 401 (all data is behind requireAdminPIN, never the shell).
+// handleContentPage serves the page shell to everyone; the page shows the
+// PIN form when its first data call comes back 401 (all data is behind
+// requireAdminPIN, never the shell), or goes to /admin to make a PIN first.
 func (s *Server) handleContentPage(w http.ResponseWriter, r *http.Request) {
 	b, err := contentFiles.ReadFile("static/content/index.html")
 	if err != nil {
@@ -139,6 +151,17 @@ type contentYouTubeAddRequest struct {
 	URL string `json:"url"`
 }
 
+// contentYouTubeJob is one YouTube-list row: the download job plus, once its
+// video went to the shelf, the show it landed in (the channel name, which a
+// parent would not guess).
+type contentYouTubeJob struct {
+	youtube.JobView
+	Show string `json:"show,omitempty"`
+}
+
+// handleContentYouTubeList lists the YouTube jobs, newest first. A failed
+// job that a later job for the same link replaced (a Retry, or the same link
+// pasted again) is left out, so failures do not pile up after a retry.
 func (s *Server) handleContentYouTubeList(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
@@ -147,12 +170,39 @@ func (s *Server) handleContentYouTubeList(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, msgContentYouTubeDown)
 		return
 	}
-	jobs, err := s.deps.YouTube.Jobs()
+	list, err := s.deps.YouTube.Jobs()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
+		writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
+	// The ingest job of a downloaded video carries its watch URL as the
+	// source path and the show it was filed under.
+	shows := map[string]string{}
+	if s.deps.Ingest != nil {
+		if ing, err := s.deps.Ingest.Jobs(); err == nil {
+			for _, j := range ing {
+				if j.Source.Kind == core.SourceYouTube && j.Source.Show != "" {
+					if _, ok := shows[j.Source.Path]; !ok {
+						shows[j.Source.Path] = j.Source.Show
+					}
+				}
+			}
+		}
+	}
+	seen := map[string]bool{}
+	out := make([]contentYouTubeJob, 0, len(list))
+	for _, j := range list {
+		if j.State == jobs.StateFailed && seen[j.URL] {
+			continue // replaced by a newer job for the same link
+		}
+		seen[j.URL] = true
+		row := contentYouTubeJob{JobView: j}
+		if j.State == jobs.StateDone {
+			row.Show = shows[j.URL]
+		}
+		out = append(out, row)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": out})
 }
 
 // handleContentYouTubeAdd enqueues a YouTube download for a video, playlist
@@ -206,6 +256,11 @@ var youtubeHosts = map[string]bool{
 // parsed id. Anything else is an error, so a paste can never smuggle a
 // foreign address or URL parameter into the downloader.
 func contentYouTubeCanonical(raw string) (string, error) {
+	// A link typed or pasted without its "https://" (youtube.com/watch?v=...)
+	// is still a YouTube link; the host check below still applies.
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return "", errors.New("not a youtube url")
@@ -348,6 +403,12 @@ type contentSource struct {
 	Path      string   `json:"path"`
 	Kind      string   `json:"kind"`
 	Allowlist []string `json:"allowlist,omitempty"`
+	// Missing counts the videos on the shelf from this folder whose
+	// original file cannot be found.
+	Missing int `json:"missing,omitempty"`
+	// Problem is set when the folder cannot be scanned right now or videos
+	// from it cannot be found, in plain words saying what to do.
+	Problem string `json:"problem,omitempty"`
 }
 
 type contentSourcesAddRequest struct {
@@ -355,6 +416,88 @@ type contentSourcesAddRequest struct {
 	Kind string `json:"kind"` // "folder" or "nas" (core.SourceFolder / core.SourceNAS)
 }
 
+// contentVideos is "1 video" or "N videos".
+func contentVideos(n int) string {
+	if n == 1 {
+		return "1 video"
+	}
+	return strconv.Itoa(n) + " videos"
+}
+
+// contentSourceProblem says in plain words what is wrong with a registered
+// folder, or "" when it is fine. statErr and fi are the result of one stat
+// of the folder; missing is how many of the shelf's in-place videos from it
+// cannot be found (kids only see "This one can't play right now", so the
+// parent page has to say why).
+func contentSourceProblem(kind core.SourceKind, fi os.FileInfo, statErr error, missing int) string {
+	switch {
+	case statErr != nil && kind == core.SourceNAS && missing > 0:
+		return "kids-shelf can't find this NAS share right now, so " + contentVideos(missing) + " from it can't play. Check that the NAS is on and connected to this computer."
+	case statErr != nil && kind == core.SourceNAS:
+		return "kids-shelf can't find this NAS share right now. Check that the NAS is on and connected to this computer."
+	case statErr != nil && missing > 0:
+		return "kids-shelf can't find this folder right now, so " + contentVideos(missing) + " from it can't play. If it is on a USB drive, plug the drive in."
+	case statErr != nil:
+		return "kids-shelf can't find this folder right now. If it is on a USB drive, plug the drive in."
+	case !fi.IsDir():
+		return "This is a file, not a folder. Remove it and add the folder that holds your videos."
+	case missing == 1:
+		return "1 video from this folder can't be found, so kids can't play it. Is the drive or NAS connected? If you moved or renamed it, put it back."
+	case missing > 1:
+		return contentVideos(missing) + " from this folder can't be found, so kids can't play them. Is the drive or NAS connected? If you moved or renamed them, put them back."
+	}
+	return ""
+}
+
+// contentMissingStatCap bounds how many original files one folder-list
+// request checks in folders that are there; a folder that is gone is
+// counted without looking at its files.
+const contentMissingStatCap = 5000
+
+// contentMissingOriginals counts, per source (index into srcs), the
+// in-place episodes whose original file cannot be found. Each episode
+// belongs to the source whose root holds it (the deepest one when roots
+// nest). When the root itself is gone (rootOK false) all of its episodes
+// count as missing and no file is touched; otherwise each original is
+// stat'ed, at most contentMissingStatCap in all.
+func contentMissingOriginals(srcs []library.MediaSource, rootOK []bool, files []library.InPlaceFile) []int {
+	prefixes := make([]string, len(srcs))
+	for i, src := range srcs {
+		canon, err := core.CanonicalPath(src.Path)
+		if err != nil {
+			continue
+		}
+		if !strings.HasSuffix(canon, "/") {
+			canon += "/"
+		}
+		prefixes[i] = canon
+	}
+	missing := make([]int, len(srcs))
+	budget := contentMissingStatCap
+	for _, f := range files {
+		best := -1
+		for i, p := range prefixes {
+			if p != "" && strings.HasPrefix(f.SourcePath, p) && (best < 0 || len(p) > len(prefixes[best])) {
+				best = i
+			}
+		}
+		switch {
+		case best < 0:
+		case !rootOK[best]:
+			missing[best]++
+		case budget > 0:
+			budget--
+			if _, err := os.Stat(f.File); err != nil {
+				missing[best]++
+			}
+		}
+	}
+	return missing
+}
+
+// handleContentSourcesList lists the registered folders, each with a plain
+// warning when it cannot be scanned or when videos on the shelf from it
+// cannot be found.
 func (s *Server) handleContentSourcesList(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
@@ -365,20 +508,69 @@ func (s *Server) handleContentSourcesList(w http.ResponseWriter, r *http.Request
 	}
 	srcs, err := s.deps.Library.Sources(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
+		writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
 		return
 	}
+	files, err := s.deps.Library.InPlaceFiles(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
+		return
+	}
+	infos := make([]os.FileInfo, len(srcs))
+	errs := make([]error, len(srcs))
+	rootOK := make([]bool, len(srcs))
+	for i, src := range srcs {
+		infos[i], errs[i] = os.Stat(src.Path)
+		rootOK[i] = errs[i] == nil && infos[i].IsDir()
+	}
+	missing := contentMissingOriginals(srcs, rootOK, files)
 	out := make([]contentSource, 0, len(srcs))
-	for _, src := range srcs {
-		out = append(out, contentSource{ID: src.ID, Path: src.Path, Kind: string(src.Kind), Allowlist: src.Allowlist})
+	for i, src := range srcs {
+		out = append(out, contentSource{
+			ID: src.ID, Path: src.Path, Kind: string(src.Kind), Allowlist: src.Allowlist,
+			Missing: missing[i],
+			Problem: contentSourceProblem(src.Kind, infos[i], errs[i], missing[i]),
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sources": out})
 }
 
-// handleContentSourcesAdd registers a media root. The path must exist now:
-// a parent who typos a folder gets told at once, and a NAS share has to be
-// connected before it can be scanned anyway (the periodic scan tolerates a
-// root that vanishes later).
+// contentSamePath reports whether two folder paths name the same folder,
+// ignoring case where the OS does.
+func contentSamePath(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// contentCleanSourcePath tidies a pasted folder path: surrounding spaces and
+// the quotes Windows Explorer's "Copy as path" adds go, and the path is
+// cleaned so "/media/" and "/media" are one folder.
+func contentCleanSourcePath(p string) string {
+	p = strings.TrimSpace(p)
+	for len(p) >= 2 && (p[0] == '"' && p[len(p)-1] == '"' || p[0] == '\'' && p[len(p)-1] == '\'') {
+		p = strings.TrimSpace(p[1 : len(p)-1])
+	}
+	if p == "" {
+		return ""
+	}
+	return filepath.Clean(p)
+}
+
+// contentCountTimeout bounds the video count Add folder reports; a very
+// large NAS share is added without a count rather than keeping the parent
+// waiting.
+const contentCountTimeout = 15 * time.Second
+
+// handleContentSourcesAdd registers a media root. The path must be a folder
+// that exists now and holds at least one video: a parent who typos a path,
+// picks a file or an empty folder gets told at once, and a NAS share has to
+// be connected before it can be scanned anyway (the periodic scan tolerates
+// a root that vanishes later). A folder already on the list is refused. The
+// answer carries how many videos the folder holds (-1 when counting took
+// too long).
 func (s *Server) handleContentSourcesAdd(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
@@ -392,8 +584,8 @@ func (s *Server) handleContentSourcesAdd(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, msgContentBadBody)
 		return
 	}
-	req.Path = strings.TrimSpace(req.Path)
-	if req.Path == "" {
+	path := contentCleanSourcePath(req.Path)
+	if path == "" {
 		writeError(w, http.StatusBadRequest, "Enter the path to the folder first.")
 		return
 	}
@@ -401,21 +593,56 @@ func (s *Server) handleContentSourcesAdd(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "Choose 'A folder on this computer' or 'A network drive (NAS)'.")
 		return
 	}
-	if _, err := os.Stat(req.Path); err != nil {
+	if !filepath.IsAbs(path) {
+		writeError(w, http.StatusBadRequest, "Enter the whole path to the folder, like "+exampleMediaPath()+".")
+		return
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "We couldn't find that folder on this computer. Check the path. A NAS share has to be connected to this machine first.")
 		return
 	}
-	if err := s.deps.Library.AddSource(r.Context(), req.Path, core.SourceKind(req.Kind), nil); err != nil {
+	if !fi.IsDir() {
+		writeError(w, http.StatusBadRequest, "That is a file, not a folder. Enter the folder that holds your videos.")
+		return
+	}
+	srcs, err := s.deps.Library.Sources(r.Context())
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	for _, src := range srcs {
+		if contentSamePath(src.Path, path) {
+			writeError(w, http.StatusBadRequest, "That folder is already on the list.")
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), contentCountTimeout)
+	videos, err := library.CountVideos(ctx, path)
+	cancel()
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		videos = -1
+	case err != nil:
+		writeError(w, http.StatusBadRequest, "kids-shelf can't open that folder. Check that this computer is allowed to read it.")
+		return
+	case videos == 0:
+		writeError(w, http.StatusBadRequest, "There are no videos in that folder. Put your videos in it (each show in its own folder inside), then add it again. kids-shelf finds .mp4, .mkv, .webm, .avi, .mov, .m4v and .ts files.")
+		return
+	}
+	if err := s.deps.Library.AddSource(r.Context(), path, core.SourceKind(req.Kind), nil); err != nil {
+		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": path, "videos": videos})
 }
 
 type contentSourcesRemoveRequest struct {
 	Path string `json:"path"`
 }
 
+// handleContentSourcesRemove takes a folder off the list. Its videos already
+// on the shelf stay there; only the scanning stops (the page says so).
 func (s *Server) handleContentSourcesRemove(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
@@ -436,8 +663,9 @@ func (s *Server) handleContentSourcesRemove(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// handleContentScan walks every registered source and hands new files to the
-// ingest queue.
+// handleContentScan walks every registered source and hands new files (and
+// changed files whose conversion failed) to the ingest queue. The answer
+// says how many it handed over, so the page can say when nothing was new.
 func (s *Server) handleContentScan(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
@@ -450,11 +678,12 @@ func (s *Server) handleContentScan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, msgContentIngestDown)
 		return
 	}
-	if err := s.deps.Library.Scan(r.Context(), s.deps.Ingest); err != nil {
+	added, err := s.deps.Library.ScanNew(r.Context(), s.deps.Ingest)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Scanning couldn't finish. Try again.")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "added": added})
 }
 
 // ─── conversions (ingest jobs) ──────────────────────────────────────────────
@@ -466,8 +695,27 @@ func (s *Server) handleContentScan(w http.ResponseWriter, r *http.Request) {
 type contentIngestJob struct {
 	ingest.JobView
 	Title string `json:"title"`
+	// Retry is set on a failed conversion that can be tried again.
+	Retry bool `json:"retry,omitempty"`
+	// Hint says, for a failed conversion that cannot be retried, why not
+	// and what to do instead.
+	Hint string `json:"hint,omitempty"`
 }
 
+// contentIngestKey identifies the file a job converts, so a newer job for
+// the same file is known to replace an older failed one. Jobs whose payload
+// did not decode have no source and never match.
+func contentIngestKey(j ingest.JobView) string {
+	if j.Source.Path == "" {
+		return ""
+	}
+	return string(j.Source.Kind) + "\x00" + j.Source.Path
+}
+
+// handleContentIngestList lists the conversions, newest first: everything
+// waiting, running, paused or failed, and what finished in the last day. A
+// failed job that a newer job for the same file replaced (a Retry, or a
+// scan that found the file changed) is left out.
 func (s *Server) handleContentIngestList(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
@@ -476,16 +724,121 @@ func (s *Server) handleContentIngestList(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusServiceUnavailable, msgContentIngestDown)
 		return
 	}
-	jobs, err := s.deps.Ingest.Jobs()
+	list, err := s.deps.Ingest.Jobs()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
+		return
+	}
+	cutoff := s.now().Add(-contentDoneShown)
+	seen := map[string]bool{}
+	out := make([]contentIngestJob, 0, len(list))
+	for _, j := range list {
+		key := contentIngestKey(j)
+		replaced := key != "" && seen[key]
+		seen[key] = true
+		if j.State == jobs.StateFailed && replaced {
+			continue
+		}
+		if j.State == jobs.StateDone && j.Updated.Before(cutoff) {
+			continue
+		}
+		row := contentIngestJob{JobView: j, Title: contentIngestTitle(j)}
+		if j.State == jobs.StateFailed {
+			why, err := s.contentIngestRetryBlock(r.Context(), j)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
+				return
+			}
+			row.Retry, row.Hint = why == "", why
+		}
+		out = append(out, row)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": out})
+}
+
+// contentIngestRetryBlock says why a failed conversion cannot be tried
+// again, in plain words, or "" when it can: its video is not on the shelf
+// (a failed improvement leaves the first copy playing) and its file is
+// still there to convert.
+func (s *Server) contentIngestRetryBlock(ctx context.Context, j ingest.JobView) (string, error) {
+	if j.File == "" || j.Source.Path == "" {
+		return "This conversion can't be tried again. Add the video again.", nil
+	}
+	if s.deps.Library != nil {
+		_, found, err := s.deps.Library.BySource(ctx, j.Source)
+		if err != nil {
+			return "", err
+		}
+		if found {
+			return "This video is on the shelf and plays as it is.", nil
+		}
+	}
+	if fi, err := os.Stat(j.File); err != nil || !fi.Mode().IsRegular() {
+		if j.Source.Kind == core.SourceYouTube {
+			return "To try again, add it again from its YouTube link above.", nil
+		}
+		return "The file is not in its folder any more. Put it back to try again.", nil
+	}
+	return "", nil
+}
+
+// handleContentIngestRetry gives a failed conversion a new try: the same
+// file and source go back to the ingest queue as a new job, which replaces
+// the failed one in the list. Only the newest job for a file can be retried,
+// and only when contentIngestRetryBlock allows it.
+func (s *Server) handleContentIngestRetry(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPIN(w, r) {
+		return
+	}
+	if s.deps.Ingest == nil {
+		writeError(w, http.StatusServiceUnavailable, msgContentIngestDown)
+		return
+	}
+	var req contentJobRefRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, msgContentBadBody)
+		return
+	}
+	list, err := s.deps.Ingest.Jobs()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
 		return
 	}
-	out := make([]contentIngestJob, 0, len(jobs))
-	for _, j := range jobs {
-		out = append(out, contentIngestJob{JobView: j, Title: contentIngestTitle(j)})
+	idx := -1
+	for i := range list {
+		if list[i].ID == req.ID {
+			idx = i
+			break
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"jobs": out})
+	if idx < 0 || list[idx].State != jobs.StateFailed {
+		writeError(w, http.StatusBadRequest, "That conversion isn't stuck any more. The list shows how it is doing.")
+		return
+	}
+	j := list[idx]
+	if key := contentIngestKey(j); key != "" {
+		for _, newer := range list[:idx] { // the list is newest first
+			if contentIngestKey(newer) == key {
+				writeError(w, http.StatusBadRequest, "That video is already being tried again. The list shows how it is doing.")
+				return
+			}
+		}
+	}
+	why, err := s.contentIngestRetryBlock(r.Context(), j)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
+		return
+	}
+	if why != "" {
+		writeError(w, http.StatusBadRequest, why)
+		return
+	}
+	id, err := s.deps.Ingest.Enqueue(r.Context(), j.File, j.Source)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"id": id})
 }
 
 // contentIngestTitle picks the name a parent recognises for an ingest job:
@@ -526,7 +879,7 @@ func (s *Server) handleContentFixes(w http.ResponseWriter, r *http.Request) {
 	}
 	sum, err := s.deps.Library.FixingSummary(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
+		writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
 		return
 	}
 	out := struct {
@@ -568,6 +921,9 @@ type contentZIM struct {
 	MediaCount   int    `json:"media_count"`
 	Size         int64  `json:"size"`
 	Meta4URL     string `json:"meta4_url"`
+	// Installed marks an edition already on the shelf, so the page offers
+	// no Download for it.
+	Installed bool `json:"installed,omitempty"`
 }
 
 func contentZIMFromEntry(e kiwix.Entry) contentZIM {
@@ -583,16 +939,47 @@ type contentZIMInstalled struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	Title       string    `json:"title"`
+	Flavour     string    `json:"flavour,omitempty"`
 	Language    string    `json:"language"`
 	File        string    `json:"file"`
 	Size        int64     `json:"size"`
 	InstalledAt time.Time `json:"installed_at"`
+	// Missing is set when the library's file is gone from the library
+	// folder (a drive that is not plugged in, a file moved by hand): kids
+	// cannot open it until it is back.
+	Missing bool `json:"missing,omitempty"`
 }
 
 type contentKiwixState struct {
 	Installed []contentZIMInstalled `json:"installed"`
 	Downloads []kiwix.JobView       `json:"downloads"`
 	FreeBytes int64                 `json:"free_bytes"` // -1 when unknown
+}
+
+// contentInstalledFlavour recovers an installed library's edition from its
+// file name, which kiwix stores as <name>_<flavour>_<YYYY-MM>.zim; "" when
+// the name does not have that shape.
+func contentInstalledFlavour(in kiwix.Installed) string {
+	f, ok := strings.CutSuffix(in.File, ".zim")
+	if !ok {
+		return ""
+	}
+	f, ok = strings.CutPrefix(f, in.Name+"_")
+	if !ok {
+		return ""
+	}
+	i := strings.LastIndexByte(f, '_')
+	if i < 0 {
+		return ""
+	}
+	return f[:i]
+}
+
+// contentSameEdition reports whether a catalog entry (or a download job's
+// entry) is the installed library in: the same catalog id, or the same
+// name and edition (a newer release of it has a new id).
+func contentSameEdition(id, name, flavour string, in kiwix.Installed) bool {
+	return id == in.ID || (name == in.Name && flavour == contentInstalledFlavour(in))
 }
 
 // contentKiwixDownloadRequest carries the catalog identifier of the library
@@ -634,9 +1021,20 @@ func (s *Server) handleContentKiwixCatalog(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadGateway, msgContentCatalogDown)
 		return
 	}
+	var installed []kiwix.Installed
+	if s.deps.Kiwix != nil {
+		installed, _ = s.deps.Kiwix.Installed() // unknown: every edition keeps its Download button
+	}
 	entries := make([]contentZIM, 0, len(res.Entries))
 	for _, e := range res.Entries {
-		entries = append(entries, contentZIMFromEntry(e))
+		z := contentZIMFromEntry(e)
+		for _, in := range installed {
+			if contentSameEdition(e.ID, e.Name, e.Flavour, in) {
+				z.Installed = true
+				break
+			}
+		}
+		entries = append(entries, z)
 	}
 	contentSortFlavours(entries)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -747,20 +1145,39 @@ func (s *Server) handleContentKiwixState(w http.ResponseWriter, r *http.Request)
 	}
 	installed, err := s.deps.Kiwix.Installed()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
+		writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
 		return
 	}
-	jobs, err := s.deps.Kiwix.Jobs()
+	list, err := s.deps.Kiwix.Jobs()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
+		writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
 		return
 	}
-	out := contentKiwixState{Downloads: jobs, FreeBytes: -1, Installed: []contentZIMInstalled{}}
+	out := contentKiwixState{Downloads: []kiwix.JobView{}, FreeBytes: -1, Installed: []contentZIMInstalled{}}
 	for _, in := range installed {
 		out.Installed = append(out.Installed, contentZIMInstalled{
-			ID: in.ID, Name: in.Name, Title: in.Title, Language: in.Language,
-			File: in.File, Size: in.Size, InstalledAt: in.InstalledAt,
+			ID: in.ID, Name: in.Name, Title: in.Title, Flavour: contentInstalledFlavour(in),
+			Language: in.Language, File: in.File, Size: in.Size, InstalledAt: in.InstalledAt,
+			Missing: !s.deps.Kiwix.OnDisk(in),
 		})
+	}
+	// A finished download stays listed for a day, and only while its
+	// library is still on the shelf.
+	cutoff := s.now().Add(-contentDoneShown)
+	for _, j := range list {
+		if j.State == jobs.StateDone {
+			kept := false
+			for _, in := range installed {
+				if contentSameEdition(j.Entry.ID, j.Entry.Name, j.Entry.Flavour, in) {
+					kept = true
+					break
+				}
+			}
+			if !kept || j.Updated.Before(cutoff) {
+				continue
+			}
+		}
+		out.Downloads = append(out.Downloads, j)
 	}
 	if s.deps.MediaDir != "" {
 		if free, err := contentFreeSpace(s.deps.MediaDir); err == nil && free <= math.MaxInt64 {

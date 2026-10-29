@@ -14,7 +14,7 @@ body {
   padding: 20px;
 }
 h1 { font-size: 2em; margin: 0; }
-.sub { color: #888; margin: 2px 0 16px; }
+.sub { color: #5c5c5c; margin: 2px 0 16px; }
 
 /* Header with the back link: the back target itself is at least 44 px tall. */
 .top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -24,24 +24,45 @@ h1 { font-size: 2em; margin: 0; }
   gap: 6px;
   padding: 10px 6px;
   min-height: 44px;
-  color: #69c;
+  color: #2b5f8a;
+  font-weight: bold;
   text-decoration: none;
   font-size: 1.1em;
   margin-right: 4px;
 }
 .back img { width: 22px; height: 22px; }
-.back:active { color: #3a7; }
+.back:active { color: #1f6b43; }
+.back:focus-visible, .book:focus-visible, .retry:focus-visible { outline: 4px solid #2b5f8a; outline-offset: 3px; }
 
-/* Not-available banner (backend down or the list failed to load). */
+/* The one banner (libraries not working, or every book missing), with a
+   big Try again button. */
 .msg {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
   background: #fdf3d5;
   border: 1px solid #f0d98c;
-  color: #7a5c14;
+  color: #6b500f;
   border-radius: 12px;
   padding: 14px 16px;
   margin-bottom: 16px;
   font-size: 1.05em;
 }
+.msg span { flex: 1 1 14em; }
+.retry {
+  min-height: 48px;
+  padding: 10px 22px;
+  border: none;
+  border-radius: 24px;
+  background: #6c9;
+  color: #062;
+  font: inherit;
+  font-weight: bold;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.retry:active { filter: brightness(0.92); }
 
 /* Book tiles: one big touch target per library, same grid rhythm as the
    home page's show cards. */
@@ -75,7 +96,11 @@ h1 { font-size: 2em; margin: 0; }
 }
 .book .emoji { font-size: 2.6em; line-height: 1; margin-bottom: 6px; }
 .book .t { font-weight: bold; line-height: 1.2; margin-top: 4px; }
-.book .l { color: #888; font-size: 0.85em; margin-top: 4px; }
+.book .l { color: #595959; font-size: 0.85em; margin-top: 4px; }
+.book .gone { color: #6b500f; font-size: 0.85em; margin-top: 6px; font-weight: bold; }
+/* File gone: grayed paper, but the "ask a grown-up" words stay readable. */
+.book.off.missing { opacity: 1; background: #efe9dd; box-shadow: none; }
+.book.off.missing .emoji, .book.off.missing .t, .book.off.missing .l { opacity: 0.6; }
 
 /* Installed but not openable right now: still shown, clearly not a link. */
 .book.off { opacity: 0.55; }
@@ -85,12 +110,20 @@ h1 { font-size: 2em; margin: 0; }
 .empty {
   margin-top: 28px;
   text-align: center;
-  color: #888;
+  color: #555;
   font-size: 1.1em;
   line-height: 1.6;
 }
-.empty a {
-  color: #69c;
-  padding: 4px;            /* a comfortable tap target on the words */
-  display: inline-block;
+
+/* Pi and TV screens (1920x1200 and up), seen from the sofa: wider page,
+   bigger tiles, words and way back. */
+@media (min-width: 1200px) and (min-height: 800px) {
+  body { max-width: 1500px; font-size: 22px; padding: 28px 40px; }
+  .books { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 24px; }
+  .book { min-height: 230px; padding: 24px; }
+  .book img { width: 80px; height: 80px; }
+  .book .emoji { font-size: 3.4em; }
+  .back { min-height: 64px; font-size: 1.2em; }
+  .back img { width: 32px; height: 32px; }
+  .retry { min-height: 60px; }
 }

@@ -12,11 +12,50 @@ body {
   padding: 20px;
 }
 h1 { font-size: 2em; margin: 0 0 4px; }
-.sub { color: #888; margin-bottom: 16px; }
+.sub { color: #5f5f5f; margin-bottom: 16px; font-size: 1.05em; }
+.sub.none-left { color: #8a4b00; font-weight: 600; }
+.together-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  margin: -6px 0 16px;
+  padding: 10px 22px;
+  border: none;
+  border-radius: 26px;
+  background: #2a7a4b;
+  color: #fff;
+  font-size: 1.1em;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+/* A thick ring shows where the keyboard is, readable from the couch on the
+   Pi's TV; a tap or click shows none. */
+:focus-visible { outline: 4px solid #1f6fd1; outline-offset: 3px; }
+.pick .tile:focus-visible, .show-card:focus-visible, .rec-item:focus-visible {
+  outline: 5px solid #1f6fd1;
+  outline-offset: 4px;
+}
+.chunk :focus-visible, body.player :focus-visible { outline-color: #8cf; }
 
 .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.grownups { color: #888; font-size: 0.85em; padding: 8px; text-decoration: underline; }
-.tickets { display: flex; gap: 10px; align-items: center; font-size: 1.15em; }
+/* The Grown-ups link stays above the Who's watching screen (z-index 100),
+   so a grown-up can always reach the parent page. */
+.grownups {
+  color: #55524a;
+  font-size: 0.95em;
+  min-height: 44px;
+  padding: 10px 12px;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: underline;
+  position: relative;
+  z-index: 150;
+}
+/* The kid's name and "Not you?" wrap onto two lines on a narrow phone and a
+   very long name is cut with "...", so nothing is pushed off the screen. */
+.tickets { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 1.15em; min-width: 0; max-width: 100%; }
 .tickets .kid {
   padding: 10px 18px;
   border-radius: 20px;
@@ -24,6 +63,10 @@ h1 { font-size: 2em; margin: 0 0 4px; }
   color: #fff;
   font-weight: bold;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 100%;
 }
 .lock-btn {
   min-height: 44px;
@@ -34,23 +77,69 @@ h1 { font-size: 2em; margin: 0 0 4px; }
   color: #555;
   font-size: 0.95em;
   cursor: pointer;
+  white-space: nowrap;
 }
 .lock-btn:active { background: #ddd; }
 
-/* Who's watching? picker */
+/* Math Practice and Libraries, one tap away once a kid is unlocked. */
+.places { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 10px; }
+.place {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 18px;
+  border-radius: 24px;
+  background: #fff;
+  color: #333;
+  font-size: 1.05em;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+.place:hover { background: #e8f7ee; }
+.place .emoji { font-size: 1.3em; line-height: 1; }
+
+/* Who's watching? picker: a solid sheet over the shelf. The inner box
+   centres itself with margin: auto, so when it is taller than the screen
+   (a phone on its side) the sheet scrolls from the top instead of cutting
+   the heading off. The top padding keeps it clear of the Grown-ups link. */
 .who {
   position: fixed;
   inset: 0;
-  background: rgba(253, 246, 227, 0.94);
+  background: #fdf6e3;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
   z-index: 100;
-  padding: 20px;
+  padding: 72px 20px 20px;
   overflow-y: auto;
 }
-.who h2 { font-size: 2em; margin: 0 0 30px; }
+.who-in { margin: auto; display: flex; flex-direction: column; align-items: center; max-width: 100%; }
+.who h2 { font-size: 2em; margin: 0 0 30px; text-align: center; }
+.who-msg {
+  background: #fff;
+  border-radius: 18px;
+  padding: 18px 22px;
+  margin: 0 0 26px;
+  max-width: 560px;
+  text-align: center;
+  font-size: 1.2em;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+.who-msg.down { border: 3px solid #e0a31a; }
+.who-msg p { margin: 0; }
+.who-retry {
+  margin-top: 16px;
+  min-height: 56px;
+  padding: 12px 36px;
+  border: none;
+  border-radius: 16px;
+  background: #2a7a4b;
+  color: #fff;
+  font-size: 1.1em;
+  font-weight: bold;
+  cursor: pointer;
+}
+.who-retry:disabled { opacity: 0.6; cursor: default; }
 .pick { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
 .pick .tile {
   background: #fff;
@@ -63,6 +152,7 @@ h1 { font-size: 2em; margin: 0 0 4px; }
   text-align: center;
   min-width: 140px;
   min-height: 120px;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -70,22 +160,25 @@ h1 { font-size: 2em; margin: 0 0 4px; }
   gap: 10px;
   color: #333;
 }
+.pick .tile .name { overflow-wrap: anywhere; }
 .pick a.tile { text-decoration: none; color: inherit; }
 .pick .tile.setup { max-width: 340px; padding: 30px 26px; font-size: 1.05em; }
 .pick .tile:hover { background: #e8f7ee; }
 .pick .tile .emoji { font-size: 2.6em; line-height: 1; }
-.who .subp { color: #888; margin-top: 28px; text-align: center; font-size: 1em; }
+.who .subp { color: #5f5f5f; margin: 28px 0 0; text-align: center; font-size: 1em; max-width: 640px; }
+.pick-places { margin-top: 30px; text-align: center; }
+.pick-places h3 { font-size: 1.2em; color: #55524a; margin: 0 0 16px; font-weight: 600; }
 
-/* PIN overlay with the numeric keypad */
+/* PIN overlay with the numeric keypad. Like the picker, the box centres
+   itself with margin: auto and the backdrop scrolls when it is too short. */
 .overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
   display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 200;
   padding: 16px;
+  overflow-y: auto;
 }
 .pin-box {
   background: #fff;
@@ -94,10 +187,22 @@ h1 { font-size: 2em; margin: 0 0 4px; }
   text-align: center;
   max-width: 340px;
   width: 100%;
+  margin: auto;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
+.pin-box:focus { outline: none; }
 .pin-box h2 { margin: 0 0 4px; font-size: 1.4em; }
-.pin-msg { color: #888; margin: 0 0 14px; min-height: 1.4em; }
+.pin-msg { color: #555; margin: 0 0 14px; min-height: 1.4em; }
+/* A wrong PIN is red and flashes on every try, so a second miss shows. */
+.pin-msg.err { color: #b3261e; font-weight: 600; animation: flash 0.6s; }
+@keyframes flash {
+  0% { background: #fde2dd; }
+  100% { background: transparent; }
+}
+/* Too many tries: a countdown clock, and every key greyed until it ends. */
+.pin-wait { font-size: 2em; font-weight: bold; color: #8a4b00; margin: 0 0 12px; }
+.pin-box.locked .pin-dots { opacity: 0.35; }
+.pin-box.locked .keypad button { cursor: not-allowed; }
 .pin-dots { display: flex; gap: 14px; justify-content: center; margin-bottom: 18px; }
 .pin-dots span {
   width: 18px;
@@ -126,12 +231,30 @@ h1 { font-size: 2em; margin: 0 0 4px; }
 .keypad button:active { background: #e2dfd0; }
 .keypad button.key-icon { font-size: 1.2em; }
 .keypad button:disabled { opacity: 0.4; }
-.pin-alt { color: #aaa; margin: 6px 0 0; font-size: 0.9em; }
+/* Back: a big key in the same family, under the keypad. */
+.pin-back {
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  font-size: 1.3em;
+  border: none;
+  border-radius: 12px;
+  background: #f0eee4;
+  color: #333;
+  cursor: pointer;
+  touch-action: manipulation;
+  margin-bottom: 6px;
+}
+.pin-back:active { background: #e2dfd0; }
+.pin-msg a { color: #22609a; }
+.pin-alt { color: #5f5f5f; margin: 6px 0 0; font-size: 0.95em; }
 .pin-alt .link {
   background: none;
   border: none;
-  padding: 8px;
-  color: #69c;
+  min-height: 44px;
+  padding: 8px 10px;
+  color: #22609a;
+  font-weight: 600;
   text-decoration: underline;
   cursor: pointer;
   font-size: 1em;
@@ -140,6 +263,25 @@ h1 { font-size: 2em; margin: 0 0 4px; }
 @keyframes shake {
   25% { transform: translateX(-8px); }
   75% { transform: translateX(8px); }
+}
+
+/* A phone on its side: the keypad moves beside the title so the whole
+   box fits the short screen. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .who { padding-top: 64px; }
+  .who h2 { margin-bottom: 16px; }
+  .pin-box {
+    max-width: 640px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 22px;
+    align-items: center;
+    padding: 14px 18px;
+  }
+  .pin-box > * { grid-column: 1; }
+  .pin-box .keypad { grid-column: 2; grid-row: 1 / span 6; margin: 0; }
+  .keypad button { min-height: 50px; }
+  .pin-back { min-height: 50px; }
 }
 
 /* Search box */
@@ -156,7 +298,7 @@ input[type=search] {
 /* Section headings and rows */
 .section { margin: 20px 0; }
 .section h2 { font-size: 1.2em; margin: 0 0 10px; }
-.row { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.row { display: flex; gap: 12px; overflow-x: auto; padding: 6px 6px 8px; }
 .rec-item {
   min-width: 130px;
   max-width: 180px;
@@ -166,10 +308,24 @@ input[type=search] {
   cursor: pointer;
   text-align: center;
   color: #333;
+  font: inherit;
 }
-.rec-item img { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 10px; background: #eee; }
-.rec-item .t { font-size: 0.85em; margin-top: 4px; line-height: 1.25; }
-.rec-item .m { font-size: 0.75em; color: #2a7a4b; }
+.rec-item .pic { position: relative; }
+.rec-item img { display: block; width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 10px; background: #eee; }
+/* How far the kid got, as a bar on the picture (Keep watching). */
+.rec-item .prog {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+.rec-item .prog span { display: block; height: 100%; background: #e5534b; }
+.rec-item .t { font-size: 0.95em; margin-top: 6px; line-height: 1.25; }
+.rec-item .m { font-size: 0.85em; color: #2a7a4b; }
 
 /* Show grid */
 .shows { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; grid-auto-flow: dense; }
@@ -186,6 +342,7 @@ input[type=search] {
   justify-content: flex-start;
   border: none;
   color: #333;
+  font: inherit;
 }
 .show-card img {
   width: 100%;
@@ -196,7 +353,7 @@ input[type=search] {
   background: #eee;
 }
 .show-card .t { font-weight: bold; line-height: 1.2; min-height: 2.4em; }
-.show-card .cnt { color: #888; font-size: 0.8em; margin-top: 4px; }
+.show-card .cnt { color: #5f5f5f; font-size: 0.85em; margin-top: 4px; }
 .show-card.selected { outline: 3px solid #6c9; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2); transform: translateY(-2px); }
 
 /* Episode band */
@@ -209,6 +366,7 @@ input[type=search] {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 .eps-band h3 { margin: 0 0 12px; font-size: 1.15em; }
+.band-err p { margin: 8px 0 0; color: #8a3b12; font-size: 1.05em; }
 .ep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
 .ep-card {
   background: #fafaf7;
@@ -221,7 +379,7 @@ input[type=search] {
 }
 .ep-card img { width: 100%; border-radius: 8px; aspect-ratio: 16/9; object-fit: cover; }
 .ep-card .t { font-size: 0.95em; line-height: 1.25; min-height: 2.5em; }
-.ep-card .meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; color: #666; flex-wrap: wrap; }
+.ep-card .meta { display: flex; justify-content: space-between; align-items: center; gap: 4px; font-size: 0.85em; color: #666; flex-wrap: wrap; }
 .ep-card .price {
   background: #fc3;
   border-radius: 12px;
@@ -268,8 +426,10 @@ input[type=search] {
   cursor: pointer;
 }
 
-/* Action buttons */
+/* Action buttons. The Watch button sits at the bottom of its card, so a
+   row of cards lines up even when one carries a label. */
 .watch-btn {
+  margin-top: auto;
   padding: 12px 16px;
   border: none;
   border-radius: 10px;
@@ -290,9 +450,10 @@ input[type=search] {
   background: #ffe;
   color: #8a6d3b;
 }
+/* The greeting never blocks a tap: taps go through to what is under it. */
 .toast {
   position: fixed;
-  bottom: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   background: #333;
@@ -302,8 +463,31 @@ input[type=search] {
   font-size: 1.1em;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   z-index: 50;
+  width: max-content;
   max-width: 90vw;
   text-align: center;
+  pointer-events: none;
+}
+
+/* The Pi 400 on a TV (1920x1200): everything larger, a wider shelf, and a
+   keypad sized for a room instead of a phone. */
+@media (min-width: 1400px) and (min-height: 800px) {
+  body:not(.player) { max-width: 1500px; font-size: 20px; padding: 28px 40px; }
+  :focus-visible { outline-width: 6px; outline-offset: 4px; }
+  .pick .tile:focus-visible, .show-card:focus-visible, .rec-item:focus-visible { outline-width: 7px; outline-offset: 5px; }
+  .who { padding-top: 96px; }
+  .pick { gap: 28px; }
+  .pick .tile { min-width: 200px; min-height: 170px; }
+  .shows { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 22px; }
+  .ep-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+  .rec-item { min-width: 190px; max-width: 240px; }
+  .pin-box { max-width: 520px; padding: 36px 44px; }
+  .pin-box h2 { font-size: 1.6em; }
+  .pin-dots { gap: 20px; margin-bottom: 24px; }
+  .pin-dots span { width: 26px; height: 26px; }
+  .keypad { gap: 14px; margin-bottom: 18px; }
+  .keypad button { min-height: 92px; font-size: 1.9em; }
+  .pin-back { min-height: 80px; }
 }
 
 /* ---------- Player ---------- */
@@ -365,6 +549,7 @@ body.player video {
   position: fixed;
   inset: 0;
   background: #111;
+  color: #eee;
   display: flex;
   align-items: center;
   justify-content: center;

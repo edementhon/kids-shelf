@@ -57,6 +57,9 @@ type BossFight struct {
 	Cap            float64
 	CoinsPerMinute int
 	PendingBid     *string
+	// Round is the live fight id BossRound opened; answers carry it (see
+	// BossRoundAnswer). Empty from BossStatus.
+	Round string
 }
 
 // BossAnswerMsg is the outcome of one boss answer.
@@ -288,7 +291,8 @@ func (s *Service) BossState(kid string) (core.BossState, error) {
 // BossRound starts a fresh fight with the current undefeated boss: marks the
 // fight in pending_bid (stale-tab guard), resets the boss to full hearts and
 // draws 8 questions, unique within the fight, never back-to-back repeats
-// when the themed pool runs dry. Any in-flight fight is replaced.
+// when the themed pool runs dry. Any in-flight fight is replaced, and the
+// questions become the kid's live fight (BossFight.Round).
 func (s *Service) BossRound(kid string) (BossFight, []Question, error) {
 	cfg, err := s.ConfigFor(kid)
 	if err != nil {
@@ -355,11 +359,17 @@ func (s *Service) BossRound(kid string) (BossFight, []Question, error) {
 			f.PHP = php
 		}
 	}
+	items := make([]string, len(qs))
+	for i, q := range qs {
+		items[i] = mathItem(roundBoss, q.A, q.B, q.Op)
+	}
+	f.Round = s.openRound(kid, roundBoss, items)
 	return f, qs, nil
 }
 
-// BossStatus renders the arena: the current undefeated boss, the fight's
-// hearts and the math jar totals.
+// BossStatus renders the arena: the current undefeated boss at the full
+// hearts its next fight starts with, the player's hearts kept from earlier
+// fights with a lethal boss, and the math jar totals.
 func (s *Service) BossStatus(kid string) (BossFight, error) {
 	cfg, err := s.ConfigFor(kid)
 	if err != nil {
@@ -386,10 +396,9 @@ func (s *Service) BossStatus(kid string) (BossFight, error) {
 	if cur := currentBoss(bs); cur != nil {
 		f.Boss = bossByID(cur.ID)
 		f.Lethal = cur.Lethal
-		f.HP = bs.HP[cur.ID]
-		if f.HP == 0 {
-			f.HP = BossHearts
-		}
+		// Every fight starts with the boss at full hearts (BossRound),
+		// so the arena shows full hearts, never a stopped fight's damage.
+		f.HP = BossHearts
 		f.PHP = cur.PlayerHearts
 		if cur.Lethal {
 			if php, ok := bs.PHP[cur.ID]; ok {

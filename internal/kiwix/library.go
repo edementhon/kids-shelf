@@ -425,6 +425,23 @@ func (m *Manager) Installed() ([]Installed, error) {
 	return out, rows.Err()
 }
 
+// OnDisk reports whether the installed ZIM's file is present in the library
+// directory as a regular file. An installed row can outlive its file (a
+// drive that is not plugged in, a file moved away by hand); kiwix-serve then
+// leaves the book out, so callers use this to show the book as missing
+// rather than as a link that cannot open.
+func (m *Manager) OnDisk(in Installed) bool {
+	if in.File == "" {
+		return false
+	}
+	p, err := m.libPath(in.File)
+	if err != nil {
+		return false
+	}
+	st, err := os.Stat(p)
+	return err == nil && st.Mode().IsRegular()
+}
+
 // Remove deletes an installed ZIM: the file in the library directory and the
 // partial download, then the installed row. Removing an entry that is not
 // installed returns ErrNotInstalled. The stored file name is resolved

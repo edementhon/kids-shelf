@@ -19,6 +19,18 @@ const INGEST_STAGE = {
   convert: 'Converting', verify: 'Checking the result', thumbnail: 'Making a picture', publish: 'Adding to the shelf'
 };
 const KIND_LABEL = { folder: 'Folder', nas: 'NAS share' };
+// KIND_NAMES puts the catalog's category names into plain words; an unknown
+// one is shown with its underscores turned into spaces.
+const KIND_NAMES = {
+  wikipedia: 'Encyclopedia (Wikipedia)', vikidia: "Kids' encyclopedia (Vikidia)",
+  wiktionary: 'Dictionary (Wiktionary)', wikibooks: 'Textbooks (Wikibooks)',
+  wikisource: 'Old books and texts (Wikisource)', wikiquote: 'Quotes (Wikiquote)',
+  wikiversity: 'Lessons (Wikiversity)', wikivoyage: 'Travel guides (Wikivoyage)',
+  wikinews: 'News (Wikinews)', gutenberg: 'Free books (Project Gutenberg)',
+  phet: 'Science games (PhET)', ted: 'Talks (TED)', mooc: 'Online courses',
+  stack_exchange: 'Questions and answers (Stack Exchange)', iFixit: 'Repair guides (iFixit)',
+  psiram: 'Psiram (a skeptics wiki)', other: 'Other'
+};
 const FLAVOUR_LABEL = { maxi: 'with pictures', nopic: 'text only', mini: 'short version' };
 const LANG_FALLBACK = {
   eng: 'English', fra: 'French', deu: 'German', spa: 'Spanish', ita: 'Italian',
@@ -64,16 +76,58 @@ function bytes(n) {
   return Math.max(1, Math.ceil(n / mb)) + ' MB';
 }
 
-function msg(text, kind) {
-  const el = $('msg');
-  el.textContent = text || '';
-  el.className = 'msg ' + (kind || '');
-  if (kind) el.classList.remove('hidden');
-  else el.classList.add('hidden');
+function plural(n, one, many) {
+  return n + ' ' + (n === 1 ? one : many);
+}
+
+// ── messages ────────────────────────────────────────────────────────────────
+
+// toast() shows the result of an action in a bar fixed to the bottom of the
+// screen, so the parent sees it wherever the page is scrolled. A success
+// fades after a few seconds; an error stays until closed or replaced.
+let toastTimer = null;
+function toast(text, kind) {
+  const el = $('toast');
+  clearTimeout(toastTimer);
+  if (!text) {
+    el.classList.add('hidden');
+    return;
+  }
+  $('toasttext').textContent = text;
+  el.className = 'toast ' + (kind === 'err' ? 'err' : 'ok');
+  el.setAttribute('role', kind === 'err' ? 'alert' : 'status');
+  if (kind !== 'err') toastTimer = setTimeout(() => el.classList.add('hidden'), 8000);
+}
+$('toastclose').addEventListener('click', () => toast(''));
+
+const OFFLINE_MSG = 'kids-shelf isn’t answering. Check that the computer kids-shelf runs on is switched on, then reload this page.';
+
+// loadFailed shows why a card's list could not load. A PIN prompt needs no
+// words; when kids-shelf cannot be reached at all, every card says the same
+// short thing and the one full explanation goes in the message bar.
+function loadFailed(wrap, e) {
+  if (e.pin) return;
+  if (e.offline) {
+    wrap.innerHTML = '<div class="jobmsg">Not loaded.</div>';
+    toast(e.message, 'err');
+    return;
+  }
+  wrap.innerHTML = `<div class="jobmsg">${esc(e.message)}</div>`;
+}
+
+// ── fetch ───────────────────────────────────────────────────────────────────
+
+function pinNeeded() {
+  const e = new Error('PIN needed');
+  e.pin = true;
+  return e;
 }
 
 // api() throws Error(message) with the server's plain-words message; a 401
-// (the optional dashboard PIN is set) opens the PIN overlay instead.
+// opens the PIN overlay instead (once, however many calls were waiting),
+// or, when no parent PIN exists yet (setup), sends the parent to /admin,
+// which asks for one first. opts.pinFlow is the PIN check itself: its 401
+// is a wrong PIN, shown in the overlay.
 async function api(path, opts) {
   opts = opts || {};
   // A download request can stall (a slow catalog, a busy machine); the page
@@ -91,55 +145,135 @@ async function api(path, opts) {
     if (ctl && ctl.signal.aborted) {
       throw new Error('Kids-shelf is taking a long time to answer. Check the Downloads list, or try again in a moment.');
     }
-    throw new Error('This computer can’t be reached right now. Try again.');
+    const err = new Error(OFFLINE_MSG);
+    err.offline = true;
+    throw err;
   } finally {
     clearTimeout(timer);
   }
-  if (resp.status === 401) {
-    showPin();
-    throw new Error('PIN needed');
-  }
   let data = null;
   try { data = await resp.json(); } catch (e) { /* some responses have no body */ }
+  if (resp.status === 401 && data && data.setup) {
+    location.replace('/admin');
+    throw pinNeeded();
+  }
+  if (resp.status === 401 && !opts.pinFlow) {
+    showPin();
+    throw pinNeeded();
+  }
   if (!resp.ok) {
     // The server's plain-words message is always the one shown.
-    throw new Error((data && data.error) || 'Something went wrong.');
+    throw new Error((data && data.error) || 'Something went wrong. Try again.');
   }
   return data;
 }
 
-async function post(path, body, timeout) {
+async function post(path, body, timeout, pinFlow) {
   const opts = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {})
   };
   if (timeout) opts.timeout = timeout;
+  if (pinFlow) opts.pinFlow = true;
   return api(path, opts);
 }
 
+// busy() disables a button while its action runs and shows what it is
+// doing; the returned function puts it back.
+function busy(btn, label) {
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = label;
+  return () => { btn.disabled = false; btn.textContent = old; };
+}
+
+// ── dialogs ─────────────────────────────────────────────────────────────────
+
+// One dialog is open at a time. Focus moves into it and stays there (Tab
+// wraps); Esc and a click on the dark background run its cancel, when it
+// has one. Closing puts focus back where it was, or on fallback when that
+// element is gone (the list it was in was redrawn).
+let dialog = null;
+
+function focusables(el) {
+  return [...el.querySelectorAll('button, a[href], input, select')]
+    .filter(x => !x.disabled && x.offsetParent !== null);
+}
+
+function openDialog(id, cancel, focusId, fallback) {
+  if (dialog) closeDialog(true);
+  const el = $(id);
+  dialog = { el, cancel, back: document.activeElement, fallback };
+  el.classList.remove('hidden');
+  const first = (focusId && $(focusId)) || focusables(el)[0];
+  if (first) first.focus();
+}
+
+function closeDialog(silent) {
+  if (!dialog) return;
+  const d = dialog;
+  dialog = null;
+  d.el.classList.add('hidden');
+  if (silent) return;
+  const back = d.back && document.contains(d.back) ? d.back : d.fallback;
+  if (back) back.focus();
+}
+
+document.addEventListener('keydown', ev => {
+  if (!dialog) return;
+  if (ev.key === 'Escape' && dialog.cancel) {
+    ev.preventDefault();
+    dialog.cancel();
+    return;
+  }
+  if (ev.key !== 'Tab') return;
+  const f = focusables(dialog.el);
+  if (!f.length) return;
+  const i = f.indexOf(document.activeElement);
+  if (ev.shiftKey && i <= 0) {
+    ev.preventDefault();
+    f[f.length - 1].focus();
+  } else if (!ev.shiftKey && (i === -1 || i === f.length - 1)) {
+    ev.preventDefault();
+    f[0].focus();
+  }
+});
+
+for (const el of document.querySelectorAll('.overlay')) {
+  el.addEventListener('click', ev => {
+    if (ev.target === el && dialog && dialog.el === el && dialog.cancel) dialog.cancel();
+  });
+}
 
 // ── pin overlay ─────────────────────────────────────────────────────────────
 
+// Several calls can come back 401 at once (the page loads six lists in
+// parallel, and the poll keeps going): the form opens once and keeps what
+// the parent has typed. Polling pauses while it is open.
+let pinOpen = false;
 function showPin() {
+  if (pinOpen) return;
+  pinOpen = true;
   $('pinval').value = '';
   $('pinerr').classList.add('hidden');
-  $('pinoverlay').classList.remove('hidden');
-  $('pinval').focus();
+  openDialog('pinoverlay', null, 'pinval');
 }
 function hidePin() {
-  $('pinoverlay').classList.add('hidden');
+  pinOpen = false;
+  closeDialog(true);
 }
 async function unlock() {
   $('pinerr').classList.add('hidden');
   try {
-    await post('/api/admin/pin', { pin: $('pinval').value });
+    await post('/api/admin/pin', { pin: $('pinval').value }, 0, true);
     hidePin();
     await loadAll();
   } catch (e) {
-    if (e.message === 'PIN needed') return;
+    if (e.pin) return;
     $('pinerr').textContent = e.message;
     $('pinerr').classList.remove('hidden');
+    $('pinval').select();
   }
 }
 $('pinok').addEventListener('click', unlock);
@@ -150,19 +284,23 @@ $('pinval').addEventListener('keydown', ev => { if (ev.key === 'Enter') unlock()
 $('ytform').addEventListener('submit', async ev => {
   ev.preventDefault();
   const url = $('yturl').value.trim();
-  if (!url) return;
+  if (!url) {
+    toast('Paste the web address of the video, playlist or channel first.', 'err');
+    $('yturl').focus();
+    return;
+  }
   try {
     await post('/api/admin/content/youtube', { url });
     $('yturl').value = '';
-    msg('Added. The download starts shortly.', 'ok');
+    toast('Added. The download starts shortly and shows in the list below.', 'ok');
     await loadYouTube();
   } catch (e) {
-    msg(e.message, 'err');
+    if (!e.pin) toast(e.message, 'err');
   }
 });
 
 function ytProgress(job) {
-  if (!job.progress) return '';
+  if (!job.progress || job.state !== 'running') return '';
   return `<div class="pbar"><i style="width:${Math.min(100, Math.max(0, job.progress))}%"></i></div>`;
 }
 
@@ -174,28 +312,37 @@ function renderYouTube() {
     return;
   }
   wrap.innerHTML = jobs.map(job => {
-    const stage = (job.state === 'running' && YT_STAGE[job.stage]) ? ' · ' + YT_STAGE[job.stage] : '';
+    const title = job.title || job.url;
+    let label = STATE_LABEL[job.state] || job.state;
+    if (job.state === 'running' && YT_STAGE[job.stage]) label += ' · ' + YT_STAGE[job.stage];
+    if (job.state === 'done') label = 'Downloaded';
     const retry = job.state === 'failed'
-      ? `<button class="btn mini" data-retry="${esc(job.id)}">Retry</button>` : '';
+      ? `<button class="btn mini amber" data-retry="${esc(job.id)}">Try again</button>` : '';
+    const where = job.state === 'done' && job.show
+      ? `<div class="jobnote">It goes on the shelf in the show “${esc(job.show)}”.</div>` : '';
     return `<div class="job">
         <div class="jobhead">
-          <span class="jobtitle">${esc(job.title)}</span>
-          <span class="badge ${esc(job.state)}">${esc(STATE_LABEL[job.state] || job.state)}${stage}</span>
+          <span class="jobtitle">${esc(title)}</span>
+          <span class="badge ${esc(job.state)}">${esc(label)}</span>
           ${retry}
         </div>
-        <div class="jobsub">${esc(job.url)}</div>
+        ${job.url && job.url !== title ? `<div class="jobsub">${esc(job.url)}</div>` : ''}
         ${job.message ? `<div class="jobmsg">${esc(job.message)}</div>` : ''}
+        ${where}
         ${ytProgress(job)}
       </div>`;
   }).join('');
 }
 
-async function retryYouTube(id) {
+async function retryYouTube(btn) {
+  const done = busy(btn, 'Trying…');
   try {
-    await post('/api/admin/content/youtube/retry', { id });
+    await post('/api/admin/content/youtube/retry', { id: btn.dataset.retry });
+    toast('Trying again. The download shows in the list.', 'ok');
     await loadYouTube();
   } catch (e) {
-    msg(e.message, 'err');
+    done();
+    if (!e.pin) toast(e.message, 'err');
   }
 }
 
@@ -205,18 +352,13 @@ async function loadYouTube() {
     store.ytJobs = d.jobs || [];
     renderYouTube();
   } catch (e) {
-    if (e.message !== 'PIN needed') renderYouTubeError(e.message);
+    loadFailed($('ytjobs'), e);
   }
 }
 
-function renderYouTubeError(text) {
-  $('ytjobs').innerHTML = `<div class="jobmsg">${esc(text)}</div>`;
-}
-
-// event delegation for retry buttons
 $('ytjobs').addEventListener('click', ev => {
   const b = ev.target.closest('[data-retry]');
-  if (b) retryYouTube(b.dataset.retry);
+  if (b) retryYouTube(b);
 });
 
 // ── sources ─────────────────────────────────────────────────────────────────
@@ -224,37 +366,56 @@ $('ytjobs').addEventListener('click', ev => {
 $('srcform').addEventListener('submit', async ev => {
   ev.preventDefault();
   const path = $('srcpath').value.trim();
-  if (!path) return;
+  if (!path) {
+    toast('Enter the path to the folder first.', 'err');
+    $('srcpath').focus();
+    return;
+  }
+  const done = busy($('srcadd'), 'Checking…');
+  let found;
   try {
-    await post('/api/admin/content/sources', { path, kind: $('srckind').value });
+    const d = await post('/api/admin/content/sources', { path, kind: $('srckind').value });
     $('srcpath').value = '';
+    found = d.videos;
   } catch (e) {
-    msg(e.message, 'err');
+    done();
+    if (!e.pin) toast(e.message, 'err');
     return;
   }
   // A fresh folder needs a scan before its videos show up, so the page
   // starts one right away instead of leaving the parent to hunt for the
   // Scan now button.
-  msg('Folder added. Checking it for videos now.', 'ok');
+  const head = found >= 0
+    ? `Folder added. It has ${plural(found, 'video', 'videos')}.`
+    : 'Folder added.';
+  toast(head + ' Looking for new ones now…', 'ok');
   try {
-    await post('/api/admin/content/scan');
-    msg('Folder added and scanned. New videos are being added to the shelf.', 'ok');
+    const s = await post('/api/admin/content/scan');
+    toast(head + ' ' + scanResult(s.added), 'ok');
   } catch (e) {
-    msg('Folder added, but the scan could not finish. ' + e.message, 'err');
+    if (!e.pin) toast(head + ' The scan could not finish: ' + e.message, 'err');
   }
+  done();
   await loadSources();
   await loadIngest();
 });
 
+function scanResult(added) {
+  if (!added) return 'No new videos: they are already on the shelf or on their way.';
+  return `${plural(added, 'new video is', 'new videos are')} being added to the shelf. Watch ${added === 1 ? 'it' : 'them'} in Conversions below.`;
+}
+
 $('scanbtn').addEventListener('click', async () => {
+  const done = busy($('scanbtn'), 'Scanning…');
   try {
-    await post('/api/admin/content/scan');
-    msg('Scanning done. New videos are being converted.', 'ok');
+    const s = await post('/api/admin/content/scan');
+    toast('Scan done. ' + scanResult(s.added), 'ok');
     await loadSources();
     await loadIngest();
   } catch (e) {
-    msg(e.message, 'err');
+    if (!e.pin) toast(e.message, 'err');
   }
+  done();
 });
 
 function renderSources() {
@@ -269,21 +430,41 @@ function renderSources() {
       <span class="sourcepath">${esc(src.path)}</span>
       <span class="tag">${esc(KIND_LABEL[src.kind] || src.kind)}</span>
       <button class="btn mini sub" data-srcpath="${esc(src.path)}">Remove</button>
+      ${src.problem ? `<div class="jobmsg wide">${esc(src.problem)}</div>` : ''}
     </div>`).join('');
 }
 
-async function removeSource(path) {
-  try {
-    await post('/api/admin/content/sources/remove', { path });
-    await loadSources();
-  } catch (e) {
-    msg(e.message, 'err');
-  }
+let pendingSource = null;
+
+function cancelSourceRemove() {
+  pendingSource = null;
+  closeDialog();
 }
 
 $('sources').addEventListener('click', ev => {
   const b = ev.target.closest('[data-srcpath]');
-  if (b) removeSource(b.dataset.srcpath);
+  if (!b) return;
+  pendingSource = b.dataset.srcpath;
+  $('srcconfirmtext').innerHTML =
+    `<b>${esc(pendingSource)}</b> leaves the list, and kids-shelf stops looking in it for new videos. ` +
+    'Videos from it that are already on the shelf stay there. Nothing in the folder is changed or deleted.';
+  openDialog('srcconfirm', cancelSourceRemove, 'srcremoveno', $('srcpath'));
+});
+
+$('srcremoveno').addEventListener('click', cancelSourceRemove);
+
+$('srcremoveok').addEventListener('click', async () => {
+  const path = pendingSource;
+  pendingSource = null;
+  closeDialog();
+  if (!path) return;
+  try {
+    await post('/api/admin/content/sources/remove', { path });
+    toast('Folder removed from the list. Its videos already on the shelf stay there.', 'ok');
+    await loadSources();
+  } catch (e) {
+    if (!e.pin) toast(e.message, 'err');
+  }
 });
 
 async function loadSources() {
@@ -292,23 +473,23 @@ async function loadSources() {
     store.sources = d.sources || [];
     renderSources();
   } catch (e) {
-    if (e.message !== 'PIN needed') msg(e.message, 'err');
+    loadFailed($('sources'), e);
   }
 }
 
 // ── conversions ─────────────────────────────────────────────────────────────
 
-// ingestStatus says what is happening with a conversion in plain words: the
-// pause reason or failure message when there is one, the running stage
-// otherwise, 'On the shelf' once the video is published.
+// ingestStatus says in a word or two what is happening with a conversion:
+// the running stage, 'On the shelf' once the video is published. Pause and
+// failure reasons go on their own line underneath.
 function ingestStatus(job) {
   switch (job.state) {
     case 'done':
       return 'On the shelf';
     case 'failed':
-      return job.message || 'Failed';
+      return 'Could not add';
     case 'paused':
-      return job.message || 'Paused';
+      return 'Paused';
     case 'running':
       return INGEST_STAGE[job.stage] || 'Working';
     default:
@@ -324,23 +505,40 @@ function renderIngest() {
     return;
   }
   wrap.innerHTML = jobs.map(job => {
-    const status = ingestStatus(job);
     const title = job.title || job.file;
-    // The message doubles as the status for failed and paused jobs, so only
-    // show it again on its own line when it is not already in the badge.
-    const detail = (job.message && status !== job.message)
-      ? `<div class="jobmsg">${esc(job.message)}</div>` : '';
-    const path = (job.file && job.file !== title)
+    const kind = job.source && job.source.Kind;
+    // The file's place is useful for folder videos; a YouTube video's file
+    // is a temporary download nobody needs to see.
+    const path = (kind === 'folder' || kind === 'nas') && job.file && job.file !== title
       ? `<div class="jobsub">${esc(job.file)}</div>` : '';
+    const detail = job.message && job.state !== 'done' ? `<div class="jobmsg">${esc(job.message)}</div>` : '';
+    const hint = job.hint ? `<div class="jobnote">${esc(job.hint)}</div>` : '';
+    const retry = job.retry
+      ? `<button class="btn mini amber" data-ingestretry="${esc(job.id)}">Try again</button>` : '';
     return `<div class="job">
         <div class="jobhead">
           <span class="jobtitle">${esc(title)}</span>
-          <span class="badge ${esc(job.state)}">${esc(status)}</span>
+          <span class="badge ${esc(job.state)}">${esc(ingestStatus(job))}</span>
+          ${retry}
         </div>
-        ${path}${detail}
+        ${path}${detail}${hint}
       </div>`;
   }).join('');
 }
+
+$('ingestjobs').addEventListener('click', async ev => {
+  const b = ev.target.closest('[data-ingestretry]');
+  if (!b) return;
+  const done = busy(b, 'Trying…');
+  try {
+    await post('/api/admin/content/ingest/retry', { id: b.dataset.ingestretry });
+    toast('Trying again. This list shows how it is doing.', 'ok');
+    await loadIngest();
+  } catch (e) {
+    done();
+    if (!e.pin) toast(e.message, 'err');
+  }
+});
 
 async function loadIngest() {
   try {
@@ -348,9 +546,7 @@ async function loadIngest() {
     store.ingestJobs = d.jobs || [];
     renderIngest();
   } catch (e) {
-    if (e.message !== 'PIN needed') {
-      $('ingestjobs').innerHTML = `<div class="jobmsg">${esc(e.message)}</div>`;
-    }
+    loadFailed($('ingestjobs'), e);
   }
 }
 
@@ -360,14 +556,15 @@ async function loadIngest() {
 // The sentences stay in sync with the kid pages' explanations.
 const FIX_ISSUE = {
   sound: 'No sound in most browsers (Dolby or DTS sound)',
-  picture: 'Picture may not show (HEVC or 10-bit video)',
+  picture: 'The picture may not show on some tablets and browsers',
   format: 'Will not open on iPads, iPhones or Safari (MKV file)',
 };
 
 function renderFixing() {
   const wrap = $('fixing');
   const f = store.fixing || { pending: { sound: 0, picture: 0, format: 0 }, failed: 0, failedEpisodes: [], failedMore: 0 };
-  const waiting = f.pending.sound + f.pending.picture + f.pending.format;
+  const p = f.pending || {};
+  const waiting = (p.sound || 0) + (p.picture || 0) + (p.format || 0);
   if (!waiting && !f.failed) {
     wrap.innerHTML = '<div class="empty">No videos are being fixed right now.</div>';
     return;
@@ -375,13 +572,15 @@ function renderFixing() {
   let html = '';
   if (waiting) {
     const parts = [];
-    if (f.pending.sound) parts.push(`${f.pending.sound} with no sound`);
-    if (f.pending.picture) parts.push(`${f.pending.picture} with no picture`);
-    if (f.pending.format) parts.push(`${f.pending.format} that iPad or iPhone cannot open`);
-    html += `<div class="fixingline">⏳ ${waiting} video${waiting === 1 ? '' : 's'} being fixed: ${esc(parts.join(', '))}.</div>`;
+    if (p.sound) parts.push(`${p.sound} with no sound`);
+    if (p.picture) parts.push(`${p.picture} whose picture may not show`);
+    if (p.format) parts.push(`${p.format} that iPad or iPhone cannot open`);
+    html += `<div class="fixingline">${plural(waiting, 'video is', 'videos are')} being fixed: ${esc(parts.join(', '))}.</div>`;
   }
   if (f.failed) {
-    html += `<div class="fixingline">❌ ${f.failed} video${f.failed === 1 ? '' : 's'} could not be fixed and ${f.failed === 1 ? 'plays' : 'play'} as they are:</div>`;
+    html += f.failed === 1
+      ? '<div class="fixingline">1 video could not be fixed. It plays as it is, with this problem:</div>'
+      : `<div class="fixingline">${f.failed} videos could not be fixed. They play as they are, with these problems:</div>`;
     html += (f.failedEpisodes || []).map(e => `<div class="job">
         <div class="jobhead">
           <span class="jobtitle">${esc(e.title)}</span>
@@ -402,9 +601,7 @@ async function loadFixes() {
     store.fixing = d;
     renderFixing();
   } catch (e) {
-    if (e.message !== 'PIN needed') {
-      $('fixing').innerHTML = `<div class="jobmsg">${esc(e.message)}</div>`;
-    }
+    loadFailed($('fixing'), e);
   }
 }
 
@@ -422,45 +619,88 @@ function langName(codes) {
   }).filter(Boolean).join(', ');
 }
 
+function kindName(c) {
+  if (KIND_NAMES[c]) return KIND_NAMES[c];
+  const s = String(c).replace(/_/g, ' ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 function flavourLabel(f) {
   return FLAVOUR_LABEL[f] || '';
+}
+
+// zimName is a library's title with its edition, as every list and box
+// shows it, so two editions of one library never look alike.
+function zimName(z) {
+  const f = flavourLabel(z.flavour);
+  return f ? `${z.title} (${f})` : z.title;
+}
+
+function zimTitleHTML(z) {
+  const f = flavourLabel(z.flavour);
+  return esc(z.title) + (f ? ` <span class="flav">${esc(f)}</span>` : '');
 }
 
 function zimDesc(z) {
   const bits = [];
   if (z.language) bits.push('Language: ' + esc(langName(z.language)));
-  if (z.category) bits.push('Kind: ' + esc(z.category));
+  if (z.category) bits.push('Kind: ' + esc(kindName(z.category)));
   if (z.article_count) bits.push(z.article_count.toLocaleString() + ' articles');
   if (z.size) bits.push('<b>' + esc(bytes(z.size)) + '</b>');
   return bits.join(' · ');
 }
 
-function renderCatalog() {
-  const wrap = $('catalog');
-  $('catstatus').textContent = store.catalog.total
-    ? `${store.catalog.total} libraries found`
-    : (store.catQ || store.catLang || store.catCat ? 'No libraries match that search.' : '');
-  if (!store.catalog.entries.length) {
-    wrap.innerHTML = '<div class="empty">Search above to browse the catalog.</div>';
-    return;
-  }
-  wrap.innerHTML = store.catalog.entries.map(z => `
+function catRow(z) {
+  const action = z.installed
+    ? '<span class="tag okfg">On your shelf</span>'
+    : `<button class="btn add" data-dl='${esc(JSON.stringify(z))}'>Download</button>`;
+  return `
     <div class="cat">
       <div class="catmeta">
-        <div class="title">${esc(z.title)}${z.flavour ? ` <span class="flav">${esc(flavourLabel(z.flavour))}</span>` : ''}</div>
+        <div class="title">${zimTitleHTML(z)}</div>
         ${z.summary ? `<div class="summ">${esc(z.summary)}</div>` : ''}
         <div class="meta">${zimDesc(z)}</div>
       </div>
-      <button class="btn add" data-dl='${esc(JSON.stringify(z))}'>Download</button>
-    </div>`).join('');
-  if (store.catalog.start + store.catalog.entries.length < store.catalog.total) {
+      ${action}
+    </div>`;
+}
+
+function renderCatalog() {
+  const wrap = $('catalog');
+  const c = store.catalog;
+  if (!c.entries.length) {
+    $('catstatus').textContent = '';
+    wrap.innerHTML = '<div class="empty">No libraries match that search. Try fewer words, or choose Any language and Any kind.</div>';
+    return;
+  }
+  $('catstatus').textContent = `${plural(c.total, 'library', 'libraries')} found. Showing ${c.entries.length}.`;
+  wrap.innerHTML = c.entries.map(catRow).join('');
+  if (c.entries.length < c.total) {
     wrap.insertAdjacentHTML('beforeend',
       `<div class="rowbtns"><button class="btn" id="catmore">Show more</button></div>`);
-    $('catmore').addEventListener('click', () => searchCatalog(store.catalog.start + store.catalog.entries.length));
+    $('catmore').addEventListener('click', showMore);
+  }
+}
+
+async function showMore() {
+  const shown = store.catalog.entries.length;
+  const done = busy($('catmore'), 'Loading…');
+  if (await searchCatalog(shown)) {
+    // Keep the parent's place: focus the first of the new entries.
+    const rows = $('catalog').querySelectorAll('.cat');
+    const first = rows[shown] && rows[shown].querySelector('button, .tag');
+    if (first && first.focus) first.focus();
+  } else {
+    done();
   }
 }
 
 let pendingDownload = null;
+
+function cancelDownload() {
+  pendingDownload = null;
+  closeDialog();
+}
 
 $('catalog').addEventListener('click', ev => {
   const b = ev.target.closest('[data-dl]');
@@ -470,30 +710,42 @@ $('catalog').addEventListener('click', ev => {
   pendingDownload = z;
   const free = store.freeBytes >= 0 ? ` About ${bytes(store.freeBytes)} is free on your media drive.` : '';
   $('confirmtext').innerHTML =
-    `Download <b>${esc(z.title)}</b>? It needs ${esc(bytes(z.size))}.${free}<br>` +
-    `It only works offline once the download has finished.`;
-  $('confirm').classList.remove('hidden');
+    `Download <b>${esc(zimName(z))}</b>? It needs ${esc(bytes(z.size))}.${free}<br>` +
+    'Kids can open it once the download has finished, with or without internet.';
+  openDialog('confirm', cancelDownload, 'confirmok', $('catq'));
 });
 
-$('confirmno').addEventListener('click', () => { $('confirm').classList.add('hidden'); });
+$('confirmno').addEventListener('click', cancelDownload);
 
 $('confirmok').addEventListener('click', async () => {
-  $('confirm').classList.add('hidden');
-  if (!pendingDownload) return;
   const z = pendingDownload;
   pendingDownload = null;
+  closeDialog();
+  if (!z) return;
   try {
     await post('/api/admin/content/kiwix/download', { id: z.id, name: z.name, flavour: z.flavour || '' }, 90000);
-    msg('Download started. It runs in the background.', 'ok');
+    toast(`Download of ${zimName(z)} started. It shows under Downloads.`, 'ok');
     await loadKiwix();
   } catch (e) {
-    msg(e.message, 'err');
+    if (!e.pin) toast(e.message, 'err');
   }
 });
+
+const MISSING_MSG = 'The file for this library is missing, so kids can’t open it. If it was on a drive, plug the drive in. Otherwise remove it and download it again.';
 
 function renderInstalled() {
   const wrap = $('installed');
   const list = store.installed;
+  const missing = list.filter(z => z.missing);
+  const warn = $('libwarn');
+  if (missing.length) {
+    warn.textContent = missing.length === 1
+      ? `${zimName(missing[0])} can’t be opened: its file is missing. See "On this shelf" below.`
+      : `${missing.length} libraries can’t be opened: their files are missing. See "On this shelf" below.`;
+    warn.classList.remove('hidden');
+  } else {
+    warn.classList.add('hidden');
+  }
   if (!list.length) {
     wrap.innerHTML = '<div class="empty">Nothing installed yet. Pick a library above.</div>';
     return;
@@ -501,8 +753,9 @@ function renderInstalled() {
   wrap.innerHTML = list.map(z => `
     <div class="cat">
       <div class="catmeta">
-        <div class="title">${esc(z.title)}</div>
+        <div class="title">${zimTitleHTML(z)}</div>
         <div class="meta">${esc(bytes(z.size))}${z.language ? ' · ' + esc(langName(z.language)) : ''}</div>
+        ${z.missing ? `<div class="jobmsg">${esc(MISSING_MSG)}</div>` : ''}
       </div>
       <button class="btn sub" data-rm="${esc(z.id)}">Remove</button>
     </div>`).join('');
@@ -510,28 +763,34 @@ function renderInstalled() {
 
 let pendingRemove = null;
 
+function cancelRemove() {
+  pendingRemove = null;
+  closeDialog();
+}
+
 $('installed').addEventListener('click', ev => {
   const b = ev.target.closest('[data-rm]');
   if (!b) return;
-  pendingRemove = b.dataset.rm;
-  const z = store.installed.find(x => x.id === pendingRemove);
+  pendingRemove = store.installed.find(x => x.id === b.dataset.rm) || { id: b.dataset.rm, title: 'this library' };
   $('removeconfirmtext').innerHTML =
-    `Remove <b>${esc(z ? z.title : 'this library')}</b> from the shelf? The downloaded file is deleted.`;
-  $('removeconfirm').classList.remove('hidden');
+    `Remove <b>${esc(zimName(pendingRemove))}</b> from the shelf? The downloaded file is deleted.`;
+  openDialog('removeconfirm', cancelRemove, 'removeno', $('catq'));
 });
 
-$('removeno').addEventListener('click', () => { $('removeconfirm').classList.add('hidden'); });
+$('removeno').addEventListener('click', cancelRemove);
 
 $('removeok').addEventListener('click', async () => {
-  $('removeconfirm').classList.add('hidden');
-  if (!pendingRemove) return;
-  const id = pendingRemove;
+  const z = pendingRemove;
   pendingRemove = null;
+  closeDialog();
+  if (!z) return;
   try {
-    await post('/api/admin/content/kiwix/remove', { id });
+    await post('/api/admin/content/kiwix/remove', { id: z.id });
+    toast(`${zimName(z)} was removed and its file deleted.`, 'ok');
     await loadKiwix();
+    if (store.catalog.entries.length) await searchCatalog(0, store.catalog.entries.length);
   } catch (e) {
-    msg(e.message, 'err');
+    if (!e.pin) toast(e.message, 'err');
   }
 });
 
@@ -543,22 +802,27 @@ function renderKiwixDownloads() {
     return;
   }
   wrap.innerHTML = jobs.map(job => {
-    const title = (job.entry && job.entry.title) || (job.entry && job.entry.name) || 'Library';
+    const e = job.entry || {};
+    const title = zimName({ title: e.title || e.name || 'Library', flavour: e.flavour });
     let pct = 0;
-    if (job.entry && job.entry.size > 0) pct = Math.round(job.downloaded / job.entry.size * 100);
+    if (e.size > 0) pct = Math.round(job.downloaded / e.size * 100);
     const prog = (job.state === 'running' || job.state === 'paused') && pct
       ? `<div class="pbar ${esc(job.state)}"><i style="width:${Math.min(100, pct)}%"></i></div>` : '';
-    const size = job.entry && job.entry.size ? ` of ${bytes(job.entry.size)}` : '';
+    const size = e.size ? ` of ${bytes(e.size)}` : '';
+    const label = job.state === 'done' ? 'On the shelf' : (STATE_LABEL[job.state] || job.state);
+    const pctLabel = pct && job.state !== 'done' ? ` · ${pct}%${size}` : '';
     return `<div class="job">
         <div class="jobhead">
           <span class="jobtitle">${esc(title)}</span>
-          <span class="badge ${esc(job.state)}">${esc(STATE_LABEL[job.state] || job.state)}${pct ? ` · ${pct}%${esc(size)}` : ''}</span>
+          <span class="badge ${esc(job.state)}">${esc(label + pctLabel)}</span>
         </div>
         ${job.message ? `<div class="jobmsg">${esc(job.message)}</div>` : ''}
         ${prog}
       </div>`;
   }).join('');
 }
+
+let kiwixInstalledKey = null; // null until the first load
 
 async function loadKiwix() {
   try {
@@ -568,32 +832,53 @@ async function loadKiwix() {
     store.freeBytes = d.free_bytes != null ? d.free_bytes : -1;
     renderInstalled();
     renderKiwixDownloads();
-  } catch (e) {
-    if (e.message !== 'PIN needed') {
-      $('kdownloads').innerHTML = `<div class="jobmsg">${esc(e.message)}</div>`;
+    // A download that just finished turns its catalog row into "On your
+    // shelf"; refresh the rows already shown when the installed set changes.
+    const key = store.installed.map(z => z.id).join(',');
+    if (kiwixInstalledKey !== null && key !== kiwixInstalledKey && store.catalog.entries.length) {
+      searchCatalog(0, store.catalog.entries.length);
     }
+    kiwixInstalledKey = key;
+  } catch (e) {
+    loadFailed($('kdownloads'), e);
   }
 }
 
-async function searchCatalog(start) {
-  const q = $('catq').value.trim();
-  const lang = $('catlang').value;
-  const cat = $('catcat').value;
-  if (start === 0) {
-    store.catQ = q; store.catLang = lang; store.catCat = cat;
+// searchCatalog loads catalog entries from start on: 0 starts a new search
+// with the current filters (count says how many, to redraw what is shown);
+// more than 0 adds the next page to the list. It reports success.
+async function searchCatalog(start, count) {
+  if (start === 0 && !count) {
+    store.catQ = $('catq').value.trim();
+    store.catLang = $('catlang').value;
+    store.catCat = $('catcat').value;
+    markPick();
   }
   const params = new URLSearchParams();
   if (store.catQ) params.set('q', store.catQ);
   if (store.catLang) params.set('lang', store.catLang);
   if (store.catCat) params.set('category', store.catCat);
-  params.set('count', '20');
+  params.set('count', String(Math.min(100, count || 20)));
   if (start) params.set('start', String(start));
+  if (start === 0 && !count) $('catstatus').textContent = 'Searching…';
   try {
     const d = await api('/api/admin/content/kiwix/catalog?' + params.toString());
-    store.catalog = { total: d.total, start: d.start, entries: d.entries || [] };
+    const entries = d.entries || [];
+    store.catalog = {
+      total: d.total,
+      start: 0,
+      entries: start ? store.catalog.entries.concat(entries) : entries
+    };
     renderCatalog();
+    return true;
   } catch (e) {
-    $('catalog').innerHTML = `<div class="jobmsg">${esc(e.message)}</div>`;
+    if (start === 0 && !count) {
+      $('catstatus').textContent = '';
+      loadFailed($('catalog'), e);
+    } else if (!e.pin) {
+      toast(e.message, 'err');
+    }
+    return false;
   }
 }
 
@@ -601,6 +886,28 @@ $('catsearch').addEventListener('click', () => searchCatalog(0));
 $('catq').addEventListener('keydown', ev => { if (ev.key === 'Enter') searchCatalog(0); });
 $('catlang').addEventListener('change', () => searchCatalog(0));
 $('catcat').addEventListener('change', () => searchCatalog(0));
+
+// Kid picks fill in the search and run it; the pick that matches the
+// current search shows as pressed.
+function markPick() {
+  for (const b of document.querySelectorAll('#catpicks [data-pick-cat], #catpicks [data-pick-q]')) {
+    const on = (b.dataset.pickCat && b.dataset.pickCat === store.catCat && !store.catQ) ||
+      (b.dataset.pickQ && b.dataset.pickQ === store.catQ && !store.catCat);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+}
+
+$('catpicks').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-pick-cat], [data-pick-q]');
+  if (!b) return;
+  $('catq').value = b.dataset.pickQ || '';
+  const cat = b.dataset.pickCat || '';
+  if (cat && ![...$('catcat').options].some(o => o.value === cat)) {
+    $('catcat').insertAdjacentHTML('beforeend', `<option value="${esc(cat)}">${esc(kindName(cat))}</option>`);
+  }
+  $('catcat').value = cat;
+  searchCatalog(0);
+});
 
 // defaultLang picks the language filter the catalog should start with: the
 // browser's own language when the catalog has libraries in it, English
@@ -620,28 +927,36 @@ async function loadCatalogMeta() {
       api('/api/admin/content/kiwix/languages'),
       api('/api/admin/content/kiwix/categories')
     ]);
-    store.languages = langs.languages || [];
-    store.categories = cats.categories || [];
+    store.languages = (langs.languages || []).slice()
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    store.categories = (cats.categories || []).slice()
+      .sort((a, b) => kindName(a).localeCompare(kindName(b)));
     langNames = {};
     for (const l of store.languages) langNames[l.code] = l.name;
     $('catlang').innerHTML = `<option value="">Any language</option>` +
       store.languages.map(l => `<option value="${esc(l.code)}">${esc(l.name)}${l.count ? ` (${l.count})` : ''}</option>`).join('');
     $('catcat').innerHTML = `<option value="">Any kind</option>` +
-      store.categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+      store.categories.map(c => `<option value="${esc(c)}">${esc(kindName(c))}</option>`).join('');
     $('catlang').value = store.catLang || defaultLang();
     $('catcat').value = store.catCat;
   } catch (e) {
-    if (e.message !== 'PIN needed') msg(e.message, 'err');
+    if (!e.pin && !e.offline) $('catstatus').textContent = e.message;
   }
 }
 
 // ── loading ─────────────────────────────────────────────────────────────────
 
 async function loadAll() {
-  await Promise.all([loadYouTube(), loadSources(), loadIngest(), loadFixes(), loadKiwix(), loadCatalogMeta()]);
+  // The catalog search waits for the language list, so it starts in the
+  // parent's language.
+  const catalog = loadCatalogMeta().then(() => {
+    if (!pinOpen) return searchCatalog(0);
+  });
+  await Promise.all([loadYouTube(), loadSources(), loadIngest(), loadFixes(), loadKiwix(), catalog]);
 }
 
 function poll() {
+  if (pinOpen || document.hidden) return;
   loadYouTube();
   loadIngest();
   loadFixes();

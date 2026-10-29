@@ -8,9 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	neturl "net/url"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,9 +31,19 @@ import (
 
 // newTestAdmin builds a Server with real services on a temp store: budget and
 // library with their migrations, practice for the earnings-counter setting,
-// and a temp data dir for the optional dashboard PIN. mut lets a test add a
-// Quit hook or a fake update control.
+// and a temp data dir for the parent PIN. The parent PIN is set up first
+// (testParentPIN), like a parent does on the first visit, and doReq carries
+// that session for every request without explicit cookies. mut lets a test
+// add a Quit hook or a fake update control.
 func newTestAdmin(t *testing.T, mut ...func(*Deps)) (*httptest.Server, *budget.Budget, *library.Library) {
+	t.Helper()
+	ts, b, l := newTestAdminNoPIN(t, mut...)
+	setUpParent(t, ts)
+	return ts, b, l
+}
+
+// newTestAdminNoPIN is newTestAdmin on a fresh install: no parent PIN yet.
+func newTestAdminNoPIN(t *testing.T, mut ...func(*Deps)) (*httptest.Server, *budget.Budget, *library.Library) {
 	t.Helper()
 	pinThrottle.reset()
 	adminSessions.clear()
@@ -68,10 +83,83 @@ func newTestAdmin(t *testing.T, mut ...func(*Deps)) (*httptest.Server, *budget.B
 	return ts, b, l
 }
 
+// testParentPIN is the parent PIN every test server is set up with.
+const testParentPIN = "1357"
+
+// parentClients maps a test server's host:port to the client whose cookie
+// jar holds that server's parent session; doReq uses it for requests that
+// pass no explicit cookies, so the jar also follows a reissued cookie (a
+// PIN change) or an expired one (logout, reset).
+var parentClients sync.Map
+
+// setUpParent makes the first parent PIN on ts through POST
+// /api/admin/pin/setup and keeps the issued session in a cookie jar that
+// doReq sends with every request to ts.
+func setUpParent(t *testing.T, ts *httptest.Server) {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar: %v", err)
+	}
+	c := &http.Client{Jar: jar}
+	host := ts.Listener.Addr().String()
+	parentClients.Store(host, c)
+	t.Cleanup(func() { parentClients.Delete(host) })
+	resp, out := doReq(t, http.MethodPost, ts.URL+"/api/admin/pin/setup", map[string]any{"pin": testParentPIN})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("parent PIN setup: status %d body %v", resp.StatusCode, out)
+	}
+}
+
 // doReq performs one request and decodes the JSON body (nil body allowed).
 // State changing requests carry a same-origin Origin header, exactly like
-// the app's own pages send them.
+// the app's own pages send them. With no explicit cookies the request goes
+// with the server's parent session (setUpParent); explicit cookies replace
+// it, so a test controls exactly what is sent.
 func doReq(t *testing.T, method, url string, body any, cookies ...*http.Cookie) (*http.Response, map[string]any) {
+	t.Helper()
+	client := http.DefaultClient
+	if len(cookies) == 0 {
+		client = parentClient(url)
+	}
+	return sendReq(t, client, method, url, body, cookies...)
+}
+
+// parentClient returns the client carrying the parent session of the test
+// server rawURL points at, or http.DefaultClient when it has none.
+func parentClient(rawURL string) *http.Client {
+	if u, err := neturl.Parse(rawURL); err == nil {
+		if c, ok := parentClients.Load(u.Host); ok {
+			return c.(*http.Client)
+		}
+	}
+	return http.DefaultClient
+}
+
+// parentCookie returns the parent session cookie setUpParent keeps for ts,
+// for tests that build their own requests.
+func parentCookie(t *testing.T, ts *httptest.Server) *http.Cookie {
+	t.Helper()
+	if c, ok := parentClients.Load(ts.Listener.Addr().String()); ok {
+		u, _ := neturl.Parse(ts.URL)
+		for _, ck := range c.(*http.Client).Jar.Cookies(u) {
+			if ck.Name == adminPinCookie {
+				return ck
+			}
+		}
+	}
+	t.Fatalf("no parent session for %s", ts.URL)
+	return nil
+}
+
+// visitorReq is doReq for someone without a parent session: only the given
+// cookies are sent.
+func visitorReq(t *testing.T, method, url string, body any, cookies ...*http.Cookie) (*http.Response, map[string]any) {
+	t.Helper()
+	return sendReq(t, http.DefaultClient, method, url, body, cookies...)
+}
+
+func sendReq(t *testing.T, client *http.Client, method, url string, body any, cookies ...*http.Cookie) (*http.Response, map[string]any) {
 	t.Helper()
 	var rd io.Reader
 	if body != nil {
@@ -94,7 +182,7 @@ func doReq(t *testing.T, method, url string, body any, cookies ...*http.Cookie) 
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, url, err)
 	}
@@ -199,14 +287,21 @@ func TestAdminKidsCRUD(t *testing.T) {
 		t.Errorf("non-numeric pin: status %d, want 400", resp.StatusCode)
 	}
 
-	// Create is idempotent by name and never overwrites the PIN.
+	// Adding a name that is already a kid's, in any letter case, is refused
+	// in plain words and never touches that kid's PIN.
 	id := kidID(t, ts, "Alex", "1111")
-	again, out := post(t, ts.URL+"/api/admin/kids", map[string]any{"name": "Alex", "pin": "9999"})
-	if again.StatusCode != http.StatusOK || out["id"] != id {
-		t.Errorf("create again: status %d id %v, want 200 and %q", again.StatusCode, out["id"], id)
+	for _, name := range []string{"Alex", "alex", " ALEX "} {
+		again, out := post(t, ts.URL+"/api/admin/kids", map[string]any{"name": name, "pin": "9999"})
+		want := "A kid called Alex already exists. Pick another name. To give Alex a new PIN, use ⋯ on Alex's card."
+		if again.StatusCode != http.StatusConflict || out["error"] != want {
+			t.Errorf("add %q again: status %d %v, want 409 %q", name, again.StatusCode, out, want)
+		}
 	}
-	if !b.VerifyKidPIN(context.Background(), core.KidID(id), "1111") {
-		t.Error("original kid PIN no longer verifies after idempotent create")
+	if !b.VerifyKidPIN(context.Background(), core.KidID(id), "1111") || b.VerifyKidPIN(context.Background(), core.KidID(id), "9999") {
+		t.Error("a refused duplicate add changed the existing kid's PIN")
+	}
+	if kids := state(t, ts)["kids"].([]any); len(kids) != 1 {
+		t.Errorf("kids after refused duplicates = %v, want only Alex", kids)
 	}
 
 	st := state(t, ts)
@@ -220,8 +315,11 @@ func TestAdminKidsCRUD(t *testing.T) {
 
 	// Rename, and a duplicate name is refused.
 	kidID(t, ts, "Sam", "2222")
-	if resp, _ := post(t, ts.URL+"/api/admin/kids/"+id+"/rename", map[string]any{"name": "Sam"}); resp.StatusCode != http.StatusConflict {
-		t.Errorf("rename to existing name: status %d, want 409", resp.StatusCode)
+	if resp, out := post(t, ts.URL+"/api/admin/kids/"+id+"/rename", map[string]any{"name": "Sam"}); resp.StatusCode != http.StatusConflict || out["error"] != "A kid called Sam already exists. Pick another name." {
+		t.Errorf("rename to existing name: status %d %v, want 409 and the plain refusal", resp.StatusCode, out)
+	}
+	if resp, _ := post(t, ts.URL+"/api/admin/kids/"+id+"/rename", map[string]any{"name": "sAM"}); resp.StatusCode != http.StatusConflict {
+		t.Errorf("rename to existing name in another case: status %d, want 409", resp.StatusCode)
 	}
 	if resp, _ := post(t, ts.URL+"/api/admin/kids/"+id+"/rename", map[string]any{"name": "Alex H."}); resp.StatusCode != http.StatusOK {
 		t.Errorf("rename: status %d, want 200", resp.StatusCode)
@@ -249,6 +347,15 @@ func TestAdminKidsCRUD(t *testing.T) {
 	}
 	if resp, _ := post(t, ts.URL+"/api/admin/kids/"+id+"/minutes", map[string]any{"minutes": -1}); resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("negative daily minutes: status %d, want 400", resp.StatusCode)
+	}
+	// An emptied minutes box (missing or null) is refused, never saved as 0.
+	for _, body := range []map[string]any{{}, {"minutes": nil}} {
+		if resp, out := post(t, ts.URL+"/api/admin/kids/"+id+"/minutes", body); resp.StatusCode != http.StatusBadRequest || out["error"] != "Type a number of minutes, like 30." {
+			t.Errorf("minutes %v: status %d %v, want 400 and the plain message", body, resp.StatusCode, out)
+		}
+	}
+	if k := kidByName(t, state(t, ts), "Alex H."); k["daily"] != float64(30) {
+		t.Errorf("daily after an empty save = %v, want 30 kept", k["daily"])
 	}
 
 	// Remove, then the kid is gone and unknown ids 404.
@@ -328,17 +435,18 @@ func TestAdminSetBin(t *testing.T) {
 func TestAdminDashboardPINGate(t *testing.T) {
 	ts, _, _ := newTestAdmin(t)
 
-	// Off by default: state loads without any cookie.
+	// The parent who made the PIN is in.
 	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil); resp.StatusCode != http.StatusOK {
-		t.Fatalf("state without PIN: status %d, want 200 (off by default)", resp.StatusCode)
+		t.Fatalf("state with the setup session: status %d, want 200", resp.StatusCode)
 	}
 
-	// Turn it on: the gate closes immediately.
-	if resp, _ := post(t, ts.URL+"/api/admin/settings/dashboard", map[string]any{"pin": "1234"}); resp.StatusCode != http.StatusOK {
-		t.Fatalf("set dashboard pin: status %d, want 200", resp.StatusCode)
-	}
-	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil); resp.StatusCode != http.StatusUnauthorized {
+	// Anyone else meets the lock (not the setup form: a PIN exists).
+	resp, out := visitorReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("state without cookie: status %d, want 401", resp.StatusCode)
+	}
+	if out["setup"] == true {
+		t.Errorf("state without cookie said setup with a PIN set: %v", out)
 	}
 	wrong := &http.Cookie{Name: adminPinCookie, Value: "9999", Path: "/"}
 	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil, wrong); resp.StatusCode != http.StatusUnauthorized {
@@ -346,16 +454,16 @@ func TestAdminDashboardPINGate(t *testing.T) {
 	}
 
 	// Login with a wrong PIN, then the right one.
-	if resp, _ := post(t, ts.URL+"/api/admin/pin", map[string]any{"pin": "1111"}); resp.StatusCode != http.StatusUnauthorized {
+	if resp, _ := visitorReq(t, http.MethodPost, ts.URL+"/api/admin/pin", map[string]any{"pin": "1111"}); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("wrong manager pin: status %d, want 401", resp.StatusCode)
 	}
-	cookie := login(t, ts, "1234")
+	cookie := login(t, ts, testParentPIN)
 	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil, cookie); resp.StatusCode != http.StatusOK {
 		t.Errorf("state with login cookie: status %d, want 200", resp.StatusCode)
 	}
 
 	// Changing the PIN reissues the cookie; the old one stops working.
-	resp, _ := post(t, ts.URL+"/api/admin/settings/dashboard", map[string]any{"pin": "2468"}, cookie)
+	resp, _ = post(t, ts.URL+"/api/admin/settings/dashboard", map[string]any{"pin": "2468"}, cookie)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("change manager pin: status %d, want 200", resp.StatusCode)
 	}
@@ -375,9 +483,8 @@ func TestAdminDashboardPINGate(t *testing.T) {
 		t.Errorf("reissued cookie after pin change: status %d, want 200", resp.StatusCode)
 	}
 
-	// Logout expires the cookie for browsers (the server checks are
-	// stateless, so an explicit stale cookie still matches until dropped).
-	respLogout, _ := post(t, ts.URL+"/api/admin/logout", nil)
+	// Logout expires the cookie for browsers and ends the session.
+	respLogout, _ := post(t, ts.URL+"/api/admin/logout", nil, newCookie)
 	expired := false
 	for _, c := range respLogout.Cookies() {
 		if c.Name == adminPinCookie {
@@ -387,14 +494,8 @@ func TestAdminDashboardPINGate(t *testing.T) {
 	if !expired {
 		t.Error("logout did not expire the manager cookie")
 	}
-
-	// Clearing the PIN needs the current cookie, then the gate is open again.
-	fresh := login(t, ts, "2468")
-	if resp, _ := post(t, ts.URL+"/api/admin/settings/dashboard", map[string]any{"pin": ""}, fresh); resp.StatusCode != http.StatusOK {
-		t.Errorf("clear manager pin: status %d, want 200", resp.StatusCode)
-	}
-	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil); resp.StatusCode != http.StatusOK {
-		t.Errorf("state after clearing pin: status %d, want 200", resp.StatusCode)
+	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil, newCookie); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("state after logout: status %d, want 401", resp.StatusCode)
 	}
 }
 
@@ -403,9 +504,309 @@ func TestAdminBadDashboardPIN(t *testing.T) {
 	if resp, _ := post(t, ts.URL+"/api/admin/settings/dashboard", map[string]any{"pin": "12"}); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("bad manager pin: status %d, want 400", resp.StatusCode)
 	}
-	// The rejected pin never closed the gate.
+	// The rejected pin changed nothing: the session still works and the
+	// PIN is still the one made at setup.
 	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil); resp.StatusCode != http.StatusOK {
-		t.Errorf("rejected bad pin still closed the gate: status %d", resp.StatusCode)
+		t.Errorf("rejected bad pin ended the session: status %d", resp.StatusCode)
+	}
+	login(t, ts, testParentPIN)
+}
+
+// TestAdminNoPINAsksForSetup: on a fresh install (no parent PIN) every
+// gated route answers 401 with setup true instead of opening, including the
+// /admin/content data routes; the page shell still loads.
+func TestAdminNoPINAsksForSetup(t *testing.T) {
+	ts, _, _ := newTestAdminNoPIN(t)
+	for _, c := range []struct{ method, path string }{
+		{http.MethodGet, "/api/admin/state"},
+		{http.MethodGet, "/api/admin/problems"},
+		{http.MethodGet, "/api/admin/remove"},
+		{http.MethodPost, "/api/admin/kids"},
+		{http.MethodPost, "/api/admin/settings/dashboard"},
+		{http.MethodPost, "/api/admin/pin"},
+		{http.MethodGet, "/api/admin/content/sources"},
+	} {
+		var body any
+		if c.method == http.MethodPost {
+			body = map[string]any{"name": "Ada", "pin": "1234"}
+		}
+		resp, out := visitorReq(t, c.method, ts.URL+c.path, body)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s %s with no PIN: status %d, want 401", c.method, c.path, resp.StatusCode)
+		}
+		if out["setup"] != true {
+			t.Errorf("%s %s with no PIN: body %v, want setup true", c.method, c.path, out)
+		}
+		if msg, _ := out["error"].(string); msg == "" {
+			t.Errorf("%s %s with no PIN: no plain error in %v", c.method, c.path, out)
+		}
+	}
+	// The settings route above did not sneak a PIN in.
+	if _, out := visitorReq(t, http.MethodGet, ts.URL+"/api/admin/pin/status", nil); out["set"] != false {
+		t.Errorf("status after refused writes = %v, want set false", out)
+	}
+	if resp, _ := visitorReq(t, http.MethodGet, ts.URL+"/admin", nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /admin with no PIN: status %d, want 200 (the shell)", resp.StatusCode)
+	}
+}
+
+// TestAdminPINSetupOnce: setup validates 4 digits, works once, issues a
+// working session, then answers 409 without touching the PIN; it is
+// same-origin only like every state change.
+func TestAdminPINSetupOnce(t *testing.T) {
+	ts, _, _ := newTestAdminNoPIN(t)
+	setup := ts.URL + "/api/admin/pin/setup"
+
+	for _, bad := range []string{"", "12", "12a4", "12345"} {
+		if resp, _ := visitorReq(t, http.MethodPost, setup, map[string]any{"pin": bad}); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("setup with %q: status %d, want 400", bad, resp.StatusCode)
+		}
+	}
+
+	// A cross-origin setup never lands.
+	req, err := http.NewRequest(http.MethodPost, setup, strings.NewReader(`{"pin":"9999"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://evil.example")
+	respX, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	respX.Body.Close()
+	if respX.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-origin setup: status %d, want 403", respX.StatusCode)
+	}
+
+	resp, _ := visitorReq(t, http.MethodPost, setup, map[string]any{"pin": "2468"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("first setup: status %d, want 200", resp.StatusCode)
+	}
+	var session *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == adminPinCookie && c.Value != "" {
+			session = c
+		}
+	}
+	if session == nil {
+		t.Fatal("setup issued no session cookie")
+	}
+	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil, session); resp.StatusCode != http.StatusOK {
+		t.Errorf("state with the setup session: status %d, want 200", resp.StatusCode)
+	}
+
+	// Once a PIN exists, setup can never replace it.
+	resp, out := visitorReq(t, http.MethodPost, setup, map[string]any{"pin": "1111"})
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("second setup: status %d, want 409", resp.StatusCode)
+	}
+	if msg, _ := out["error"].(string); msg == "" {
+		t.Errorf("409 has no plain message: %v", out)
+	}
+	if resp, _ := visitorReq(t, http.MethodPost, ts.URL+"/api/admin/pin", map[string]any{"pin": "1111"}); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("the refused setup PIN opens the page: status %d, want 401", resp.StatusCode)
+	}
+	login(t, ts, "2468")
+	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil, session); resp.StatusCode != http.StatusOK {
+		t.Errorf("refused setup ended the session: status %d, want 200", resp.StatusCode)
+	}
+}
+
+// TestAdminPINSetupThrottled: a client locked out by wrong parent PINs is
+// locked out of setup too (the same throttle as POST /api/admin/pin).
+func TestAdminPINSetupThrottled(t *testing.T) {
+	ts, _, _ := newTestAdminNoPIN(t)
+	now := time.Now()
+	for range pinThrottleAfter {
+		pinThrottle.fail(realmDashboard, "127.0.0.1", "", now)
+	}
+	resp, out := visitorReq(t, http.MethodPost, ts.URL+"/api/admin/pin/setup", map[string]any{"pin": "2468"})
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("setup while locked out: status %d, want 429 (body %v)", resp.StatusCode, out)
+	}
+	if _, st := visitorReq(t, http.MethodGet, ts.URL+"/api/admin/pin/status", nil); st["set"] != false {
+		t.Errorf("a locked-out setup stored a PIN: %v", st)
+	}
+}
+
+// TestAdminDashboardPINCannotBeCleared: Settings can change the parent PIN
+// but never remove it.
+func TestAdminDashboardPINCannotBeCleared(t *testing.T) {
+	ts, _, _ := newTestAdmin(t)
+	resp, out := post(t, ts.URL+"/api/admin/settings/dashboard", map[string]any{"pin": ""})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("clear parent pin: status %d, want 400", resp.StatusCode)
+	}
+	if msg, _ := out["error"].(string); msg != "The parent page always needs a PIN." {
+		t.Errorf("clear parent pin: error %q", msg)
+	}
+	if resp, _ := visitorReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("state without cookie after refused clear: status %d, want 401", resp.StatusCode)
+	}
+	login(t, ts, testParentPIN)
+}
+
+// pinApp is a parent-page app served in-process, so a test can choose the
+// connection's peer address and the launcher proxy headers.
+func pinApp(t *testing.T) http.Handler {
+	t.Helper()
+	pinThrottle.reset()
+	adminSessions.clear()
+	return NewApp("pin-test", Deps{DataDir: t.TempDir(), ProxyToken: "proxy-secret"}).Mux()
+}
+
+// serveFrom sends one request to h as if it came from peer (host:port),
+// with the extra headers set, and decodes the JSON answer.
+func serveFrom(t *testing.T, h http.Handler, method, path, peer string, body any, hdr map[string]string, cookies ...*http.Cookie) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	var rd io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rd = strings.NewReader(string(b))
+	}
+	r := httptest.NewRequest(method, path, rd)
+	r.Host = "127.0.0.1:8080"
+	r.RemoteAddr = peer
+	if body != nil {
+		r.Header.Set("Content-Type", "application/json")
+	}
+	if method != http.MethodGet {
+		r.Header.Set("Origin", "http://127.0.0.1:8080")
+	}
+	for k, v := range hdr {
+		r.Header.Set(k, v)
+	}
+	for _, c := range cookies {
+		r.AddCookie(c)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	var out map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	return w, out
+}
+
+// viaProxy is the header pair the launcher's proxy adds for client.
+func viaProxy(client string) map[string]string {
+	return map[string]string{"X-KS-Token": "proxy-secret", "X-KS-Client": client}
+}
+
+// TestAdminPINStatusLocal: status needs no session, reveals only set and
+// local, and local follows the real client: the connection's peer, or the
+// trusted proxy's X-KS-Client, never a spoofed header.
+func TestAdminPINStatusLocal(t *testing.T) {
+	h := pinApp(t)
+	cases := []struct {
+		name  string
+		peer  string
+		hdr   map[string]string
+		local bool
+	}{
+		{"direct loopback", "127.0.0.1:5000", nil, true},
+		{"direct IPv6 loopback", "[::1]:5000", nil, true},
+		{"direct tablet", "192.0.2.20:5000", nil, false},
+		{"proxy, this computer", "127.0.0.1:5000", viaProxy("127.0.0.1"), true},
+		{"proxy, IPv6 loopback", "127.0.0.1:5000", viaProxy("::1"), true},
+		{"proxy, tablet", "127.0.0.1:5000", viaProxy("192.0.2.20"), false},
+		{"tablet spoofing the proxy header", "192.0.2.20:5000", viaProxy("127.0.0.1"), false},
+		{"wrong proxy token is ignored", "127.0.0.1:5000", map[string]string{"X-KS-Token": "nope", "X-KS-Client": "192.0.2.20"}, true},
+	}
+	for _, c := range cases {
+		w, out := serveFrom(t, h, http.MethodGet, "/api/admin/pin/status", c.peer, nil, c.hdr)
+		if w.Code != http.StatusOK {
+			t.Errorf("%s: status %d, want 200", c.name, w.Code)
+			continue
+		}
+		if out["local"] != c.local || out["set"] != false || len(out) != 2 {
+			t.Errorf("%s: body %v, want {set:false local:%v} only", c.name, out, c.local)
+		}
+	}
+	if w, _ := serveFrom(t, h, http.MethodPost, "/api/admin/pin/setup", "127.0.0.1:5000", map[string]any{"pin": "2468"}, nil); w.Code != http.StatusOK {
+		t.Fatalf("setup: status %d", w.Code)
+	}
+	if _, out := serveFrom(t, h, http.MethodGet, "/api/admin/pin/status", "192.0.2.20:5000", nil, nil); out["set"] != true || out["local"] != false {
+		t.Errorf("status after setup from a tablet = %v, want set true, local false", out)
+	}
+}
+
+// TestAdminPINReset: only a browser on the kids-shelf computer itself can
+// clear the parent PIN; afterwards every session is gone and the page asks
+// for a new PIN.
+func TestAdminPINReset(t *testing.T) {
+	h := pinApp(t)
+	w, _ := serveFrom(t, h, http.MethodPost, "/api/admin/pin/setup", "192.0.2.20:5000", map[string]any{"pin": "2468"}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("setup: status %d", w.Code)
+	}
+	var session *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == adminPinCookie {
+			session = c
+		}
+	}
+	if session == nil {
+		t.Fatal("setup issued no session")
+	}
+
+	for _, c := range []struct {
+		name string
+		peer string
+		hdr  map[string]string
+	}{
+		{"direct tablet", "192.0.2.20:5000", nil},
+		{"tablet through the proxy", "127.0.0.1:5000", viaProxy("192.0.2.20")},
+		{"tablet spoofing the proxy header", "192.0.2.20:5000", viaProxy("127.0.0.1")},
+	} {
+		// Even a signed-in parent on a tablet cannot reset it.
+		w, out := serveFrom(t, h, http.MethodPost, "/api/admin/pin/reset", c.peer, nil, c.hdr, session)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("%s: reset status %d, want 403", c.name, w.Code)
+		}
+		if msg, _ := out["error"].(string); msg != "Reset the PIN on the computer kids-shelf runs on." {
+			t.Errorf("%s: reset error %q", c.name, msg)
+		}
+	}
+	if _, out := serveFrom(t, h, http.MethodGet, "/api/admin/pin/status", "192.0.2.20:5000", nil, nil); out["set"] != true {
+		t.Fatalf("a refused reset cleared the PIN: %v", out)
+	}
+
+	// A cross-origin reset never reaches the handler.
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/pin/reset", nil)
+	r.Host = "127.0.0.1:8080"
+	r.RemoteAddr = "127.0.0.1:5000"
+	r.Header.Set("Origin", "https://evil.example")
+	rw := httptest.NewRecorder()
+	h.ServeHTTP(rw, r)
+	if rw.Code != http.StatusForbidden {
+		t.Errorf("cross-origin reset: status %d, want 403", rw.Code)
+	}
+	if _, out := serveFrom(t, h, http.MethodGet, "/api/admin/pin/status", "127.0.0.1:5000", nil, nil); out["set"] != true {
+		t.Fatalf("a cross-origin reset cleared the PIN: %v", out)
+	}
+
+	// The computer itself, through the launcher's proxy: the PIN is gone,
+	// and the wrong guesses made there before the reset are forgotten.
+	for range pinThrottleAfter {
+		pinThrottle.fail(realmDashboard, "127.0.0.1", "", time.Now())
+	}
+	w, _ = serveFrom(t, h, http.MethodPost, "/api/admin/pin/reset", "127.0.0.1:5000", nil, viaProxy("127.0.0.1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("local reset: status %d, want 200", w.Code)
+	}
+	if _, out := serveFrom(t, h, http.MethodGet, "/api/admin/pin/status", "127.0.0.1:5000", nil, nil); out["set"] != false {
+		t.Errorf("status after local reset = %v, want set false", out)
+	}
+	w, out := serveFrom(t, h, http.MethodGet, "/api/admin/state", "192.0.2.20:5000", nil, nil, session)
+	if w.Code != http.StatusUnauthorized || out["setup"] != true {
+		t.Errorf("old session after reset: status %d body %v, want 401 with setup true", w.Code, out)
+	}
+	w, _ = serveFrom(t, h, http.MethodPost, "/api/admin/pin/setup", "127.0.0.1:5000", map[string]any{"pin": "8642"}, viaProxy("127.0.0.1"))
+	if w.Code != http.StatusOK {
+		t.Errorf("new setup right after a local reset: status %d, want 200", w.Code)
 	}
 }
 
@@ -430,7 +831,8 @@ func TestAdminCSRFGate(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("cross-origin POST = %d, want 403", resp.StatusCode)
 	}
-	// ...and nothing changed: the dashboard PIN is still unset.
+	// ...and nothing changed: the PIN is still the one from setup, so the
+	// session it issued still works.
 	if st, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil); st.StatusCode != http.StatusOK {
 		t.Errorf("state after cross-origin POST = %d, want 200 (nothing should have changed)", st.StatusCode)
 	}
@@ -456,6 +858,7 @@ func TestAdminCSRFGate(t *testing.T) {
 		t.Fatalf("new request: %v", err)
 	}
 	req4.Header.Set("Referer", ts.URL+"/admin")
+	req4.AddCookie(parentCookie(t, ts))
 	resp4, err := http.DefaultClient.Do(req4)
 	if err != nil {
 		t.Fatalf("quit with Referer: %v", err)
@@ -494,14 +897,11 @@ func TestAdminCSRFGate(t *testing.T) {
 func TestAdminPINRequiresTokenSession(t *testing.T) {
 	ts, _, _ := newTestAdmin(t)
 
-	if resp, _ := post(t, ts.URL+"/api/admin/settings/dashboard", map[string]any{"pin": "1234"}); resp.StatusCode != http.StatusOK {
-		t.Fatalf("set dashboard pin: status %d, want 200", resp.StatusCode)
-	}
-	raw := &http.Cookie{Name: adminPinCookie, Value: "1234", Path: "/"}
+	raw := &http.Cookie{Name: adminPinCookie, Value: testParentPIN, Path: "/"}
 	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil, raw); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("raw-PIN cookie: status %d, want 401", resp.StatusCode)
 	}
-	cookie := login(t, ts, "1234")
+	cookie := login(t, ts, testParentPIN)
 	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil, cookie); resp.StatusCode != http.StatusOK {
 		t.Errorf("session token cookie: status %d, want 200", resp.StatusCode)
 	}
@@ -511,20 +911,21 @@ func TestAdminPINRequiresTokenSession(t *testing.T) {
 // five wrong tries, then the sixth, even with the right PIN, is refused.
 func TestAdminPINThrottle(t *testing.T) {
 	ts, _, _ := newTestAdmin(t)
-	if resp, _ := post(t, ts.URL+"/api/admin/settings/dashboard", map[string]any{"pin": "1234"}); resp.StatusCode != http.StatusOK {
-		t.Fatalf("set dashboard pin: status %d, want 200", resp.StatusCode)
-	}
 	for range 5 {
-		if resp, _ := post(t, ts.URL+"/api/admin/pin", map[string]any{"pin": "0000"}); resp.StatusCode != http.StatusUnauthorized {
+		if resp, _ := visitorReq(t, http.MethodPost, ts.URL+"/api/admin/pin", map[string]any{"pin": "0000"}); resp.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("wrong dashboard pin: status %d, want 401", resp.StatusCode)
 		}
 	}
-	resp, out := post(t, ts.URL+"/api/admin/pin", map[string]any{"pin": "1234"})
+	resp, out := visitorReq(t, http.MethodPost, ts.URL+"/api/admin/pin", map[string]any{"pin": testParentPIN})
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("sixth dashboard try: status %d, want 429 (body %v)", resp.StatusCode, out)
 	}
-	if msg, _ := out["error"].(string); !strings.Contains(msg, "Too many wrong PINs. Try again in") {
+	if msg, _ := out["error"].(string); msg != "Too many tries. Wait a little bit, then try again." {
 		t.Errorf("429 message = %q", msg)
+	}
+	// The parent page counts the lockout down from this field.
+	if wait, _ := out["wait"].(float64); wait < 1 {
+		t.Errorf("429 wait = %v, want the lockout seconds", out["wait"])
 	}
 }
 
@@ -793,11 +1194,24 @@ func TestAdminDefaultMinutes(t *testing.T) {
 	if resp, _ := post(t, ts.URL+"/api/admin/settings/default", map[string]any{"minutes": -5}); resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("negative default: status %d, want 400", resp.StatusCode)
 	}
+	// An emptied box (missing or null minutes) is refused, never saved as 0.
+	for _, body := range []map[string]any{{}, {"minutes": nil}} {
+		if resp, out := post(t, ts.URL+"/api/admin/settings/default", body); resp.StatusCode != http.StatusBadRequest || out["error"] != "Type a number of minutes, like 30." {
+			t.Errorf("default %v: status %d %v, want 400 and the plain message", body, resp.StatusCode, out)
+		}
+	}
+	if m := state(t, ts)["default_minutes"]; m != float64(15) {
+		t.Errorf("default minutes after an empty save = %v, want 15 kept", m)
+	}
 }
 
 func TestAdminGrownupPIN(t *testing.T) {
 	ts, b, _ := newTestAdmin(t)
 	ctx := context.Background()
+	pinSet := func() any { return state(t, ts)["settings"].(map[string]any)["grownup_pin_set"] }
+	if v := pinSet(); v != false {
+		t.Errorf("grownup_pin_set before any PIN = %v, want false", v)
+	}
 	if b.VerifyGrownupPIN(ctx, "7364") {
 		t.Fatal("grown-up PIN verifies before being set")
 	}
@@ -807,6 +1221,9 @@ func TestAdminGrownupPIN(t *testing.T) {
 	if !b.VerifyGrownupPIN(ctx, "7364") {
 		t.Error("grown-up PIN does not verify after being set")
 	}
+	if v := pinSet(); v != true {
+		t.Errorf("grownup_pin_set after setting = %v, want true", v)
+	}
 	if resp, _ := post(t, ts.URL+"/api/admin/settings/grownup", map[string]any{"pin": "12"}); resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("bad grownup pin: status %d, want 400", resp.StatusCode)
 	}
@@ -815,6 +1232,55 @@ func TestAdminGrownupPIN(t *testing.T) {
 	}
 	if b.VerifyGrownupPIN(ctx, "7364") {
 		t.Error("grown-up PIN still verifies after clearing")
+	}
+	if v := pinSet(); v != false {
+		t.Errorf("grownup_pin_set after clearing = %v, want false", v)
+	}
+}
+
+// TestAdminKidNameCountsLetters: the 40-letter name limit counts letters, so
+// accented letters and emoji (several bytes each) fit, and 41 letters do not.
+func TestAdminKidNameCountsLetters(t *testing.T) {
+	ts, _, _ := newTestAdmin(t)
+	name := "Ébène-Zoë " + strings.Repeat("🌟", 30) // 40 letters, far more than 40 bytes
+	if resp, out := post(t, ts.URL+"/api/admin/kids", map[string]any{"name": name, "pin": "1111"}); resp.StatusCode != http.StatusOK {
+		t.Errorf("40-letter name with accents and emoji: status %d %v, want 200", resp.StatusCode, out)
+	}
+	if resp, _ := post(t, ts.URL+"/api/admin/kids", map[string]any{"name": strings.Repeat("é", 41), "pin": "2222"}); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("41-letter name: status %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestAdminUpdateMessagesPlain: the Updates card never shows the updater's
+// technical words; each state reads as plain words with a next step.
+func TestAdminUpdateMessagesPlain(t *testing.T) {
+	cases := []struct {
+		st   update.Status
+		want string
+	}{
+		{update.Status{State: update.StateChecking, Message: "checking for updates"}, "Looking for a new version of kids-shelf."},
+		{update.Status{State: update.StateIdle, Message: "no update available"}, "kids-shelf is up to date."},
+		{update.Status{State: update.StateStaged, Staged: "v1.2.3", Message: "version v1.2.3 is staged and ready; restart to apply it"},
+			"A new version (v1.2.3) is ready. Press Restart to update to start using it. Videos stop for a moment while kids-shelf restarts."},
+		{update.Status{State: update.StateStaged, Staged: "v1.2.3", Message: "an update is being applied; the app will restart on its own"},
+			"A new version is being set up. kids-shelf restarts on its own, and this page comes back when it is ready."},
+		{update.Status{State: update.StateFailed, Message: "the download did not match its checksum"},
+			"The new version that was downloaded was damaged, so it was not used. Nothing changed; kids-shelf tries again tomorrow."},
+		{update.Status{State: update.StateFailed, Message: "the release is not signed with the expected key"},
+			"The new version that was downloaded was damaged, so it was not used. Nothing changed; kids-shelf tries again tomorrow."},
+		{update.Status{State: update.StateFailed, Message: "there is not enough free disk space"},
+			"The update needs more free space on this computer. Remove some videos; kids-shelf tries again tomorrow."},
+		{update.Status{State: update.StateFailed, Message: "could not check for or install the update"},
+			"kids-shelf could not reach the update server. Check that this computer is on the internet; it tries again tomorrow."},
+		{update.Status{State: update.StateFailed, Message: "the update to v1.2.3 did not start properly, so kids-shelf went back to v1.2.2"},
+			"The new version did not start properly, so kids-shelf went back to the one it had before. Nothing else changed."},
+	}
+	for _, c := range cases {
+		ctrl := &fakeUpdateControl{status: c.st}
+		ts, _, _ := newTestAdmin(t, func(d *Deps) { d.Updates = ctrl })
+		if got := state(t, ts)["updates"].(map[string]any)["message"]; got != c.want {
+			t.Errorf("%s %q: message %q, want %q", c.st.State, c.st.Message, got, c.want)
+		}
 	}
 }
 
@@ -832,6 +1298,15 @@ func TestAdminStaticFiles(t *testing.T) {
 	html := string(b)
 	if !strings.Contains(html, "kids-shelf · parent page") || !strings.Contains(html, "/admin/static/admin.js") {
 		t.Errorf("GET /admin did not serve the dashboard shell")
+	}
+	// Where to open kids-shelf again is this OS's own place (the Dock on a
+	// Mac), never a placeholder or a desktop icon a Mac does not have.
+	if strings.Contains(html, "__KS_REOPEN__") || !strings.Contains(html, `data-reopen="`+reopenWhere()+`"`) ||
+		!strings.Contains(html, "open it again from "+reopenWhere()+".") {
+		t.Errorf("GET /admin did not fill in where to reopen kids-shelf (%q)", reopenWhere())
+	}
+	if runtime.GOOS == "darwin" && strings.Contains(reopenWhere(), "desktop") {
+		t.Errorf("reopenWhere on a Mac = %q, want the Dock or Applications", reopenWhere())
 	}
 	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		t.Errorf("GET /admin Content-Type = %q, want text/html", ct)
@@ -1023,27 +1498,21 @@ func TestAdminFirewallAllowFailure(t *testing.T) {
 	}
 }
 
-// TestAdminProblemsPINGate closes both new endpoints when the dashboard PIN
-// is set and the request carries no session cookie, the same gate as every
-// other /api/admin route.
+// TestAdminProblemsPINGate closes both endpoints when the request carries
+// no session cookie, the same gate as every other /api/admin route.
 func TestAdminProblemsPINGate(t *testing.T) {
 	ts, _, _ := newTestAdmin(t, func(d *Deps) {
 		d.Firewall = &fakeFirewall{status: FirewallStatus{Blocked: true}}
 		d.HelpersProblem = func() string { return "problem" }
 	})
-	// Open dashboard: both endpoints answer without any cookie.
-	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/problems", nil); resp.StatusCode != http.StatusOK {
-		t.Errorf("problems without PIN: status %d, want 200", resp.StatusCode)
-	}
-	// A PIN set closes them: no cookie means 401, the session cookie 200.
-	post(t, ts.URL+"/api/admin/settings/dashboard", map[string]any{"pin": "1234"})
-	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/problems", nil); resp.StatusCode != http.StatusUnauthorized {
+	// No cookie means 401, the session cookie 200.
+	if resp, _ := visitorReq(t, http.MethodGet, ts.URL+"/api/admin/problems", nil); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("problems without cookie: status %d, want 401", resp.StatusCode)
 	}
-	if resp, _ := post(t, ts.URL+"/api/admin/firewall/allow", map[string]any{}); resp.StatusCode != http.StatusUnauthorized {
+	if resp, _ := visitorReq(t, http.MethodPost, ts.URL+"/api/admin/firewall/allow", map[string]any{}); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("allow without cookie: status %d, want 401", resp.StatusCode)
 	}
-	c := login(t, ts, "1234")
+	c := login(t, ts, testParentPIN)
 	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/api/admin/problems", nil, c); resp.StatusCode != http.StatusOK {
 		t.Errorf("problems with cookie: status %d, want 200", resp.StatusCode)
 	}
@@ -1086,9 +1555,13 @@ func TestAdminFirewallNilControl(t *testing.T) {
 // the two folders, the hook receives the deleteData flag, and a copy
 // without the hook answers 503.
 func TestAdminRemove(t *testing.T) {
-	var got atomic.Value // bool
+	var got atomic.Value                                     // bool
+	dataDir := filepath.Join(t.TempDir(), "the-data-folder") // holds the parent PIN
+	if err := os.Mkdir(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	ts, _, _ := newTestAdmin(t, func(d *Deps) {
-		d.DataDir = "the-data-folder"
+		d.DataDir = dataDir
 		d.MediaDir = "the-media-folder"
 		d.Remove = func(deleteData bool) error {
 			got.Store(deleteData)
@@ -1098,7 +1571,7 @@ func TestAdminRemove(t *testing.T) {
 
 	if resp, out := doReq(t, http.MethodGet, ts.URL+"/api/admin/remove", nil); resp.StatusCode != http.StatusOK {
 		t.Fatalf("remove info: status %d, want 200", resp.StatusCode)
-	} else if out["data_dir"] != "the-data-folder" || out["media_dir"] != "the-media-folder" {
+	} else if out["data_dir"] != dataDir || out["media_dir"] != "the-media-folder" {
 		t.Errorf("remove info = %v, want the two folder paths", out)
 	}
 
@@ -1141,23 +1614,20 @@ func TestAdminRemoveSameOrigin(t *testing.T) {
 	}
 }
 
-// TestAdminRemovePINGate: with the optional dashboard PIN set, removal -
-// like every dashboard mutation - needs the session cookie.
+// TestAdminRemovePINGate: removal, like every parent-page mutation, needs
+// the session cookie.
 func TestAdminRemovePINGate(t *testing.T) {
 	var removes atomic.Int32
 	ts, _, _ := newTestAdmin(t, func(d *Deps) {
 		d.Remove = func(bool) error { removes.Add(1); return nil }
 	})
-	if resp, _ := post(t, ts.URL+"/api/admin/settings/dashboard", map[string]any{"pin": "1234"}); resp.StatusCode != http.StatusOK {
-		t.Fatalf("set dashboard pin: status %d", resp.StatusCode)
-	}
-	if resp, _ := post(t, ts.URL+"/api/admin/remove", map[string]any{"deleteData": true}); resp.StatusCode != http.StatusUnauthorized {
+	if resp, _ := visitorReq(t, http.MethodPost, ts.URL+"/api/admin/remove", map[string]any{"deleteData": true}); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("remove without cookie: status %d, want 401", resp.StatusCode)
 	}
 	if n := removes.Load(); n != 0 {
 		t.Errorf("Remove ran %d time(s) without the dashboard PIN gate", n)
 	}
-	c := login(t, ts, "1234")
+	c := login(t, ts, testParentPIN)
 	if resp, _ := post(t, ts.URL+"/api/admin/remove", map[string]any{"deleteData": true}, c); resp.StatusCode != http.StatusOK {
 		t.Errorf("remove with cookie: status %d, want 200", resp.StatusCode)
 	}

@@ -45,7 +45,7 @@ var spellAlex = []Word{
 	{"food", "I eat ___ when hungry."}, {"game", "We played a ___."},
 	{"time", "What ___ is it?"}, {"walk", "We ___ to the park."},
 	{"sing", "Birds ___ in the morning."}, {"smile", "I ___ when happy."},
-	{"water", "Drink ___ every day."}, {"under", "The cat is the bed."},
+	{"water", "Drink ___ every day."}, {"under", "The cat is ___ the bed."},
 	{"night", "Stars shine at ___."}, {"small", "A mouse is ___."},
 	{"school", "We learn at ___."}, {"garden", "Flowers grow in the ___."},
 	{"light", "Turn on the ___."},

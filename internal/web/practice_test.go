@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -22,11 +24,12 @@ import (
 // practiceApp wires the real budget and practice services over one temp
 // store, plus one registered kid, into an app server.
 type practiceApp struct {
-	app   *Server
-	kid   core.KidID
-	bud   *budget.Budget
-	pr    *practice.Service
-	clips string
+	app    *Server
+	kid    core.KidID
+	bud    *budget.Budget
+	pr     *practice.Service
+	clips  string
+	cookie *http.Cookie // Alex's unlock session, sent by e.doJSON and e.doGet
 }
 
 func newPracticeApp(t *testing.T) *practiceApp {
@@ -61,14 +64,48 @@ func newPracticeApp(t *testing.T) *practiceApp {
 		t.Fatalf("CreateKid: %v", err)
 	}
 	app := NewApp("test", Deps{Budget: bud, Practice: pr})
-	return &practiceApp{app: app, kid: kid, bud: bud, pr: pr, clips: clips}
+	e := &practiceApp{app: app, kid: kid, bud: bud, pr: pr, clips: clips}
+	e.cookie = unlockKid(t, app, kid, "0000")
+	return e
+}
+
+// unlockKid signs a kid in with their PIN, the way the shelf and the
+// practice home do, and returns the session cookie.
+func unlockKid(t *testing.T, app *Server, kid core.KidID, pin string) *http.Cookie {
+	t.Helper()
+	b, _ := json.Marshal(map[string]string{"kid": string(kid), "pin": pin})
+	req := httptest.NewRequest(http.MethodPost, "/api/kid/unlock", bytes.NewReader(b))
+	req.Host = "localhost"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://localhost")
+	rec := httptest.NewRecorder()
+	app.Mux().ServeHTTP(rec, req)
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookie && c.Value != "" {
+			return c
+		}
+	}
+	t.Fatalf("unlock %s: status %d, no session cookie (%s)", kid, rec.Code, rec.Body.String())
+	return nil
+}
+
+// doJSON is the package doJSON signed in as Alex.
+func (e *practiceApp) doJSON(t *testing.T, method, path string, body any) (int, map[string]any) {
+	t.Helper()
+	return doJSON(t, e.app, method, path, body, e.cookie)
+}
+
+// doGet is the package doGet signed in as Alex.
+func (e *practiceApp) doGet(t *testing.T, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	return doGet(t, e.app, path, e.cookie)
 }
 
 // doJSON performs a request and returns the status code and decoded body.
 // Requests carry a localhost Host (the middleware's allowlist refuses the
 // default example.com Host) and, for state changing calls, a same-origin
 // Origin exactly like the app's pages send.
-func doJSON(t *testing.T, app *Server, method, path string, body any) (int, map[string]any) {
+func doJSON(t *testing.T, app *Server, method, path string, body any, cookies ...*http.Cookie) (int, map[string]any) {
 	t.Helper()
 	var rd io.Reader
 	if body != nil {
@@ -86,6 +123,9 @@ func doJSON(t *testing.T, app *Server, method, path string, body any) (int, map[
 	if method != http.MethodGet && method != http.MethodHead {
 		req.Header.Set("Origin", "http://localhost")
 	}
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	app.Mux().ServeHTTP(rec, req)
 	var out map[string]any
@@ -94,10 +134,13 @@ func doJSON(t *testing.T, app *Server, method, path string, body any) (int, map[
 }
 
 // doGet performs a plain GET and returns the recorder.
-func doGet(t *testing.T, app *Server, path string) *httptest.ResponseRecorder {
+func doGet(t *testing.T, app *Server, path string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.Host = "localhost"
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
 	rec := httptest.NewRecorder()
 	app.Mux().ServeHTTP(rec, req)
 	return rec
@@ -125,10 +168,16 @@ func TestMathRoundCreditsBudgetUpToCap(t *testing.T) {
 		t.Helper()
 		var results []map[string]any
 		var kinds []string
+		qs := make([]practice.Question, 10)
+		for i := range qs {
+			qs[i] = practice.Question{A: firstFact + i, B: 1, Op: "+"}
+		}
+		round := e.pr.OpenMathRound(kid, "add", qs)
 		for i := range 10 {
 			a, b := firstFact+i, 1
-			code, d := doJSON(t, e.app, http.MethodPost, "/api/practice/answer", map[string]any{
-				"kid": kid, "mode": "add", "a": a, "b": b, "op": "+", "given": a + b, "ms": 3000,
+			code, d := e.doJSON(t, http.MethodPost, "/api/practice/answer", map[string]any{
+				"kid": kid, "mode": "add", "round": round, "n": i,
+				"a": a, "b": b, "op": "+", "given": a + b, "ms": 3000,
 			})
 			if code != http.StatusOK || d["correct"] != true {
 				t.Fatalf("answer %d: code=%d correct=%v", i, code, d["correct"])
@@ -138,7 +187,7 @@ func TestMathRoundCreditsBudgetUpToCap(t *testing.T) {
 			}
 			results = append(results, map[string]any{"a": a, "b": b, "op": "+", "given": a + b, "ms": 3000})
 		}
-		code, d := doJSON(t, e.app, http.MethodPost, "/api/practice/round_result", map[string]any{
+		code, d := e.doJSON(t, http.MethodPost, "/api/practice/round_result", map[string]any{
 			"kid": kid, "mode": "add", "checkup": false, "results": results,
 		})
 		if code != http.StatusOK {
@@ -176,8 +225,10 @@ func TestMathRoundCreditsBudgetUpToCap(t *testing.T) {
 		t.Fatalf("balance after the cap grew %v, want it stopped at 3", got)
 	}
 	// past the cap a fast record still records, but pays nothing
-	code, d := doJSON(t, e.app, http.MethodPost, "/api/practice/answer", map[string]any{
-		"kid": kid, "mode": "add", "a": 50, "b": 1, "op": "+", "given": 51, "ms": 3000,
+	round := e.pr.OpenMathRound(kid, "add", []practice.Question{{A: 50, B: 1, Op: "+"}})
+	code, d := e.doJSON(t, http.MethodPost, "/api/practice/answer", map[string]any{
+		"kid": kid, "mode": "add", "round": round, "n": 0,
+		"a": 50, "b": 1, "op": "+", "given": 51, "ms": 3000,
 	})
 	if code != http.StatusOK || d["record"] != true {
 		t.Fatalf("capped answer: code=%d record=%v", code, d["record"])
@@ -217,7 +268,7 @@ func TestMathRoundCreditsBudgetUpToCap(t *testing.T) {
 		t.Fatalf("best round = %v, %v; want 3000ms", best, err)
 	}
 	// check-up rounds use the larger probe size
-	code, d = doJSON(t, e.app, http.MethodGet, "/api/practice/round?kid="+kid+"&mode=add&checkup=1", nil)
+	code, d = e.doJSON(t, http.MethodGet, "/api/practice/round?kid="+kid+"&mode=add&checkup=1", nil)
 	if code != http.StatusOK {
 		t.Fatalf("checkup round code = %d", code)
 	}
@@ -234,7 +285,7 @@ func TestSpellRoundWithAndWithoutClip(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(e.clips, "cat.wav"), clip, 0o644); err != nil {
 		t.Fatalf("write clip: %v", err)
 	}
-	rec := doGet(t, e.app, "/practice/audio/cat.wav")
+	rec := e.doGet(t, "/practice/audio/cat.wav")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET clip = %d, want 200", rec.Code)
 	}
@@ -245,22 +296,22 @@ func TestSpellRoundWithAndWithoutClip(t *testing.T) {
 		t.Error("clip body differs from the file")
 	}
 	// a known word without a clip answers 404 so the page falls back to speech
-	rec = doGet(t, e.app, "/practice/audio/dog.wav")
+	rec = e.doGet(t, "/practice/audio/dog.wav")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("GET missing clip = %d, want 404", rec.Code)
 	}
 	// a non-word and a non-clip URL answer 404 too
-	rec = doGet(t, e.app, "/practice/audio/nonsense.wav")
+	rec = e.doGet(t, "/practice/audio/nonsense.wav")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("GET unknown word = %d, want 404", rec.Code)
 	}
-	rec = doGet(t, e.app, "/practice/audio/cat")
+	rec = e.doGet(t, "/practice/audio/cat")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("GET non-wav = %d, want 404", rec.Code)
 	}
 
 	// a spelling round through the API
-	code, d := doJSON(t, e.app, http.MethodGet, "/api/practice/spell_round?kid="+kid, nil)
+	code, d := e.doJSON(t, http.MethodGet, "/api/practice/spell_round?kid="+kid, nil)
 	if code != http.StatusOK || d["ok"] != true {
 		t.Fatalf("spell round: code=%d ok=%v", code, d["ok"])
 	}
@@ -268,12 +319,13 @@ func TestSpellRoundWithAndWithoutClip(t *testing.T) {
 	if len(words) != 10 {
 		t.Fatalf("round words = %d, want 10", len(words))
 	}
+	round, _ := d["round"].(string)
 	used := make(map[string]bool, len(words))
-	for _, wv := range words {
+	for i, wv := range words {
 		w := wv.(string)
 		used[w] = true
-		code, d := doJSON(t, e.app, http.MethodPost, "/api/practice/spell_answer", map[string]any{
-			"kid": kid, "word": w, "given": w, "ms": 2500,
+		code, d := e.doJSON(t, http.MethodPost, "/api/practice/spell_answer", map[string]any{
+			"kid": kid, "round": round, "n": i, "word": w, "given": w, "ms": 2500,
 		})
 		if code != http.StatusOK || d["correct"] != true || d["record"] != true {
 			t.Fatalf("spell answer %q: code=%d correct=%v record=%v", w, code, d["correct"], d["record"])
@@ -298,9 +350,10 @@ func TestSpellRoundWithAndWithoutClip(t *testing.T) {
 			break
 		}
 	}
-	for _, w := range fresh {
-		code, d := doJSON(t, e.app, http.MethodPost, "/api/practice/spell_answer", map[string]any{
-			"kid": kid, "word": w, "given": w, "ms": 2500,
+	round = e.pr.OpenSpellRound(kid, fresh)
+	for i, w := range fresh {
+		code, d := e.doJSON(t, http.MethodPost, "/api/practice/spell_answer", map[string]any{
+			"kid": kid, "round": round, "n": i, "word": w, "given": w, "ms": 2500,
 		})
 		if code != http.StatusOK || d["correct"] != true {
 			t.Fatalf("spell answer %q: code=%d", w, code)
@@ -331,8 +384,9 @@ func TestSpellRoundWithAndWithoutClip(t *testing.T) {
 	if freshWord == "" {
 		t.Fatal("spelling bank exhausted")
 	}
-	code, d = doJSON(t, e.app, http.MethodPost, "/api/practice/spell_answer", map[string]any{
-		"kid": kid, "word": freshWord, "given": freshWord, "ms": 2500,
+	round = e.pr.OpenSpellRound(kid, []string{freshWord})
+	code, d = e.doJSON(t, http.MethodPost, "/api/practice/spell_answer", map[string]any{
+		"kid": kid, "round": round, "n": 0, "word": freshWord, "given": freshWord, "ms": 2500,
 	})
 	if code != http.StatusOK || d["record"] != true {
 		t.Fatalf("capped spell answer: code=%d record=%v", code, d["record"])
@@ -351,7 +405,7 @@ func TestSpellRoundWithAndWithoutClip(t *testing.T) {
 	if st.Recorded != 31 {
 		t.Errorf("recorded words = %d, want 31", st.Recorded)
 	}
-	code, d = doJSON(t, e.app, http.MethodGet, "/api/practice/spell_status?kid="+kid, nil)
+	code, d = e.doJSON(t, http.MethodGet, "/api/practice/spell_status?kid="+kid, nil)
 	if code != http.StatusOK || num(d["recorded"]) != 31 || num(d["cap"]) != 3 {
 		t.Fatalf("spell status = %v", d)
 	}
@@ -363,7 +417,7 @@ func TestSpellRoundWithAndWithoutClip(t *testing.T) {
 func TestBossWinAwardsOnce(t *testing.T) {
 	e := newPracticeApp(t)
 	kid := string(e.kid)
-	code, d := doJSON(t, e.app, http.MethodGet, "/api/practice/boss_status?kid="+kid, nil)
+	code, d := e.doJSON(t, http.MethodGet, "/api/practice/boss_status?kid="+kid, nil)
 	if code != http.StatusOK {
 		t.Fatalf("boss status code = %d", code)
 	}
@@ -374,7 +428,7 @@ func TestBossWinAwardsOnce(t *testing.T) {
 	if num(d["hp"]) != 8 || num(d["hearts"]) != 8 {
 		t.Fatalf("fresh fight hp/hearts = %v/%v, want 8/8", d["hp"], d["hearts"])
 	}
-	code, d = doJSON(t, e.app, http.MethodGet, "/api/practice/boss_round?kid="+kid, nil)
+	code, d = e.doJSON(t, http.MethodGet, "/api/practice/boss_round?kid="+kid, nil)
 	if code != http.StatusOK || d["ok"] != true {
 		t.Fatalf("boss round: code=%d ok=%v", code, d["ok"])
 	}
@@ -382,12 +436,13 @@ func TestBossWinAwardsOnce(t *testing.T) {
 	if len(questions) != 8 {
 		t.Fatalf("boss questions = %d, want 8", len(questions))
 	}
+	round, _ := d["round"].(string)
 	for i, qv := range questions {
 		q := qv.(map[string]any)
 		a, b := int(num(q["a"])), int(num(q["b"]))
 		op := q["op"].(string)
-		code, d := doJSON(t, e.app, http.MethodPost, "/api/practice/boss_answer", map[string]any{
-			"kid": kid, "a": a, "b": b, "op": op, "given": practice.AnswerOf(a, b, op),
+		code, d := e.doJSON(t, http.MethodPost, "/api/practice/boss_answer", map[string]any{
+			"kid": kid, "round": round, "n": i, "a": a, "b": b, "op": op, "given": practice.AnswerOf(a, b, op),
 		})
 		if code != http.StatusOK || d["correct"] != true {
 			t.Fatalf("boss answer %d: code=%d correct=%v", i, code, d["correct"])
@@ -420,7 +475,7 @@ func TestBossWinAwardsOnce(t *testing.T) {
 	if len(bs.Defeated) != 1 || bs.Defeated[0] != "adder" {
 		t.Fatalf("defeated = %v, want [adder]", bs.Defeated)
 	}
-	code, d = doJSON(t, e.app, http.MethodGet, "/api/practice/boss_status?kid="+kid, nil)
+	code, d = e.doJSON(t, http.MethodGet, "/api/practice/boss_status?kid="+kid, nil)
 	next, _ := d["boss"].(map[string]any)
 	if next == nil || next["id"] != "minustaur" {
 		t.Fatalf("next boss = %v, want minustaur", next)
@@ -428,19 +483,28 @@ func TestBossWinAwardsOnce(t *testing.T) {
 	if defeated, _ := d["defeated"].([]any); len(defeated) != 1 {
 		t.Fatalf("defeated list = %d, want 1", len(defeated))
 	}
-	// a stale answer from the finished fight can never pay again
-	code, d = doJSON(t, e.app, http.MethodPost, "/api/practice/boss_answer", map[string]any{
-		"kid": kid, "a": 10, "b": 4, "op": "+", "given": 14,
+	// a repeat of the winning answer (a double tap) replays the win and
+	// pays nothing more; an answer from an old page is refused
+	q7 := questions[7].(map[string]any)
+	a7, b7, op7 := int(num(q7["a"])), int(num(q7["b"])), q7["op"].(string)
+	code, d = e.doJSON(t, http.MethodPost, "/api/practice/boss_answer", map[string]any{
+		"kid": kid, "round": round, "n": 7, "a": a7, "b": b7, "op": op7, "given": practice.AnswerOf(a7, b7, op7),
 	})
-	if code != http.StatusConflict {
-		t.Fatalf("stale answer code = %d, want 409", code)
+	if msg, _ := d["msg"].(map[string]any); code != http.StatusOK || msg == nil || msg["victory"] != true {
+		t.Fatalf("repeat of the winning answer: code=%d body=%v", code, d)
+	}
+	code, d = e.doJSON(t, http.MethodPost, "/api/practice/boss_answer", map[string]any{
+		"kid": kid, "round": "", "n": 0, "a": a7, "b": b7, "op": op7, "given": practice.AnswerOf(a7, b7, op7),
+	})
+	if code != http.StatusConflict || d["err"] != "stale" {
+		t.Fatalf("answer from an old page: code=%d body=%v, want 409 stale", code, d)
 	}
 	aw, err = e.pr.Awards(kid)
 	if err != nil {
 		t.Fatalf("awards: %v", err)
 	}
 	if aw.Coins != 3 {
-		t.Fatalf("coins after stale answer = %d, want still 3", aw.Coins)
+		t.Fatalf("coins after the repeat and the stale answer = %d, want still 3", aw.Coins)
 	}
 }
 
@@ -452,7 +516,7 @@ func TestPracticeUnknownKid404(t *testing.T) {
 		"/api/practice/spell_status?kid=zzz", "/api/practice/spell_round?kid=zzz",
 		"/api/practice/boss_status?kid=zzz", "/api/practice/boss_round?kid=zzz",
 	} {
-		if rec := doGet(t, e.app, p); rec.Code != http.StatusNotFound {
+		if rec := e.doGet(t, p); rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d, want 404", p, rec.Code)
 		}
 	}
@@ -465,7 +529,7 @@ func TestPracticeUnknownKid404(t *testing.T) {
 		{"/api/practice/spell_answer", map[string]any{"kid": "zzz", "word": "cat", "given": "cat", "ms": 100}},
 		{"/api/practice/boss_answer", map[string]any{"kid": "zzz", "a": 1, "b": 1, "op": "+", "given": 2}},
 	} {
-		if code, _ := doJSON(t, e.app, http.MethodPost, tc.path, tc.body); code != http.StatusNotFound {
+		if code, _ := e.doJSON(t, http.MethodPost, tc.path, tc.body); code != http.StatusNotFound {
 			t.Errorf("POST %s = %d, want 404", tc.path, code)
 		}
 	}
@@ -474,12 +538,12 @@ func TestPracticeUnknownKid404(t *testing.T) {
 func TestPracticePagesRender(t *testing.T) {
 	e := newPracticeApp(t)
 	id := string(e.kid)
-	rec := doGet(t, e.app, "/practice")
+	rec := e.doGet(t, "/practice")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /practice = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Who's practicing?", "Alex", "video minutes", "Spelling"} {
+	for _, want := range []string{"Alex", "to watch", "🔢 Math", "🔤 Spelling", "Not you?"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("home page missing %q", want)
 		}
@@ -488,17 +552,24 @@ func TestPracticePagesRender(t *testing.T) {
 		t.Error("home page missing the viewport meta tag")
 	}
 	for _, p := range []string{"/math", "/checkup", "/spell", "/boss"} {
-		rec := doGet(t, e.app, "/practice/"+id+p)
+		rec := e.doGet(t, "/practice/"+id+p)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET /practice/%s%s = %d, want 200", id, p, rec.Code)
 		}
-		if b := rec.Body.String(); !strings.Contains(b, `<meta name="viewport"`) {
+		b := rec.Body.String()
+		if !strings.Contains(b, `<meta name="viewport"`) {
 			t.Errorf("page %s missing the viewport meta tag", p)
+		}
+		// scripts carry a content hash, so a new build is never run
+		// with yesterday's cached script
+		if !strings.Contains(b, `/static/practice/common.js?v=`) {
+			t.Errorf("page %s loads common.js without a version", p)
 		}
 	}
 	// static assets are embedded and served
-	for _, p := range []string{"/static/practice/practice.css", "/static/practice/math.js", "/static/practice/spell.js", "/static/practice/boss.js"} {
-		if rec := doGet(t, e.app, p); rec.Code != http.StatusOK {
+	for _, p := range []string{"/static/practice/practice.css", "/static/practice/common.js",
+		"/static/practice/home.js", "/static/practice/math.js", "/static/practice/spell.js", "/static/practice/boss.js"} {
+		if rec := e.doGet(t, p); rec.Code != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", p, rec.Code)
 		}
 	}
@@ -521,23 +592,27 @@ func TestFormatMinutesKidWords(t *testing.T) {
 	}
 }
 
-// TestPracticeHomeKidWords: the practice home explains "today 0/3" and
-// "0/10 toward the next minute" in kid words, and never prints a float.
+// TestPracticeHomeKidWords: the practice home says what there is to watch
+// and what is earned today in kid words, and never prints a float.
 func TestPracticeHomeKidWords(t *testing.T) {
 	e := newPracticeApp(t)
-	body := doGet(t, e.app, "/practice").Body.String()
-	for _, want := range []string{"minutes you can earn", "coins earn you 1 more minute of watching"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("home page missing kid-words %q", want)
-		}
+	body := e.doGet(t, "/practice").Body.String()
+	if !regexp.MustCompile(`You have \d+ minutes? to watch\.`).MatchString(body) {
+		t.Error("home page missing kid-words \"You have N minutes to watch.\"")
 	}
-	if i := strings.Index(body, "video minutes"); i > 0 {
+	if !strings.Contains(body, "Earned today: 0 of 3 minutes") {
+		t.Error("home page missing kid-words \"Earned today: 0 of 3 minutes\"")
+	}
+	if i := strings.Index(body, "minutes to watch"); i > 0 {
 		seg := body[max(0, i-20):i]
 		if strings.Contains(seg, ".") {
 			t.Errorf("home page shows a decimal minutes value before %q", body[i-20:i])
 		}
 	}
-	for _, banned := range []string{"median", " toward the next minute", "\u2014"} {
+	if got := minutesWord(1); got != "1 minute" {
+		t.Errorf("minutesWord(1) = %q, want 1 minute", got)
+	}
+	for _, banned := range []string{"median", " toward the next minute", "\u2014", "\u2013"} {
 		if strings.Contains(body, banned) {
 			t.Errorf("home page still says %q", banned)
 		}
@@ -550,7 +625,7 @@ func TestPracticeRoundHasStopButton(t *testing.T) {
 	e := newPracticeApp(t)
 	id := string(e.kid)
 	for _, p := range []string{"/practice/" + id + "/math", "/practice/" + id + "/spell", "/practice/" + id + "/boss"} {
-		body := doGet(t, e.app, p).Body.String()
+		body := e.doGet(t, p).Body.String()
 		if !strings.Contains(body, "Stop this round") && !strings.Contains(body, "Stop the fight") {
 			t.Errorf("page %s missing a stop control", p)
 		}
@@ -565,6 +640,236 @@ func TestPracticeNotRunning503(t *testing.T) {
 	} {
 		if rec := doGet(t, app, p); rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("GET %s = %d, want 503", p, rec.Code)
+		}
+	}
+}
+
+// TestPracticeAnswerNamesTheQuestionOnScreen: a double Enter used to send
+// the old answer for the next question (never shown) and grade it. Now an
+// answer names its round and position: a repeat replays the first outcome,
+// an answer for a question not yet on screen is refused, and nothing is
+// recorded for it.
+func TestPracticeAnswerNamesTheQuestionOnScreen(t *testing.T) {
+	e := newPracticeApp(t)
+	kid := string(e.kid)
+	code, d := e.doJSON(t, http.MethodGet, "/api/practice/round?kid="+kid+"&mode=add", nil)
+	round, _ := d["round"].(string)
+	qs, _ := d["questions"].([]any)
+	if code != http.StatusOK || round == "" || len(qs) < 3 {
+		t.Fatalf("round: code=%d round=%q questions=%d", code, round, len(qs))
+	}
+	q := func(i int) (int, int, string) {
+		m := qs[i].(map[string]any)
+		return int(num(m["a"])), int(num(m["b"])), m["op"].(string)
+	}
+	answer := func(n, a, b int, op string, given int, round string) (int, map[string]any) {
+		return e.doJSON(t, http.MethodPost, "/api/practice/answer", map[string]any{
+			"kid": kid, "mode": "add", "round": round, "n": n,
+			"a": a, "b": b, "op": op, "given": given, "ms": 3000,
+		})
+	}
+	a0, b0, op0 := q(0)
+	given := practice.AnswerOf(a0, b0, op0)
+	if code, d := answer(0, a0, b0, op0, given, round); code != http.StatusOK || d["correct"] != true {
+		t.Fatalf("answer 0: code=%d body=%v", code, d)
+	}
+	if code, d := answer(0, a0, b0, op0, given, round); code != http.StatusOK || d["correct"] != true {
+		t.Fatalf("repeat of answer 0: code=%d body=%v", code, d)
+	}
+	a2, b2, op2 := q(2)
+	for _, tc := range []struct {
+		name  string
+		n     int
+		round string
+	}{
+		{"a question two ahead", 2, round},
+		{"no round (an old page)", 2, ""},
+	} {
+		code, d := answer(tc.n, a2, b2, op2, given, tc.round)
+		if code != http.StatusConflict || d["err"] != "stale" {
+			t.Errorf("%s: code=%d body=%v, want 409 stale", tc.name, code, d)
+		}
+	}
+	facts, err := e.pr.FactsFor(kid, "add")
+	if err != nil {
+		t.Fatalf("facts: %v", err)
+	}
+	asked := 0
+	for _, f := range facts {
+		asked += f.Asked
+	}
+	if asked != 1 {
+		t.Fatalf("facts asked %d times in total, want 1 (the repeat and the refused answers count nothing)", asked)
+	}
+}
+
+// TestBossDoubleSendHealsOnce: a double tap on a miss used to heal the boss
+// twice (and, on a lethal boss, cost two hearts).
+func TestBossDoubleSendHealsOnce(t *testing.T) {
+	e := newPracticeApp(t)
+	kid := string(e.kid)
+	_, d := e.doJSON(t, http.MethodGet, "/api/practice/boss_round?kid="+kid, nil)
+	round, _ := d["round"].(string)
+	qs, _ := d["questions"].([]any)
+	if round == "" || len(qs) != 8 {
+		t.Fatalf("boss round = %v", d)
+	}
+	send := func(n int, right bool) (int, map[string]any) {
+		m := qs[n].(map[string]any)
+		a, b, op := int(num(m["a"])), int(num(m["b"])), m["op"].(string)
+		given := practice.AnswerOf(a, b, op)
+		if !right {
+			given = -1
+		}
+		return e.doJSON(t, http.MethodPost, "/api/practice/boss_answer", map[string]any{
+			"kid": kid, "round": round, "n": n, "a": a, "b": b, "op": op, "given": given,
+		})
+	}
+	send(0, true)
+	send(1, true) // boss at 6
+	for range 2 {
+		code, d := send(2, false)
+		msg, _ := d["msg"].(map[string]any)
+		if code != http.StatusOK || msg == nil || num(msg["hp"]) != 7 {
+			t.Fatalf("miss: code=%d body=%v, want hp 7", code, d)
+		}
+	}
+	bs, err := e.pr.BossState(kid)
+	if err != nil || bs.HP["adder"] != 7 {
+		t.Fatalf("boss hp = %d (%v), want 7: one miss heals once", bs.HP["adder"], err)
+	}
+}
+
+// TestPracticeRequiresSignedInKid: practice opens only for the kid signed in
+// with their PIN; a sibling's card, pages and APIs stay shut.
+func TestPracticeRequiresSignedInKid(t *testing.T) {
+	e := newPracticeApp(t)
+	bea, err := e.bud.CreateKid(context.Background(), "Bea", "1111")
+	if err != nil {
+		t.Fatalf("CreateKid: %v", err)
+	}
+	other := string(bea)
+	// Alex's session sees only Alex.
+	body := e.doGet(t, "/practice").Body.String()
+	if !strings.Contains(body, "Alex") || strings.Contains(body, "Bea") {
+		t.Errorf("Alex's practice home should show only Alex")
+	}
+	// Bea's things are shut for Alex.
+	if code, d := e.doJSON(t, http.MethodGet, "/api/practice/status?kid="+other, nil); code != http.StatusUnauthorized || d["err"] != "signin" {
+		t.Errorf("Bea's status as Alex: code=%d body=%v, want 401 signin", code, d)
+	}
+	if code, _ := e.doJSON(t, http.MethodPost, "/api/practice/answer", map[string]any{
+		"kid": other, "mode": "add", "round": "", "n": 0, "a": 1, "b": 1, "op": "+", "given": 2, "ms": 100,
+	}); code != http.StatusUnauthorized {
+		t.Errorf("answer as Bea from Alex's session = %d, want 401", code)
+	}
+	for _, p := range []string{"/math", "/checkup", "/spell", "/boss"} {
+		rec := e.doGet(t, "/practice/"+other+p)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/practice" {
+			t.Errorf("Bea's %s page as Alex = %d to %q, want 303 to /practice", p, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+	// Nobody signed in: the kids to pick from and a PIN box, no cards.
+	rec := doGet(t, e.app, "/practice")
+	body = rec.Body.String()
+	for _, want := range []string{"Who's practicing?", `data-kid="` + string(e.kid) + `"`, `data-kid="` + other + `"`, `id="pinbox"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("signed-out home missing %q", want)
+		}
+	}
+	if strings.Contains(body, "/practice/"+other+"/math") {
+		t.Error("signed-out home links straight into a kid's practice")
+	}
+	if code, _ := doJSON(t, e.app, http.MethodGet, "/api/practice/status?kid="+string(e.kid), nil); code != http.StatusUnauthorized {
+		t.Errorf("status with no session = %d, want 401", code)
+	}
+	// Bea's own PIN opens Bea's practice.
+	beaCookie := unlockKid(t, e.app, bea, "1111")
+	if code, _ := doJSON(t, e.app, http.MethodGet, "/api/practice/status?kid="+other, nil, beaCookie); code != http.StatusOK {
+		t.Errorf("Bea's status as Bea = %d, want 200", code)
+	}
+}
+
+// TestKidAnimalSameOnShelfAndPractice: a kid is the same animal in the
+// shelf's /api/kids list and on the practice pages (Ava was a fox on the
+// shelf and a tiger in practice), for every kid in the household.
+func TestKidAnimalSameOnShelfAndPractice(t *testing.T) {
+	e := newPracticeApp(t)
+	for _, name := range []string{"Bea", "Cy"} {
+		if _, err := e.bud.AddKid(context.Background(), name, "1111"); err != nil {
+			t.Fatalf("AddKid %s: %v", name, err)
+		}
+	}
+	code, out := doJSON(t, e.app, http.MethodGet, "/api/kids", nil)
+	if code != http.StatusOK {
+		t.Fatalf("/api/kids = %d", code)
+	}
+	list, _ := out["kids"].([]any)
+	if len(list) != 3 {
+		t.Fatalf("/api/kids kids = %v, want 3", out["kids"])
+	}
+	animals := map[string]string{} // name to animal
+	seen := map[string]bool{}
+	for _, v := range list {
+		k, _ := v.(map[string]any)
+		name, _ := k["name"].(string)
+		animal, _ := k["animal"].(string)
+		if animal == "" || seen[animal] {
+			t.Fatalf("/api/kids gives %s animal %q; want one of their own", name, animal)
+		}
+		seen[animal] = true
+		animals[name] = animal
+	}
+	// The signed-out practice home lists every kid with their animal.
+	home := doGet(t, e.app, "/practice").Body.String()
+	for name, animal := range animals {
+		if !strings.Contains(home, ">"+animal+" "+name+"</button>") {
+			t.Errorf("practice home shows %s without the shelf's animal %s", name, animal)
+		}
+	}
+	// Alex's own pages show Alex's shelf animal.
+	want := animals["Alex"] + " Alex"
+	for _, path := range []string{"/practice", "/practice/" + string(e.kid) + "/math", "/practice/" + string(e.kid) + "/spell"} {
+		if body := e.doGet(t, path).Body.String(); !strings.Contains(body, "<h1>"+want) {
+			t.Errorf("%s should show %q, the shelf's animal", path, want)
+		}
+	}
+}
+
+// TestPracticeHomeNoKids: with nobody set up, the home says what to do.
+func TestPracticeHomeNoKids(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "empty.sqlite"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(budget.Migrations...); err != nil {
+		t.Fatalf("budget migrate: %v", err)
+	}
+	if err := st.Migrate(practice.Migrations()...); err != nil {
+		t.Fatalf("practice migrate: %v", err)
+	}
+	bud, err := budget.New(st)
+	if err != nil {
+		t.Fatalf("budget.New: %v", err)
+	}
+	app := NewApp("test", Deps{Budget: bud, Practice: practice.New(st.DB(), bud, practice.Options{})})
+	rec := doGet(t, app, "/practice")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "No kids are set up yet") {
+		t.Fatalf("empty home: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestPracticeNoDashes: kid screens and their code use no em or en dashes.
+func TestPracticeNoDashes(t *testing.T) {
+	entries, err := fs.ReadDir(practiceStatic, "static/practice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, en := range entries {
+		b, _ := practiceStatic.ReadFile("static/practice/" + en.Name())
+		if strings.ContainsAny(string(b), "\u2013\u2014") {
+			t.Errorf("%s contains an em or en dash", en.Name())
 		}
 	}
 }

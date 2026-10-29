@@ -6,13 +6,22 @@
 <title>Parent page · kids-shelf</title>
 <link rel="stylesheet" href="/admin/static/admin.css">
 </head>
-<body>
+<body class="locked" data-reopen="__KS_REOPEN__">
 <header class="topbar">
   <h1>🛡️ kids-shelf · parent page</h1>
-  <nav><a class="navlink" href="/admin/content">➕ Add videos &amp; libraries</a></nav>
+  <nav class="topnav">
+    <a class="navlink" href="/">← Kids' shelf</a>
+    <a class="navlink whenopen" href="/admin/content">➕ Add videos &amp; libraries</a>
+    <button type="button" class="navlink whenopen" id="lock">🔒 Lock this page</button>
+  </nav>
 </header>
+<main id="main">
 <section class="card problems" id="sec-problems">
-  <p class="problems-item" id="helpersproblem"></p>
+  <div id="helpers" class="hidden">
+    <p class="problems-item">Some parts of kids-shelf did not start, so some things will not work.</p>
+    <p class="note" id="helpersproblem"></p>
+    <p class="note">Quit kids-shelf (at the bottom of this page) and open it again from __KS_REOPEN__. If this message comes back, install kids-shelf again.</p>
+  </div>
   <div class="firewall" id="firewall">
     <p class="firewall-note">Tablets and phones can't reach kids-shelf yet.</p>
     <button class="btn add" id="fw-allow">Let tablets in</button>
@@ -20,20 +29,10 @@
   </div>
 </section>
 <p class="statusline" id="statusline"></p>
-<div class="msg" id="msg"></div>
-<section class="card hidden" id="sec-pinprompt">
-  <h2>🔒 Parent-page PIN</h2>
-  <p class="note">Set a parent-page PIN so the kids cannot change settings.</p>
-  <form id="pinpromptform" class="inlineform">
-    <input id="pinprompt" placeholder="4 digits" inputmode="numeric" maxlength="4" autocomplete="off">
-    <button type="submit" class="btn add">Set PIN</button>
-  </form>
-</section>
-
 <section class="card" id="sec-address">
   <h2>📱 Address for other devices</h2>
   <p class="addr" id="addr"></p>
-  <img id="qr" alt="QR code with the address on it" class="qr">
+  <img id="qr" alt="QR code with the address on it" class="qr hidden">
   <p class="note">Type this address on phones and tablets, or scan the code.</p>
 </section>
 
@@ -41,22 +40,25 @@
 <section class="card" id="sec-kids">
   <h2>👶 Kids</h2>
   <div id="kids" class="kids"></div>
+  <p class="note" id="kidsnote">Minutes a day starts tomorrow. To change today, use Give and Take away. Saved minutes are left over from earlier days or earned in practice.</p>
   <form id="addkid" class="addkid">
-    <input id="newname" placeholder="Kid's name" maxlength="40" autocomplete="off">
-    <input id="newpin" placeholder="PIN" inputmode="numeric" maxlength="4" autocomplete="off">
+    <input id="newname" placeholder="Kid's name" maxlength="40" autocomplete="off" aria-label="Kid's name">
+    <input id="newpin" type="password" placeholder="PIN (4 digits)" inputmode="numeric" maxlength="4" autocomplete="new-password" aria-label="PIN for the new kid, 4 digits">
     <button type="submit" class="btn add">Add kid</button>
   </form>
 </section>
 
 <section class="card" id="sec-minutes">
-  <h2>⏱ Minutes <label class="switch" title="Metering on or off for the whole house">
-    <input type="checkbox" id="budgetswitch"> budgets on
-  </label></h2>
-  <h3 class="subhead">Default minutes per day</h3>
+  <h2>⏱ Minutes</h2>
+  <label class="switch" title="Count each kid's minutes for the whole house">
+    <input type="checkbox" id="budgetswitch"> <span id="budgetlabel">Limit minutes: on</span>
+  </label>
+  <h3 class="subhead"><label for="defaultmin">Minutes a day for each kid</label></h3>
   <form id="defaultform" class="inlineform">
     <input type="number" id="defaultmin" min="0" step="1" inputmode="decimal">
     <button class="btn">Save</button>
   </form>
+  <p class="note">Every kid gets this, unless you changed the Minutes a day box on their card. It starts tomorrow.</p>
   <h3 class="subhead">Watch log</h3>
   <div class="scroll">
     <table id="watchlog">
@@ -64,6 +66,7 @@
       <tbody></tbody>
     </table>
   </div>
+  <div class="rowbtns"><button type="button" id="logmore" class="btn hidden">Show more</button></div>
   <p class="note">Cost is an estimate for one full watch. Minutes are charged as the video plays.</p>
 </section>
 
@@ -83,27 +86,25 @@
   <div class="settings">
     <div class="setrow">
       <label for="grownup">Grown-up watch-together PIN: watching with it is free</label>
+      <p class="note" id="grownupstate"></p>
       <div class="rowbtns">
-        <input id="grownup" placeholder="4 digits" inputmode="numeric" maxlength="4" autocomplete="off">
-        <button id="grownup-save" class="btn">Save</button>
-        <button id="grownup-clear" class="btn danger">Clear</button>
+        <input id="grownup" type="password" placeholder="4 digits" inputmode="numeric" maxlength="4" autocomplete="new-password">
+        <button id="grownup-save" class="btn">Save PIN</button>
+        <button id="grownup-clear" class="btn danger hidden">Turn off</button>
       </div>
     </div>
     <div class="setrow">
-      <label for="dashpin">Parent-page PIN: locks this page (off by default)</label>
+      <label for="dashpin">Parent-page PIN: locks this page, always on</label>
       <div class="rowbtns">
-        <input id="dashpin" placeholder="4 digits" inputmode="numeric" maxlength="4" autocomplete="off">
-        <button id="dashpin-save" class="btn">Save</button>
-        <button id="dashpin-clear" class="btn danger">Clear</button>
+        <input id="dashpin" type="password" placeholder="new 4 digits" inputmode="numeric" maxlength="4" autocomplete="new-password">
+        <button id="dashpin-save" class="btn">Change PIN</button>
       </div>
+      <p class="note">The kids can see the Grown-ups link, so this page always needs a PIN.</p>
     </div>
-    <div class="setrow">
-      <label for="counter">Practice earnings go to this counter</label>
-      <div class="rowbtns">
-        <input id="counter" maxlength="32" placeholder="video" autocomplete="off">
-        <button id="counter-save" class="btn">Save</button>
-      </div>
-      <p class="note">The default is "video": math and spelling practice score video minutes.</p>
+    <div class="setrow hidden" id="counterrow">
+      <p class="setlabel">Practice</p>
+      <p class="note">Math and spelling practice does not earn video minutes right now.</p>
+      <div class="rowbtns"><button id="counter-video" class="btn">Make practice earn video minutes</button></div>
     </div>
     <div class="setrow">
       <label class="switch" title="iPads, iPhones and Macs using Safari cannot play every file format, so those files are converted after they appear">
@@ -139,31 +140,58 @@
 
 <section class="card" id="sec-remove">
   <h2>🗑️ Remove kids-shelf from this computer</h2>
-  <p class="note">kids-shelf stops, and the program is deleted. Videos and settings are kept, unless you choose to delete them too. The confirmation shows you the two folders either way.</p>
+  <p class="note">kids-shelf stops, and the program is deleted. Videos and settings are kept, unless you choose to delete them too. The confirmation shows you the folders either way. Folders of your own videos that you added are never touched.</p>
   <label class="switch" title="Also delete the videos and the settings, not just the program">
     <input type="checkbox" id="removedata"> also delete videos and settings
   </label>
   <button id="remove" class="btn danger big">Remove kids-shelf…</button>
 </section>
+</main>
+
+<div class="msg hidden" id="msg" role="status" aria-live="polite">
+  <span id="msgtext"></span>
+  <button type="button" id="msgclose" class="msgclose" aria-label="Close this message">✕</button>
+</div>
 
 <div class="overlay hidden" id="pinoverlay">
-  <div class="overlay-box">
-    <h2>🔒 Parent PIN</h2>
-    <p class="note">This page is locked. Enter the parent PIN from Settings.</p>
-    <input id="pinval" placeholder="PIN" inputmode="numeric" maxlength="4" autocomplete="off">
-    <div class="rowbtns center"><button id="pinok" class="btn">Unlock</button></div>
-    <p id="pinerr" class="err hidden"></p>
+  <div class="overlay-box" role="dialog" aria-modal="true" aria-labelledby="pintitle">
+    <h2 id="pintitle">🔒 Parent PIN</h2>
+    <p class="note">This page is for grown-ups. Enter the PIN you chose for this page.</p>
+    <input id="pinval" type="password" placeholder="PIN" inputmode="numeric" maxlength="4" autocomplete="off" aria-label="Parent PIN">
+    <p id="pinerr" class="err hidden" role="alert"></p>
+    <div class="rowbtns center"><button id="pinok" class="btn add">Unlock</button></div>
+    <div class="rowbtns center gap"><a class="btn linkbtn" href="/">Back to the kids' shelf</a></div>
+    <p><button type="button" class="textbtn" id="forgot" aria-expanded="false" aria-controls="forgothelp">Forgot the PIN?</button></p>
+    <div id="forgothelp" class="hidden">
+      <p class="note">You can reset it on the computer kids-shelf runs on: open the parent page there.</p>
+      <div class="rowbtns center hidden" id="resetrow"><button type="button" id="pinreset" class="btn danger">Reset the parent PIN</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="setupoverlay">
+  <div class="overlay-box" role="dialog" aria-modal="true" aria-labelledby="setuptitle">
+    <h2 id="setuptitle">🔒 Make a parent PIN</h2>
+    <p class="note">The kids can see the Grown-ups link, so this page needs a PIN that only grown-ups know. Pick 4 digits.</p>
+    <form id="setupform" class="setupform">
+      <label for="setuppin">PIN</label>
+      <input id="setuppin" type="password" placeholder="4 digits" inputmode="numeric" maxlength="4" autocomplete="new-password">
+      <label for="setuppin2">The same PIN again</label>
+      <input id="setuppin2" type="password" placeholder="4 digits" inputmode="numeric" maxlength="4" autocomplete="new-password">
+      <p id="setuperr" class="err hidden" role="alert"></p>
+      <div class="rowbtns center"><button type="submit" id="setupok" class="btn add">Save PIN</button></div>
+    </form>
+    <div class="rowbtns center gap"><a class="btn linkbtn" href="/">Back to the kids' shelf</a></div>
   </div>
 </div>
 
 <div class="overlay hidden" id="stopped">
-  <div class="overlay-box">
-    <h2>kids-shelf has stopped.</h2>
-    <p>Open it again from the desktop icon.</p>
+  <div class="overlay-box" role="dialog" aria-modal="true" aria-labelledby="stoppedtitle">
+    <h2 id="stoppedtitle">kids-shelf has stopped.</h2>
+    <p id="stoppedtext">Open it again from __KS_REOPEN__.</p>
+    <div class="rowbtns center gap" id="stoppedrow"><button type="button" id="stoppedclose" class="btn">Close this message</button></div>
   </div>
 </div>
-
-<div id="menu" class="menu hidden"></div>
 
 <script src="/admin/static/admin.js"></script>
 </body>

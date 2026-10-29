@@ -11,9 +11,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edementhon/kids-shelf/internal/disk"
 	"github.com/edementhon/kids-shelf/internal/jobs"
@@ -44,8 +47,9 @@ func librariesOriginTestServer(t *testing.T, deps Deps) *httptest.Server {
 }
 
 // librariesKiwixManager builds a real kiwix.Manager on a temp store, ready
-// for test rows to be inserted into the installed table.
-func librariesKiwixManager(t *testing.T) (*kiwix.Manager, *store.Store) {
+// for test rows to be inserted into the installed table, and returns its
+// library directory too (where seedInstalledRow puts the ZIM files).
+func librariesKiwixManager(t *testing.T) (*kiwix.Manager, *store.Store, string) {
 	t.Helper()
 	s, err := store.Open(filepath.Join(t.TempDir(), "libraries.sqlite"))
 	if err != nil {
@@ -56,26 +60,52 @@ func librariesKiwixManager(t *testing.T) (*kiwix.Manager, *store.Store) {
 	if err != nil {
 		t.Fatalf("jobs.New: %v", err)
 	}
-	km, err := kiwix.NewManager(s, q, disk.NewReservations(q), filepath.Join(t.TempDir(), "libraries"))
+	lib := filepath.Join(t.TempDir(), "libraries")
+	km, err := kiwix.NewManager(s, q, disk.NewReservations(q), lib)
 	if err != nil {
 		t.Fatalf("kiwix.NewManager: %v", err)
 	}
-	return km, s
+	return km, s, lib
 }
 
 // seedInstalledRow inserts one installed row, the same shape install()
-// writes (see internal/kiwix/library.go).
-func seedInstalledRow(t *testing.T, s *store.Store, id, name, title, language, file string) {
+// writes (see internal/kiwix/library.go), and puts its file in lib. An
+// empty lib leaves the file missing (a drive that is not plugged in).
+func seedInstalledRow(t *testing.T, s *store.Store, lib, id, name, title, language, file string) {
 	t.Helper()
 	if _, err := s.DB().Exec(`INSERT INTO installed (id, name, title, language, file, size, installed_at)
 		VALUES (?, ?, ?, ?, ?, 1, '2026-10-26T12:00:00Z')`, id, name, title, language, file); err != nil {
 		t.Fatalf("seed installed row: %v", err)
 	}
+	if lib != "" {
+		if err := os.WriteFile(filepath.Join(lib, file), []byte("zim"), 0o644); err != nil {
+			t.Fatalf("seed installed file: %v", err)
+		}
+	}
 }
 
 func librariesTestGet(t *testing.T, ts *httptest.Server, path string) (int, []byte, http.Header) {
 	t.Helper()
-	resp, err := http.Get(ts.URL + path)
+	return librariesTestGetAccept(t, ts, path, "")
+}
+
+// browserAccept is the Accept header Chromium sends when it opens a page
+// (the tab or a frame); no Sec-Fetch-* on plain http over the LAN.
+const browserAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+
+// librariesTestGetAccept is librariesTestGet with an Accept header and
+// without following redirects, so a redirect itself can be checked.
+func librariesTestGetAccept(t *testing.T, ts *httptest.Server, path, accept string) (int, []byte, http.Header) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
@@ -243,7 +273,7 @@ func TestKiwixOnlyOnTheLibrariesOrigin(t *testing.T) {
 // configured, /api/libraries reports its full base URL built from the
 // request's own host (which the kid page prefixes book URLs with).
 func TestAPILibrariesAddsLibrariesURL(t *testing.T) {
-	km, store := librariesKiwixManager(t)
+	km, store, lib := librariesKiwixManager(t)
 	// Viewer URLs are filled only while the backend is up (the backend-down
 	// contract is pinned by TestAPILibrariesBackendDownStillListsBooks), so
 	// this test runs a live one; the icon feed is best-effort.
@@ -284,7 +314,7 @@ func TestAPILibrariesAddsLibrariesURL(t *testing.T) {
 
 	// Book URLs stay relative to the libraries origin; the page prefixes
 	// them with libraries_url.
-	seedInstalledRow(t, store, "urn:uuid:book", "book_en", "Book", "eng", "book_en.zim")
+	seedInstalledRow(t, store, lib, "urn:uuid:book", "book_en", "Book", "eng", "book_en.zim")
 	_, urls := read()
 	if len(urls) != 1 || urls[0] != "/kiwix/viewer#book_en" {
 		t.Errorf("books = %v, want one relative viewer URL", urls)
@@ -296,7 +326,7 @@ func TestAPILibrariesAddsLibrariesURL(t *testing.T) {
 // (http://[::1]:8071) and parseable, exactly what the kid page's frontend
 // feeds to new URL().
 func TestAPILibrariesURLBracketsIPv6Host(t *testing.T) {
-	km, _ := librariesKiwixManager(t)
+	km, _, _ := librariesKiwixManager(t)
 	ts := librariesTestServer(t, Deps{Kiwix: km, LibrariesPort: 8071})
 
 	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/libraries", nil)
@@ -336,11 +366,11 @@ func TestAPILibrariesBooksWithIcons(t *testing.T) {
 	}))
 	defer feed.Close()
 
-	km, s := librariesKiwixManager(t)
-	seedInstalledRow(t, s, "urn:uuid:ab7c8918-9940-f83d-9a14-7f64b4f55636",
+	km, s, lib := librariesKiwixManager(t)
+	seedInstalledRow(t, s, lib, "urn:uuid:ab7c8918-9940-f83d-9a14-7f64b4f55636",
 		"ja.stackoverflow.com_mul_all", "スタック・オーバーフロー", "eng,jpn",
 		"ja.stackoverflow.com_mul_all_2026-10.zim")
-	seedInstalledRow(t, s, "urn:uuid:not-in-the-feed", "unknown_book_en", "Something Else", "eng",
+	seedInstalledRow(t, s, lib, "urn:uuid:not-in-the-feed", "unknown_book_en", "Something Else", "eng",
 		"unknown_book_en_2026-01.zim")
 
 	ts := librariesTestServer(t, Deps{Kiwix: km, KiwixServer: stubKiwixBackend{feed.URL}})
@@ -390,7 +420,7 @@ func TestAPILibrariesBooksWithIcons(t *testing.T) {
 }
 
 func TestAPILibrariesEmptyBookArray(t *testing.T) {
-	km, _ := librariesKiwixManager(t)
+	km, _, _ := librariesKiwixManager(t)
 	ts := librariesTestServer(t, Deps{Kiwix: km, KiwixServer: stubKiwixBackend{""}})
 	code, body, _ := librariesTestGet(t, ts, "/api/libraries")
 	if code != http.StatusOK {
@@ -417,8 +447,8 @@ func TestAPILibrariesEmptyBookArray(t *testing.T) {
 func TestAPILibrariesBackendDownStillListsBooks(t *testing.T) {
 	for _, name := range []string{"nil", "empty"} {
 		t.Run(name, func(t *testing.T) {
-			km, s := librariesKiwixManager(t)
-			seedInstalledRow(t, s, "urn:uuid:book-1", "wikipedia_en_100", "Wikipedia", "eng",
+			km, s, lib := librariesKiwixManager(t)
+			seedInstalledRow(t, s, lib, "urn:uuid:book-1", "wikipedia_en_100", "Wikipedia", "eng",
 				"wikipedia_en_100_maxi_2026-08.zim")
 			var deps Deps
 			if name == "empty" {
@@ -470,7 +500,7 @@ func TestAPILibrariesServiceDown503(t *testing.T) {
 }
 
 func TestLibrariesPageServes(t *testing.T) {
-	km, _ := librariesKiwixManager(t)
+	km, _, _ := librariesKiwixManager(t)
 	ts := librariesTestServer(t, Deps{Kiwix: km})
 
 	code, body, header := librariesTestGet(t, ts, "/libraries")
@@ -496,5 +526,308 @@ func TestLibrariesPageServes(t *testing.T) {
 	code, _, _ = librariesTestGet(t, ts, "/")
 	if code != http.StatusOK {
 		t.Errorf("GET / = %d, want 200", code)
+	}
+}
+
+// hrefsIn returns every href and action value in an HTML body.
+func hrefsIn(body []byte) []string {
+	var out []string
+	for _, m := range regexp.MustCompile(`(?i)(?:href|action)\s*=\s*"([^"]*)"`).FindAllSubmatch(body, -1) {
+		out = append(out, string(m[1]))
+	}
+	return out
+}
+
+// TestKiwixExternalPageHasNoOutboundLink: the "outside link" page is the
+// app's own, never kiwix-serve's (which shows the outside address as a
+// live link): it links nowhere but the app, names no outside address, and
+// offers one big "Back to the book" button.
+func TestKiwixExternalPageHasNoOutboundLink(t *testing.T) {
+	t.Setenv("KS_PUBLIC_PORT", "8070")
+	var backendHits int
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendHits++
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><body>External Link Detected <a href="https://example.com/x">https://example.com/x</a></body></html>`))
+	}))
+	defer backend.Close()
+	for _, up := range []bool{true, false} {
+		base := ""
+		if up {
+			base = backend.URL
+		}
+		ts := librariesOriginTestServer(t, Deps{KiwixServer: stubKiwixBackend{base}})
+		code, body, header := librariesTestGetAccept(t, ts, "/kiwix/catch/external?source=https%3A%2F%2Fexample.com%2Fx", browserAccept)
+		if code != http.StatusOK {
+			t.Fatalf("backend up=%v: status %d, want 200: %s", up, code, body)
+		}
+		if ct := header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+			t.Errorf("backend up=%v: Content-Type = %q, want text/html", up, ct)
+		}
+		if strings.Contains(string(body), "example.com") {
+			t.Errorf("backend up=%v: the page names the outside address:\n%s", up, body)
+		}
+		host := strings.Split(strings.TrimPrefix(ts.URL, "http://"), ":")[0]
+		hrefs := hrefsIn(body)
+		if len(hrefs) == 0 {
+			t.Errorf("backend up=%v: the page has no way back", up)
+		}
+		for _, h := range hrefs {
+			u, err := url.Parse(h)
+			if err != nil || (u.Host != "" && u.Hostname() != host) || (u.Scheme != "" && u.Scheme != "http" && u.Scheme != "https") {
+				t.Errorf("backend up=%v: link %q leaves the shelf", up, h)
+			}
+		}
+		if !strings.Contains(string(body), "Back to the book") {
+			t.Errorf("backend up=%v: no \"Back to the book\" button:\n%s", up, body)
+		}
+		if want := "http://" + host + ":8070/libraries"; !strings.Contains(string(body), `href="`+want+`"`) {
+			t.Errorf("backend up=%v: the button's link must fall back to %s:\n%s", up, want, body)
+		}
+	}
+	if backendHits != 0 {
+		t.Errorf("kiwix-serve answered the outside-link page %d times, want never", backendHits)
+	}
+}
+
+// TestKiwixDownPagesAreHTMLForBrowsers: when the libraries are down or a
+// library does not answer, a browser opening a page gets a kid page with
+// a big "Back to Libraries" button on the app origin, never raw JSON; an
+// API caller still gets the JSON error.
+func TestKiwixDownPagesAreHTMLForBrowsers(t *testing.T) {
+	t.Setenv("KS_PUBLIC_PORT", "8070")
+	dead := httptest.NewServer(http.NotFoundHandler())
+	dead.Close()
+	cases := []struct {
+		name string
+		deps Deps
+		code int
+		msg  string
+	}{
+		{"nil", Deps{}, http.StatusServiceUnavailable, msgLibrariesDown},
+		{"empty", Deps{KiwixServer: stubKiwixBackend{""}}, http.StatusServiceUnavailable, msgLibrariesDown},
+		{"refused", Deps{KiwixServer: stubKiwixBackend{dead.URL}}, http.StatusBadGateway, msgLibrariesUnreachable},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ts := librariesOriginTestServer(t, c.deps)
+			host := strings.Split(strings.TrimPrefix(ts.URL, "http://"), ":")[0]
+			code, body, header := librariesTestGetAccept(t, ts, "/kiwix/content/book/A", browserAccept)
+			if code != c.code {
+				t.Fatalf("status %d, want %d: %s", code, c.code, body)
+			}
+			if ct := header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+				t.Errorf("Content-Type = %q, want text/html for a page", ct)
+			}
+			if strings.Contains(string(body), `{"error"`) {
+				t.Errorf("the page shows raw JSON:\n%s", body)
+			}
+			if want := `href="http://` + host + `:8070/libraries" target="_top"`; !strings.Contains(string(body), want) {
+				t.Errorf("no %s home button (whole tab, even from the reader's frame):\n%s", want, body)
+			}
+			if !strings.Contains(string(body), "Back to Libraries") {
+				t.Errorf("no \"Back to Libraries\" button:\n%s", body)
+			}
+
+			code, body, header = librariesTestGetAccept(t, ts, "/kiwix/content/book/A", "*/*")
+			if code != c.code || !strings.HasPrefix(header.Get("Content-Type"), "application/json") {
+				t.Fatalf("API caller: status %d, Content-Type %q, want %d JSON", code, header.Get("Content-Type"), c.code)
+			}
+			if got := librariesTestError(t, body); got != c.msg {
+				t.Errorf("API caller error = %q, want %q", got, c.msg)
+			}
+		})
+	}
+}
+
+// TestLibrariesOriginFrontDoorRedirectsHome: /, /kiwix and /kiwix/ (where
+// kiwix-serve's own home buttons lead) on the libraries origin send the
+// browser to /libraries on the app origin, answered by the app itself, so
+// the way home works while kiwix-serve is down too.
+func TestLibrariesOriginFrontDoorRedirectsHome(t *testing.T) {
+	t.Setenv("KS_PUBLIC_PORT", "8070")
+	ts := librariesOriginTestServer(t, Deps{KiwixServer: stubKiwixBackend{""}})
+	host := strings.Split(strings.TrimPrefix(ts.URL, "http://"), ":")[0]
+	for _, p := range []string{"/", "/kiwix", "/kiwix/"} {
+		code, body, header := librariesTestGetAccept(t, ts, p, browserAccept)
+		if code != http.StatusFound {
+			t.Errorf("GET %s = %d, want 302: %s", p, code, body)
+			continue
+		}
+		if got, want := header.Get("Location"), "http://"+host+":8070/libraries"; got != want {
+			t.Errorf("GET %s Location = %q, want %q", p, got, want)
+		}
+	}
+	// Anything else is a kid "nothing here" page with the way back.
+	code, body, _ := librariesTestGetAccept(t, ts, "/nope", browserAccept)
+	if code != http.StatusNotFound || !strings.Contains(string(body), "Back to Libraries") {
+		t.Errorf("GET /nope = %d, want a 404 kid page with the way back:\n%s", code, body)
+	}
+}
+
+// TestKiwixReaderGetsKidsShelfBar: the reader page comes back with the
+// Kids Shelf bar (big Home and Libraries links to the app origin) and its
+// stylesheet; the backend was asked for an uncompressed page and the
+// changed page carries no kiwix validator.
+func TestKiwixReaderGetsKidsShelfBar(t *testing.T) {
+	t.Setenv("KS_PUBLIC_PORT", "8070")
+	var acceptEnc string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		acceptEnc = r.Header.Get("Accept-Encoding")
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Etag", `"kiwix-etag"`)
+		_, _ = w.Write([]byte("<!DOCTYPE html>\n<html><head><title>ZIM Viewer</title></head>\n<body style=\"margin:0\" onload=\"setupViewer()\"><div id=\"kiwixtoolbarwrapper\"></div></body></html>"))
+	}))
+	defer backend.Close()
+	ts := librariesOriginTestServer(t, Deps{KiwixServer: stubKiwixBackend{backend.URL}})
+	host := strings.Split(strings.TrimPrefix(ts.URL, "http://"), ":")[0]
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/kiwix/viewer", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /kiwix/viewer: %v", err)
+	}
+	var b bytes.Buffer
+	_, _ = b.ReadFrom(resp.Body)
+	resp.Body.Close()
+	body := b.String()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", resp.StatusCode, body)
+	}
+	if acceptEnc != "identity" {
+		t.Errorf("backend saw Accept-Encoding %q, want identity for a page the proxy changes", acceptEnc)
+	}
+	if resp.Header.Get("Etag") != "" {
+		t.Errorf("changed reader page kept kiwix's ETag %q", resp.Header.Get("Etag"))
+	}
+	for _, want := range []string{
+		`<link rel="stylesheet" href="/ks/viewer.css"></head>`,
+		`onload="setupViewer()"><nav class="ks-bar"`,
+		`href="http://` + host + `:8070/">`,
+		`href="http://` + host + `:8070/libraries">`,
+		`Home</a>`,
+		`Libraries</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("reader page missing %q:\n%s", want, body)
+		}
+	}
+	if resp.ContentLength != int64(len(body)) {
+		t.Errorf("Content-Length %d, body %d bytes", resp.ContentLength, len(body))
+	}
+}
+
+// TestKiwixBookPagesGetLinkGuard: HTML book pages get the outside-link
+// guard script; anything else under /kiwix/content/ (an image) and other
+// kiwix pages pass through byte for byte.
+func TestKiwixBookPagesGetLinkGuard(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/kiwix/content/book/A":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<html><head><title>A</title></head><body><a href="https://example.com">x</a></body></html>`))
+		default:
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("png </head> bytes"))
+		}
+	}))
+	defer backend.Close()
+	ts := librariesOriginTestServer(t, Deps{KiwixServer: stubKiwixBackend{backend.URL}})
+
+	_, body, _ := librariesTestGet(t, ts, "/kiwix/content/book/A")
+	if !strings.Contains(string(body), `<script src="/ks/content.js"></script></head>`) {
+		t.Errorf("book page without the link guard:\n%s", body)
+	}
+	for _, p := range []string{"/kiwix/content/book/I/a.png", "/kiwix/skin/x.png"} {
+		if _, body, _ := librariesTestGet(t, ts, p); string(body) != "png </head> bytes" {
+			t.Errorf("GET %s = %q, want the backend's bytes unchanged", p, body)
+		}
+	}
+	for _, p := range []string{"/ks/viewer.css", "/ks/content.js"} {
+		if code, _, _ := librariesTestGet(t, ts, p); code != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200", p, code)
+		}
+	}
+	if code, _, _ := librariesTestGet(t, ts, "/ks/libraries.js"); code != http.StatusNotFound {
+		t.Errorf("GET /ks/libraries.js = %d, want 404 (only the reader's own files)", code)
+	}
+}
+
+// TestKiwixProxyFrozenBackendShowsPage: a backend that never answers ends
+// in the kid's "did not answer" page once the response bound passes,
+// instead of a page that loads forever.
+func TestKiwixProxyFrozenBackendShowsPage(t *testing.T) {
+	release := make(chan struct{})
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer backend.Close()
+	defer close(release)
+	old := kiwixProxyTransport
+	kiwixProxyTransport = newKiwixTransport(200 * time.Millisecond)
+	t.Cleanup(func() { kiwixProxyTransport = old })
+
+	ts := librariesOriginTestServer(t, Deps{KiwixServer: stubKiwixBackend{backend.URL}})
+	start := time.Now()
+	code, body, _ := librariesTestGetAccept(t, ts, "/kiwix/content/book/A", browserAccept)
+	if code != http.StatusBadGateway || !strings.Contains(string(body), "Back to Libraries") {
+		t.Errorf("status %d, want 502 with the kid page:\n%s", code, body)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("the frozen backend held the page for %v", d)
+	}
+}
+
+// TestAPILibrariesMarksMissingFile: a book whose file is not on disk is
+// listed as missing with nothing to open, next to a book that opens.
+func TestAPILibrariesMarksMissingFile(t *testing.T) {
+	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join("..", "kiwix", "testdata", "entries_eng_20.xml"))
+	}))
+	defer feed.Close()
+	km, s, lib := librariesKiwixManager(t)
+	seedInstalledRow(t, s, lib, "urn:uuid:here", "a_here", "Here", "eng", "a_here.zim")
+	seedInstalledRow(t, s, "", "urn:uuid:gone", "b_gone", "Gone", "eng", "b_gone.zim")
+	ts := librariesTestServer(t, Deps{Kiwix: km, KiwixServer: stubKiwixBackend{feed.URL}})
+
+	_, body, _ := librariesTestGet(t, ts, "/api/libraries")
+	var out struct {
+		Available bool          `json:"available"`
+		Books     []libraryBook `json:"books"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decoding %q: %v", body, err)
+	}
+	if !out.Available || len(out.Books) != 2 {
+		t.Fatalf("available %v, %d books, want true and 2: %s", out.Available, len(out.Books), body)
+	}
+	if b := out.Books[0]; b.Missing || b.URL == "" {
+		t.Errorf("book on disk = %+v, want an openable tile", b)
+	}
+	if b := out.Books[1]; !b.Missing || b.URL != "" {
+		t.Errorf("book without its file = %+v, want missing and no URL", b)
+	}
+}
+
+// TestAPILibrariesUnansweringBackendUnavailable: a backend the supervisor
+// still lists but that answers nothing (frozen, gone) is reported as not
+// available, so the page does not offer tiles that cannot open.
+func TestAPILibrariesUnansweringBackendUnavailable(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	dead.Close()
+	km, s, lib := librariesKiwixManager(t)
+	seedInstalledRow(t, s, lib, "urn:uuid:here", "a_here", "Here", "eng", "a_here.zim")
+	ts := librariesTestServer(t, Deps{Kiwix: km, KiwixServer: stubKiwixBackend{dead.URL}})
+	_, body, _ := librariesTestGet(t, ts, "/api/libraries")
+	var out struct {
+		Available bool          `json:"available"`
+		Books     []libraryBook `json:"books"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decoding %q: %v", body, err)
+	}
+	if out.Available || len(out.Books) != 1 || out.Books[0].URL != "" {
+		t.Errorf("got %s, want available false and the book listed without a URL", body)
 	}
 }

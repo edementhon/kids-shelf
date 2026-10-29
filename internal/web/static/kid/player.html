@@ -3,45 +3,90 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Watch…</title>
+<title>Watch</title>
 <link rel="stylesheet" href="/static/kid/styles.css">
+<style>
+/* The stage holds the video AND every panel, so "Big screen" fullscreens
+   the stage and a panel can never hide behind a fullscreen video. */
+#stage { width: 100%; display: flex; flex-direction: column; align-items: center; }
+.pbar { width: 100%; max-width: 96vw; display: flex; align-items: center; gap: 12px; margin-bottom: 10px; position: relative; z-index: 960; transition: opacity .3s; }
+.pbar .spacer { flex: 1; }
+.pbar button { font-size: 1.2em; font-weight: 600; padding: 10px 22px; min-height: 48px; border-radius: 14px; border: none; background: #6c9; color: #111; cursor: pointer; }
+.pbar #fsBtn { background: #333; color: #eee; border: 1px solid #666; }
+.pbar .minutes-badge { position: static; }
+.pbar .minutes-badge:empty { display: none; }
+.pbar button, .pbar .minutes-badge { white-space: nowrap; }
+@media (max-width: 480px) {
+  .pbar { gap: 8px; }
+  .pbar button { font-size: 1em; padding: 8px 14px; }
+  .pbar .minutes-badge { font-size: .95em; padding: 6px 10px; }
+}
+body.player video { max-height: calc(100vh - 150px); }
+/* Our "Big screen" button replaces it; nofullscreen only greys it out. */
+video::-webkit-media-controls-fullscreen-button { display: none; }
+button.tap-overlay { border: 0; padding: 0; margin: 0; width: 100%; font: inherit; color: inherit; }
+#loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 940; }
+#loading span { background: rgba(0, 0, 0, .75); color: #eee; font-size: 1.6em; font-weight: 600; padding: 14px 30px; border-radius: 40px; }
+.chunk .btns { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+.chunk .btns .alt { background: #333; color: #eee; border: 1px solid #666; }
+#stage:fullscreen { background: #000; justify-content: center; }
+#stage:fullscreen video { width: 100vw; height: 100vh; max-width: none; max-height: none; border-radius: 0; }
+#stage:fullscreen .pbar { position: fixed; top: 0; left: 0; right: 0; max-width: none; margin: 0; padding: 12px 16px; background: linear-gradient(rgba(0, 0, 0, .65), transparent); }
+#stage:fullscreen .info { display: none; }
+#stage.idle .pbar { opacity: 0; }
+#stage.idle { cursor: none; }
+</style>
 </head>
 <body class="player">
-<video id="v" controls autoplay playsinline></video>
-<div class="tap-overlay" id="tap"><div class="tap-btn">▶ Tap to play</div></div>
-<div class="minutes-badge" id="mb"></div>
-<div class="info" id="info"></div>
-<div class="chunk" id="chunk" hidden>
-  <h2 id="chunkTitle">🕐 Time's up!</h2>
-  <p id="chunkMsg">You used all your minutes for today. Ask a grown-up to watch together :)</p>
-  <button type="button" id="chunkBtn">Close</button>
-</div>
-<div class="chunk" id="pending" hidden>
-  <h2>⏳ Still getting ready</h2>
-  <p>This one is still getting ready. kids-shelf is working on it. Pick another one for now.</p>
-  <button type="button" id="pendingBack">Back to the shelf</button>
-</div>
-<div class="chunk" id="playIssue" hidden>
-  <h2 id="playIssueTitle"></h2>
-  <p id="playIssueMsg"></p>
-  <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:8px">
-    <button type="button" id="playIssueNext" hidden>Next episode</button>
-    <button type="button" id="playIssueBack">Back to the shelf</button>
+<div id="stage">
+  <div class="pbar" id="bar">
+    <button type="button" id="shelfBtn">⬅ Shelf</button>
+    <span class="spacer"></span>
+    <div class="minutes-badge" id="mb"></div>
+    <button type="button" id="fsBtn">📺 Big screen</button>
   </div>
-</div>
-<div class="chunk" id="sound" hidden>
-  <h2 id="soundTitle"></h2>
-  <p>This video has no sound on this screen.</p>
-  <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:8px">
-    <button type="button" id="soundMute">Watch without sound</button>
-    <button type="button" id="soundBack">Pick another</button>
+  <video id="v" controls playsinline controlslist="nofullscreen noremoteplayback" disablepictureinpicture></video>
+  <div class="info" id="info"></div>
+  <div id="loading" hidden><span>⏳ Loading…</span></div>
+  <button type="button" class="tap-overlay" id="tap" hidden><span class="tap-btn">▶ Tap to play</span></button>
+  <div class="chunk" id="chunk" role="dialog" aria-labelledby="chunkTitle" hidden>
+    <h2 id="chunkTitle">🕐 Time's up!</h2>
+    <p id="chunkMsg"></p>
+    <div class="btns">
+      <button type="button" id="chunkBtn" data-shelf>Back to the shelf</button>
+    </div>
   </div>
-</div>
-<div class="chunk" id="end" hidden>
-  <h2>Done!</h2>
-  <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:8px">
-    <button type="button" id="endNext" hidden>Next episode</button>
-    <button type="button" id="endBack">Back to the shelf</button>
+  <div class="chunk" id="pending" role="dialog" aria-labelledby="pendingTitle" hidden>
+    <h2 id="pendingTitle">⏳ Still getting ready</h2>
+    <p>This one is not ready yet. Pick another one for now.</p>
+    <div class="btns">
+      <button type="button" id="pendingBack" data-shelf>Back to the shelf</button>
+    </div>
+  </div>
+  <div class="chunk" id="playIssue" role="dialog" aria-labelledby="playIssueTitle" hidden>
+    <h2 id="playIssueTitle"></h2>
+    <p id="playIssueMsg"></p>
+    <div class="btns">
+      <button type="button" id="playIssueNext" hidden>Next episode</button>
+      <button type="button" id="playIssueBack" data-shelf>Back to the shelf</button>
+      <button type="button" id="playIssueRetry" class="alt" hidden>Try again</button>
+    </div>
+  </div>
+  <div class="chunk" id="sound" role="dialog" aria-labelledby="soundTitle" hidden>
+    <h2 id="soundTitle"></h2>
+    <p>This video has no sound on this screen.</p>
+    <div class="btns">
+      <button type="button" id="soundMute">Watch without sound</button>
+      <button type="button" id="soundBack" data-shelf>Pick another</button>
+    </div>
+  </div>
+  <div class="chunk" id="end" role="dialog" aria-labelledby="endTitle" hidden>
+    <h2 id="endTitle">Done!</h2>
+    <div class="btns">
+      <button type="button" id="endNext" hidden>Next episode</button>
+      <button type="button" id="endAgain" class="alt">Watch again</button>
+      <button type="button" id="endBack" data-shelf>Back to the shelf</button>
+    </div>
   </div>
 </div>
 <script>window.KS = __KS_DATA__;</script>

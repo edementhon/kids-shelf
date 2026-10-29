@@ -29,18 +29,20 @@ type worker struct {
 	run     func(context.Context) error
 }
 
-// workersOf lists every background loop of the app. The scan and the
-// yt-dlp check run their first pass immediately, then on their interval.
-// An ImportOnly app runs the ingest worker alone: a one-off import waits on
-// the conversions it queued itself, and the scanner would queue the whole
-// library ahead of them.
+// workersOf lists every background loop of the app. The scan, the yt-dlp
+// check and the helpers check run their first pass immediately, then on
+// their interval. An ImportOnly app runs the ingest worker and the helpers
+// check alone: a one-off import waits on the conversions it queued itself,
+// and the scanner would queue the whole library ahead of them.
 func workersOf(a *App) []worker {
 	ingest := worker{name: "ingest", restart: minRestart, run: a.worker.Run}
+	helpers := worker{name: "helpers check", restart: helpersCheckInterval, run: a.checkHelpers}
 	if a.cfg.ImportOnly {
-		return []worker{ingest}
+		return []worker{ingest, helpers}
 	}
 	return []worker{
 		ingest,
+		helpers,
 		{name: "youtube", restart: minRestart, run: a.youtube.Run},
 		{name: "kiwix", restart: minRestart, run: a.kiwix.Work},
 		{name: "library scan", restart: scanInterval, run: a.scan},

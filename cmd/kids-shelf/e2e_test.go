@@ -409,16 +409,13 @@ func TestTrialCrashRollsBackWithDatabase(t *testing.T) {
 		return len(st.Rejected) == 1 && st.Rejected[0] == "v2.0.0" && st.Trying == nil
 	})
 
-	// The rollback restored the pre-update database: the failed version's
-	// wal/shm files are gone (nothing has reopened the database yet, so the
-	// snapshot is the only thing touching those paths).
+	// The rollback restored the pre-update database. Its stale wal/shm
+	// removal is pinned by internal/update's activate tests; here the
+	// previous version restarts at once and reopens the database (creating
+	// fresh wal/shm), so checking the files would race. A stale wal replayed
+	// onto the snapshot would bring back the failed version's row, which
+	// the row check below catches.
 	db := update.DatabasePath(dataDir)
-	if _, err := os.Stat(db + "-wal"); !os.IsNotExist(err) {
-		t.Errorf("db-wal exists after the rollback; the restore must remove it")
-	}
-	if _, err := os.Stat(db + "-shm"); !os.IsNotExist(err) {
-		t.Errorf("db-shm exists after the rollback; the restore must remove it")
-	}
 
 	// Per PLAN 1a the previous version keeps serving after the rollback.
 	waitHealthz(t, dataDir)

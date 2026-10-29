@@ -39,14 +39,15 @@ below show every one we saw on Windows 11 and macOS 15.
 
 1. In your Downloads folder, right-click the zip file and choose **Extract All**, then
    **Extract**. Open the new folder and double-click **kids-shelf**.
-2. Windows shows **"Windows protected your PC"**. Click **More info**, then **Run anyway**.
-   It names the publisher as **Unknown publisher**: that is expected for kids-shelf.
+2. Windows may show **"Windows protected your PC"**. If it does, click **More info**, then
+   **Run anyway**. It names the publisher as **Unknown publisher**: that is expected for
+   kids-shelf. (On some computers this screen does not appear at all.)
 
    ![Windows protected your PC](images/win-smartscreen.png)
    ![More info shows Run anyway](images/win-smartscreen-run-anyway.png)
 
-   Windows asks this once for each file you download. The updates kids-shelf installs by
-   itself do not ask.
+   Windows asks this at most once for each file you download. The updates kids-shelf installs
+   by itself do not ask.
 3. Windows Firewall asks **"Do you want to allow public and private networks to access this
    app?"** for **Kids Shelf** (Publisher: Unknown, again expected). Click **Allow**: it lets the
    tablets and phones on your home Wi-Fi reach kids-shelf.
@@ -69,14 +70,19 @@ the firewall rule, so click **Yes**.
 ![Windows asks about Windows PowerShell](images/win-uac-powershell.png)
 
 **Smart App Control.** Some Windows 11 computers have Smart App Control switched on (most
-computers that were upgraded from Windows 10 do not). It can stop kids-shelf with the message
-**"Smart App Control blocked an app that may be unsafe"**, and it offers no button to run it
-anyway. On our test machine it blocked kids-shelf once and then, after a restart, let the same
-file run, so we cannot tell you in advance what it will do. If you see that message, restart the
-computer and open kids-shelf once more. If it is still blocked, the only way past it is to turn
-Smart App Control off (Windows Security, App & browser control, Smart App Control settings).
-Windows may not let you turn it back on without resetting Windows, so decide whether that
-trade is worth it for your family.
+computers that were upgraded from Windows 10 do not). Windows then checks new programs it has
+not seen before, and kids-shelf is new to it:
+
+- Usually kids-shelf opens, but Windows holds back its video tools for a while. The parent page
+  then says **"Windows is checking kids-shelf's video tools"**, and videos appear once Windows is
+  done. On our test computer that took about 20 minutes and two restarts. Nothing is lost: the
+  videos you already added carry on by themselves.
+- Sometimes it stops kids-shelf itself with **"Smart App Control blocked an app that may be
+  unsafe"**, with no button to run it anyway. Restart the computer and open kids-shelf again.
+
+If it stays blocked, the only way past it is to turn Smart App Control off (Windows Security,
+App & browser control, Smart App Control settings). Windows may not let you turn it back on
+without resetting Windows, so decide whether that trade is worth it for your family.
 
 ## Mac (macOS 15)
 
@@ -121,12 +127,15 @@ If the tablets cannot connect, your firewall may be blocking kids-shelf's two po
 
 ## First things on the parent page
 
-1. **Lock the parent page.** Once you have added a kid, the parent page asks you to set a
-   parent-page PIN. Do it: without one, anyone who opens the parent page on a tablet can change
-   the minutes or remove kids-shelf.
+1. **Make a parent PIN.** The first time you open the parent page it asks for one: 4 digits
+   only you know. The kids can see the **Grown-ups** link, so the page always needs it. You can
+   change it later under Settings. **Forgot it?** Open the parent page on the computer kids-shelf
+   runs on (from its icon there), click **Forgot the PIN?**, then **Reset the parent PIN**. A
+   tablet or phone cannot reset it.
 2. **Add your kids**, each with their own PIN, and set their daily minutes.
 3. **Set a grown-up PIN** under Settings. "Watch together" (free watching with a grown-up)
-   asks for it; until you set one, it tells the kids to ask you.
+   asks for it; until you set one, it tells the kids to ask you. Watching together ends after two
+   hours, or when you press **End watching together**.
 
 ## Connect the tablets
 
@@ -142,8 +151,11 @@ On the parent page, click **Add videos & libraries**:
 - **Add from YouTube**: paste a link to a video, a playlist or a channel and click **Add**.
   kids-shelf downloads every video and keeps a copy, so the kids never see YouTube itself.
 - **Add a folder or NAS share**: type the path to a folder of videos and click **Add folder**.
-  kids-shelf looks through it right away, and every video it can read appears on the shelf
-  within minutes. **Scan now** picks up videos you add later.
+  Each folder inside it becomes a show (for example `Kids/Bluey/` and `Kids/Octonauts/`), and
+  videos lying loose in it form a show named after the folder. kids-shelf tells you how many
+  videos it found, and every one appears on the shelf within minutes. **Scan now** picks up
+  videos you add later. If a video could not be added, its row has **Try again**; if a folder's
+  drive or NAS is unplugged, its row says so.
 - **Offline libraries**: search for a library (Wikipedia, Vikidia, PhET science simulations and
   others) and click **Download**.
 
@@ -188,9 +200,11 @@ own video folders are never deleted, either way.
 
 On Windows you can also remove it from **Settings, Apps, Installed apps, kids-shelf, Uninstall**.
 Quit kids-shelf first (parent page, **Quit kids-shelf**); if it is still running, Windows says so
-and opens the parent page. During removal Windows asks once more for permission
-(**Windows PowerShell**, publisher Microsoft Windows) so kids-shelf can take its firewall rule
-away too; if you say No, kids-shelf is still removed and the rule simply stays.
+and opens the parent page.
+
+Either way, Windows asks once more for permission (**Windows PowerShell**, publisher Microsoft
+Windows) so kids-shelf can take its firewall rule away too; if you say No, kids-shelf is still
+removed and the rule simply stays.
 
 On a Mac, removing kids-shelf also takes its icon out of the Dock.
 

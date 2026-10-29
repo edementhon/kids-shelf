@@ -8,6 +8,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -330,10 +332,8 @@ func TestHWCommandLines(t *testing.T) {
 					t.Errorf("%s missing its option %q (%v)", c.vcodec, opt, args)
 				}
 			}
-			if c.bitrate {
-				if got := arg(args, "-b:v"); len(got) != 1 || got[0] != bitrateTarget(pl.Probe) {
-					t.Errorf("%s -b:v = %v, want [%s]", c.vcodec, got, bitrateTarget(pl.Probe))
-				}
+			if got := arg(args, "-b:v"); len(got) != 1 || got[0] != bitrateTarget(pl.Probe) {
+				t.Errorf("%s -b:v = %v, want [%s]", c.vcodec, got, bitrateTarget(pl.Probe))
 			}
 		}
 	}
@@ -359,6 +359,146 @@ func TestHWCommandLines(t *testing.T) {
 	}
 	if two[1].global[1] != "vaapi=hw:/dev/dri/renderD129" {
 		t.Errorf("second node candidate = %v, want its own device", two[1].global)
+	}
+}
+
+// TestHWRateControlBounds pins, per hardware encoder, the options that make
+// its rate control honor the 8M peak / 16M buffer caps the disk reservation
+// (reservedBytes) assumes, read against the pinned FFmpeg 9.0.2 source:
+//
+//   - h264_videotoolbox: -b:v sets AverageBitRate (videotoolboxenc.c
+//     1262-1281) and -maxrate sets DataRateLimits to maxrate/8 bytes per
+//     second, an error for H.264 when refused (1299-1342).
+//   - h264_nvenc: -rc vbr with -b:v sets averageBitRate (nvenc.c 1005-1006),
+//     maxBitRate from -maxrate (1011-1012) and vbvBufferSize from -bufsize
+//     (1051-1052). No -cq: a target quality zeroes the average and the VBV
+//     buffer (1119-1133).
+//   - h264_qsv: -b:v below -maxrate and no -global_quality selects VBR
+//     (qsvenc.c 627-647), whose parameters carry MaxKbps and BufferSizeInKB
+//     (892-917). Without -b:v (the encoder's default "b" is 0,
+//     qsvenc_h264.c 180-181) the selection fell to CQP (648-650), which sets
+//     no MaxKbps.
+//   - h264_amf: -rc vbr_peak (amfenc_h264.c 88) is peak-constrained VBR:
+//     TARGET_BITRATE from -b:v (384-385), PEAK_BITRATE from -maxrate
+//     (394-395), VBV_BUFFER_SIZE from -bufsize (344-345). -qp_i/-qp_p would
+//     select CQP (299-302).
+//   - h264_mf: -rate_control pc_vbr (mfenc.c 1456, set at 845-846) is Media
+//     Foundation's peak-constrained VBR, with MeanBitRate from -b:v
+//     (842-843), MaxBitRate from -maxrate (851-852), BufferSize from
+//     -bufsize (857-858).
+//   - h264_vaapi: -b:v below -maxrate, -bufsize set and no -global_quality
+//     tries VBR, then CBR (vaapi_encode.c 1337-1347); VBR runs at maxrate
+//     with a target percentage (1385-1396) under an HRD buffer of -bufsize
+//     (1435-1437), CBR at -b:v (1405-1411). -global_quality would try QVBR,
+//     then ICQ and CQP, which have no bitrate (1330-1336, table 1202-1206).
+//   - h264_v4l2m2m: the encoder only sets BITRATE from -b:v with frame
+//     level rate control (v4l2_m2m_enc.c 197-198) and never reads -maxrate,
+//     so its run carries -fs too (see TestHWOutputCapFallsBack).
+//
+// Every hardware run also carries -fs at the reservation: ffmpeg stops
+// writing packets once the file reaches it (fftools/ffmpeg_mux.c 212-216),
+// which bounds the encoders whose driver may ignore the request (Media
+// Foundation's ICodecAPI_SetValue results go unchecked, mfenc.c 842-858;
+// V4L2 has no peak control at all).
+func TestHWRateControlBounds(t *testing.T) {
+	pl := &payload{
+		VideoIndex: 0,
+		AudioIndex: 1,
+		Probe: &ProbeInfo{Duration: 600, Streams: []StreamInfo{
+			{CodecType: "video", CodecName: "hevc", PixFmt: "yuv420p10le", Width: 1920, Height: 1080},
+			{CodecType: "audio", CodecName: "aac", Channels: 2},
+		}},
+	}
+	target := bitrateTarget(pl.Probe)
+	if target != "5000000" {
+		t.Fatalf("1080p target = %s, want 5000000", target)
+	}
+	caps := []string{"-maxrate", "8M", "-bufsize", "16M"}
+	want := map[string][]string{
+		"h264_videotoolbox": {"-b:v", target, "-pix_fmt", "yuv420p", "-profile:v", "high"},
+		"h264_nvenc":        {"-b:v", target, "-preset", "p5", "-tune", "hq", "-rc", "vbr"},
+		"h264_qsv":          {"-b:v", target},
+		"h264_amf":          {"-b:v", target, "-quality", "balanced", "-rc", "vbr_peak"},
+		"h264_mf":           {"-b:v", target, "-hw_encoding", "1", "-profile:v", "high", "-rate_control", "pc_vbr"},
+		"h264_vaapi":        {"-b:v", target},
+		"h264_v4l2m2m":      {"-b:v", target, "-pix_fmt", "yuv420p"},
+	}
+	dir := &tools.Dir{FFmpeg: "/bin/ffmpeg", FFprobe: "/bin/ffprobe", FFmpegHW: "/bin/ffmpeg-hw"}
+	seen := map[string]bool{}
+	w := &Worker{}
+	for _, p := range []struct {
+		goos, goarch string
+		devices      []string
+	}{
+		{"darwin", "arm64", nil},
+		{"windows", "amd64", nil},
+		{"linux", "amd64", []string{"/dev/dri/renderD128"}},
+		{"linux", "arm64", []string{"/dev/video11"}},
+	} {
+		cands := hwCandidatesFor(p.goos, p.goarch, dir, p.devices)
+		for i := range cands {
+			c := &cands[i]
+			opts, ok := want[c.vcodec]
+			if !ok {
+				t.Errorf("%s/%s: %s has no pinned rate control", p.goos, p.goarch, c.vcodec)
+				continue
+			}
+			seen[c.vcodec] = true
+			wantArgs := append(append([]string{"-c:v", c.vcodec}, opts...), caps...)
+			if got := c.encArgs(pl.Probe); !slices.Equal(got, wantArgs) {
+				t.Errorf("%s encoder args = %v, want %v", c.vcodec, got, wantArgs)
+			}
+			args := w.fullEncodeArgs(c, pl, "out.mp4")
+			for _, bad := range []string{"-global_quality", "-cq", "-qp", "-qp_i", "-qp_p", "-crf", "-rc_mode", "-q:v"} {
+				if contains(args, bad) {
+					t.Errorf("%s carries %s, a quality mode without a bitrate bound: %v", c.vcodec, bad, args)
+				}
+			}
+			if got := arg(args, "-fs"); len(got) != 1 || got[0] != strconv.FormatUint(reservedBytes(pl), 10) {
+				t.Errorf("%s -fs = %v, want [%d]", c.vcodec, got, reservedBytes(pl))
+			}
+			if indexOf(args, "-fs") < indexOf(args, "-i") {
+				t.Errorf("%s: -fs must be an output option, after -i: %v", c.vcodec, args)
+			}
+		}
+	}
+	for vcodec := range want {
+		if !seen[vcodec] {
+			t.Errorf("%s is pinned but no platform lists it", vcodec)
+		}
+	}
+	// The software path keeps libx264's own VBV cap and no -fs.
+	if sw := w.fullEncodeArgs(nil, pl, "out.mp4"); contains(sw, "-fs") {
+		t.Errorf("software args carry -fs: %v", sw)
+	}
+}
+
+// TestHWOutputCapFallsBack: a hardware run whose output reaches the -fs
+// cap (ffmpeg stopped writing it, so it is cut short) counts as a hardware
+// failure and is redone with libx264 in the same stage; the job publishes
+// the software copy.
+func TestHWOutputCapFallsBack(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	h := newHarness(t, helpers)
+	hwForce(t, h, h.w.dir.FFmpeg)
+	fake := &hwFakeRun{fillCap: true}
+	h.w.runCmd = fake.run
+	id := h.enqueue(t, f.rotatedMP4)
+	h.runToEnd(t, id)
+	ep, j := suitImprove(t, h, id, f.rotatedMP4)
+	if j.State != jobs.StateDone {
+		t.Fatalf("state = %s (error %q), want done", j.State, j.Error)
+	}
+	assertGoodMP4(t, helpers, ep.File)
+	if fake.hwAttempts != 1 {
+		t.Errorf("hardware attempts = %d, want exactly 1", fake.hwAttempts)
+	}
+	if !fake.sawSoftware {
+		t.Error("the capped hardware output was kept; want the libx264 redo")
+	}
+	if h.w.hw.fails != 1 {
+		t.Errorf("consecutive failures = %d, want 1", h.w.hw.fails)
 	}
 }
 
@@ -415,6 +555,7 @@ type hwFakeRun struct {
 	sawSoftware bool
 	failEncode  bool // the hardware encode exits nonzero
 	dropFast    bool // the hardware "success" writes no faststart (verify rejects it)
+	fillCap     bool // the hardware "success" grows its output to the -fs cap
 }
 
 func (f *hwFakeRun) run(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -426,6 +567,22 @@ func (f *hwFakeRun) run(ctx context.Context, name string, args ...string) ([]byt
 		args = rewritePair(args, "-c:v", "h264_fake", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21")
 		if f.dropFast {
 			args = removePair(args, "-movflags", "+faststart")
+		}
+		if f.fillCap {
+			out, err := runCombined(ctx, name, args...)
+			if err != nil {
+				return out, err
+			}
+			if limit := arg(args, "-fs"); len(limit) == 1 {
+				n, perr := strconv.ParseInt(limit[0], 10, 64)
+				if perr != nil {
+					return out, perr
+				}
+				if terr := os.Truncate(args[len(args)-1], n); terr != nil {
+					return out, terr
+				}
+			}
+			return out, nil
 		}
 	}
 	if pair(args, "-c:v", "libx264") {

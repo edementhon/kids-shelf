@@ -18,8 +18,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edementhon/kids-shelf/internal/budget"
@@ -31,6 +33,7 @@ import (
 	"github.com/edementhon/kids-shelf/internal/library"
 	"github.com/edementhon/kids-shelf/internal/paths"
 	"github.com/edementhon/kids-shelf/internal/practice"
+	"github.com/edementhon/kids-shelf/internal/proc"
 	"github.com/edementhon/kids-shelf/internal/store"
 	"github.com/edementhon/kids-shelf/internal/tools"
 	"github.com/edementhon/kids-shelf/internal/update"
@@ -101,10 +104,12 @@ type App struct {
 
 	// helpersProblem is the plain-words message the parent page shows when
 	// the helper programs are missing, broken or could not be set up; ""
-	// means all is well. The background self-test (setupHelpers) replaces
-	// it once its probes finish, so reads take helpersMu.
+	// means all is well. The helpers check worker (checkHelpers) replaces
+	// it after each self-test, so reads take helpersMu.
 	helpersMu      sync.Mutex
 	helpersProblem string
+	// helpersChecked is set once the first self-test recorded its words.
+	helpersChecked atomic.Bool
 }
 
 // helperHoldID is the disk reservation id held while the bundled helpers
@@ -159,11 +164,8 @@ func (a *App) setupHelpers(ctx context.Context, dataDir string, reservations *di
 		a.setHelpersProblem("Video conversion is unavailable: the helper programs could not be set up.")
 		return nil
 	}
-	// The binaries are in place; probe each once in the background (every
-	// probe is timeout-bounded) and record the plain-words result.
-	go func() {
-		a.setHelpersProblem(summarizeSelfTest(helpers.SelfTest(ctx)))
-	}()
+	// The binaries are in place; the helpers check worker (checkHelpers)
+	// probes each once at Start, and again while any of them cannot start.
 	return helpers
 }
 
@@ -229,11 +231,20 @@ func (a *App) helpersProblemFunc() string {
 	return a.helpersProblem
 }
 
+// windowsCheckingWords is the parent page's problem while Windows refuses
+// to start the freshly extracted video helpers: Smart App Control checks a
+// new unsigned program for a while (in the Windows VM about 20 minutes and
+// two restarts) before it lets it run.
+const windowsCheckingWords = "Windows is checking kids-shelf's video tools. Videos will start appearing when it is done; this can take a few minutes or a restart of the computer."
+
 // summarizeSelfTest turns a self-test result into that message: nothing
 // when every helper works, otherwise what is unavailable and why. A
 // failing kiwix-serve only costs the libraries, so it is reported
-// separately from the video helpers (ffmpeg, ffprobe, qjs).
-func summarizeSelfTest(res tools.SelfTestResult) string {
+// separately from the video helpers (ffmpeg, ffprobe, qjs). On Windows,
+// when the system refused to start ffmpeg or ffprobe (refused, see
+// videoHelpersRefused), the video part is the plain Smart App Control
+// words instead; any other OS or cause keeps the generic words.
+func summarizeSelfTest(goos string, res tools.SelfTestResult, refused bool) string {
 	var video []string
 	if !res.FFmpeg {
 		video = append(video, "ffmpeg")
@@ -245,7 +256,10 @@ func summarizeSelfTest(res tools.SelfTestResult) string {
 		video = append(video, "qjs")
 	}
 	var msg string
-	if len(video) > 0 {
+	switch {
+	case goos == "windows" && refused && (!res.FFmpeg || !res.FFprobe):
+		msg = windowsCheckingWords
+	case len(video) > 0:
 		msg = "Video conversion is unavailable: " + joinNames(video) + " did not start."
 	}
 	if !res.KiwixServe {
@@ -255,6 +269,71 @@ func summarizeSelfTest(res tools.SelfTestResult) string {
 		msg += "Libraries are unavailable: kiwix-serve did not start."
 	}
 	return msg
+}
+
+// videoHelpersRefused reports whether ffmpeg or ffprobe, which failed the
+// self-test, exists but could not even start: the operating system refused
+// to run it (an Application Control or Smart App Control block on Windows),
+// as opposed to a missing binary or one that ran and failed.
+func videoHelpersRefused(ctx context.Context, d *tools.Dir, res tools.SelfTestResult) bool {
+	for _, h := range []struct {
+		ok  bool
+		bin string
+	}{{res.FFmpeg, d.FFmpeg}, {res.FFprobe, d.FFprobe}} {
+		if h.ok || h.bin == "" {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := proc.CommandContext(cctx, h.bin, "-version").Run()
+		cancel()
+		if ingest.HelperCannotStart(err) && !errors.Is(err, fs.ErrNotExist) {
+			return true
+		}
+	}
+	return false
+}
+
+// helpersCheckInterval is how often the helpers check re-runs while the
+// helpers have a problem or a job waits for them.
+const helpersCheckInterval = 2 * time.Minute
+
+// checkHelpers is one pass of the helpers check worker (workersOf): it runs
+// the helpers' self-test and records the parent page's problem words, and
+// once ffmpeg and ffprobe start it puts back in the queue every ingest job
+// that paused because they could not (ingest.MsgHelpersWaiting), so videos
+// added while Windows was still checking the tools continue on their own,
+// without a restart. The first pass always runs; later ones only while a
+// problem is shown or the ingest worker saw a helper that could not start.
+func (a *App) checkHelpers(ctx context.Context) error {
+	if a.helpers == nil {
+		return nil
+	}
+	if a.helpersChecked.Load() && a.helpersProblemFunc() == "" && !a.worker.HelpersBlocked() {
+		return nil
+	}
+	res := a.helpers.SelfTest(ctx)
+	if ctx.Err() != nil {
+		return nil
+	}
+	refused := false
+	if !res.FFmpeg || !res.FFprobe {
+		refused = videoHelpersRefused(ctx, a.helpers, res)
+	}
+	a.setHelpersProblem(summarizeSelfTest(runtime.GOOS, res, refused))
+	a.helpersChecked.Store(true)
+	if !res.FFmpeg || !res.FFprobe {
+		return nil
+	}
+	// Clear first: a job that pauses after the resume sets it again.
+	a.worker.ClearHelpersBlocked()
+	n, err := a.queue.ResumePaused(ingest.JobKind, ingest.MsgHelpersWaiting)
+	if err != nil {
+		return fmt.Errorf("resume videos waiting for the helpers: %w", err)
+	}
+	if n > 0 {
+		logf("the video tools start now; %d videos that waited for them continue", n)
+	}
+	return nil
 }
 
 // joinNames lists names in plain words for parents: "ffmpeg", "ffmpeg and
@@ -317,8 +396,8 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 		return fail("recover jobs", err)
 	}
 	if n, err := retryFailedAfterUpgrade(st, queue, cfg.Version); err != nil {
-		// A failed retry bookkeeping step never blocks startup: the
-		// videos simply stay failed until the next version.
+		// A failed retry never blocks startup: the requeue and its version
+		// marker roll back together, so the next launch tries again.
 		logf("retry failed videos after the update: %v", err)
 	} else if n > 0 {
 		logf("trying %d videos that failed before again, after the update to %s", n, cfg.Version)

@@ -15,7 +15,9 @@ import (
 // through the core.PlaybackImporter methods below.
 
 // KeepWatchingItem is one saved position above the "barely started" cutoff,
-// joined with its episode and show for the shelf row.
+// joined with its episode and show for the shelf row. Issue and Fix are the
+// episode's own fix status (see core.Episode), so the row can label it and
+// keep a pending one off the player.
 type KeepWatchingItem struct {
 	Kid         core.KidID
 	Episode     core.EpisodeID
@@ -26,6 +28,8 @@ type KeepWatchingItem struct {
 	Updated     time.Time
 	Show        core.ShowID
 	ShowName    string
+	Issue       string
+	Fix         string
 }
 
 // WatchEntry is one watch-log row, as the legacy portal recorded it: the
@@ -42,7 +46,7 @@ type WatchEntry struct {
 }
 
 // RecentItem is one household recent-list row, joined with its episode and
-// show.
+// show, with the episode's fix status like KeepWatchingItem.
 type RecentItem struct {
 	Episode  core.EpisodeID
 	At       time.Time
@@ -51,6 +55,8 @@ type RecentItem struct {
 	Thumb    string
 	Show     core.ShowID
 	ShowName string
+	Issue    string
+	Fix      string
 }
 
 // keepWatchingMin is the reserved cut-off copied from the legacy portal:
@@ -104,15 +110,17 @@ func (l *Library) Resume(ctx context.Context, kid core.KidID, ep core.EpisodeID)
 
 // KeepWatching returns a kid's saved positions above the 5-second "barely
 // started" cutoff, most recently updated first, as the legacy portal listed
-// them.
+// them. A position within keepWatchingMin seconds of the episode's end means
+// it was finished and is left out (an episode of unknown length stays).
 func (l *Library) KeepWatching(ctx context.Context, kid core.KidID) ([]KeepWatchingItem, error) {
 	rows, err := l.s.DB().QueryContext(ctx, `
-SELECT r.kid, r.episode, r.pos, r.updated, e.title, e.thumb, e.duration_sec, s.id, s.name
+SELECT r.kid, r.episode, r.pos, r.updated, e.title, e.thumb, e.duration_sec, s.id, s.name, e.issue, e.fix
 FROM resume r
 JOIN episodes e ON e.id = r.episode
 JOIN shows s ON s.id = e.show_id
 WHERE r.kid = ? AND r.pos > ?
-ORDER BY r.updated DESC`, kid, keepWatchingMin)
+  AND (e.duration_sec <= 0 OR r.pos < e.duration_sec - ?)
+ORDER BY r.updated DESC`, kid, keepWatchingMin, keepWatchingMin)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +131,7 @@ ORDER BY r.updated DESC`, kid, keepWatchingMin)
 		var it KeepWatchingItem
 		var updated string
 		if err := rows.Scan(&it.Kid, &it.Episode, &it.Pos, &updated, &it.Title,
-			&it.Thumb, &it.DurationSec, &it.Show, &it.ShowName); err != nil {
+			&it.Thumb, &it.DurationSec, &it.Show, &it.ShowName, &it.Issue, &it.Fix); err != nil {
 			return nil, err
 		}
 		t, err := parseTime(updated)
@@ -246,7 +254,7 @@ LIMIT 500`)
 // first, one per episode.
 func (l *Library) Recent(ctx context.Context) ([]RecentItem, error) {
 	rows, err := l.s.DB().QueryContext(ctx, `
-SELECT r.episode, r.at, r.kid, e.title, e.thumb, s.id, s.name
+SELECT r.episode, r.at, r.kid, e.title, e.thumb, s.id, s.name, e.issue, e.fix
 FROM recent r
 JOIN episodes e ON e.id = r.episode
 JOIN shows s ON s.id = e.show_id
@@ -261,7 +269,7 @@ LIMIT ?`, recentMax)
 	for rows.Next() {
 		var it RecentItem
 		var at string
-		if err := rows.Scan(&it.Episode, &at, &it.Kid, &it.Title, &it.Thumb, &it.Show, &it.ShowName); err != nil {
+		if err := rows.Scan(&it.Episode, &at, &it.Kid, &it.Title, &it.Thumb, &it.Show, &it.ShowName, &it.Issue, &it.Fix); err != nil {
 			return nil, err
 		}
 		t, err := parseTime(at)
@@ -282,7 +290,7 @@ LIMIT ?`, recentMax)
 // watches it. Stored times are fixed-width UTC, so MAX orders them.
 func (l *Library) RecentForKid(ctx context.Context, kid core.KidID) ([]RecentItem, error) {
 	rows, err := l.s.DB().QueryContext(ctx, `
-SELECT x.episode, MAX(x.at) AS last, e.title, e.thumb, s.id, s.name
+SELECT x.episode, MAX(x.at) AS last, e.title, e.thumb, s.id, s.name, e.issue, e.fix
 FROM (
 	SELECT episode, at FROM watch_log WHERE kid = ?
 	UNION ALL
@@ -302,7 +310,7 @@ LIMIT ?`, kid, kid, recentMax)
 	for rows.Next() {
 		it := RecentItem{Kid: kid}
 		var at string
-		if err := rows.Scan(&it.Episode, &at, &it.Title, &it.Thumb, &it.Show, &it.ShowName); err != nil {
+		if err := rows.Scan(&it.Episode, &at, &it.Title, &it.Thumb, &it.Show, &it.ShowName, &it.Issue, &it.Fix); err != nil {
 			return nil, err
 		}
 		t, err := parseTime(at)

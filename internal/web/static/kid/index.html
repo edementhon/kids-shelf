@@ -12,20 +12,40 @@
   <div class="tickets" id="tickets" hidden></div>
   <a class="grownups" href="/admin">Grown-ups</a>
 </header>
-<div class="sub" id="sub">Pick something to watch together</div>
+<!-- Shown once a kid is unlocked: the other places stay one tap away. -->
+<nav class="places" id="places" hidden>
+  <a class="place" href="/practice"><span class="emoji" aria-hidden="true">🔢</span> Math Practice</a>
+  <a class="place" href="/libraries"><span class="emoji" aria-hidden="true">📚</span> Libraries</a>
+</nav>
+<div class="sub" id="sub" hidden></div>
+<!-- Out of minutes: a grown-up can join straight from here, free. -->
+<button type="button" class="together-btn" id="together-btn" hidden><span aria-hidden="true">👪</span> Watch with a grown-up (free)</button>
 
-<!-- Who's watching? picker -->
+<!-- Who's watching? picker. The inner box centres itself with margin: auto,
+     so a short screen (a phone on its side) scrolls instead of cutting off. -->
 <div class="who" id="who" hidden>
-  <h2>Who's watching?</h2>
-  <div class="pick" id="pick"></div>
-  <div class="subp">Each kid has their own PIN. A grown-up can pick too, and then watching together is free!</div>
+  <div class="who-in">
+    <h2>Who's watching?</h2>
+    <div class="who-msg" id="who-msg" role="status" hidden>
+      <p id="who-msg-text"></p>
+      <button type="button" class="who-retry" id="who-retry" hidden>Try again</button>
+    </div>
+    <div class="pick" id="pick"></div>
+    <p class="subp" id="who-hint" hidden>Each kid has their own PIN. A grown-up can pick too, and then watching together is free!</p>
+    <div class="pick-places" id="pick-places" hidden>
+      <h3>Or play and read</h3>
+      <div class="pick" id="pick-more"></div>
+    </div>
+  </div>
 </div>
 
-<!-- PIN screen with a numeric keypad -->
+<!-- PIN screen with a numeric keypad. Back, Esc or a tap on the dimmed
+     backdrop return to Who's watching; a keyboard types digits too. -->
 <div class="overlay" id="pinscreen" hidden>
-  <div class="pin-box">
+  <div class="pin-box" id="pin-box" role="dialog" aria-modal="true" aria-labelledby="pin-title" tabindex="-1">
     <h2 id="pin-title">Enter your PIN</h2>
-    <p class="pin-msg" id="pin-msg">To spend your minutes, enter your PIN.</p>
+    <p class="pin-msg" id="pin-msg" aria-live="polite">To spend your minutes, enter your PIN.</p>
+    <p class="pin-wait" id="pin-wait" hidden></p>
     <div class="pin-dots" id="pin-dots"><span></span><span></span><span></span><span></span></div>
     <div class="keypad" id="keypad">
       <button type="button" data-d="1">1</button>
@@ -41,14 +61,15 @@
       <button type="button" data-d="0">0</button>
       <button type="button" data-d="ok" class="key-icon" id="pin-ok" disabled>OK</button>
     </div>
-    <p class="pin-alt">Grown-up? <button type="button" class="link" id="pin-grownup">Watch together (free)</button></p>
+    <button type="button" class="pin-back" id="pin-back"><span aria-hidden="true">←</span> Back</button>
+    <p class="pin-alt" id="pin-alt">Grown-up? <button type="button" class="link" id="pin-grownup">Watch together (free)</button></p>
   </div>
 </div>
 
 <div class="msg" id="msg" hidden></div>
-<input type="search" id="q" placeholder="Search…" autocomplete="off" hidden>
+<input type="search" id="q" placeholder="Search…" aria-label="Search" autocomplete="off" hidden>
 <div id="app"></div>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" hidden></div>
 <script src="/static/kid/app.js"></script>
 </body>
 </html>

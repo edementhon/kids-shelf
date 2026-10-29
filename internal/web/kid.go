@@ -72,8 +72,14 @@ func kidRoutes(s *Server) {
 // scripts cannot read it and other sites cannot send it.
 const sessionCookie = "ks_session"
 
-// sessionLifetime is how long an unlock lasts (the assignment's 12 h).
-const sessionLifetime = 12 * time.Hour
+// kidSessionLifetime is how long a kid's unlock lasts (the assignment's
+// 12 h); grownupSessionLifetime is the much shorter watch-together session,
+// which plays everything free and unmetered, so a device a grown-up walked
+// away from does not stay free for the rest of the day.
+const (
+	kidSessionLifetime     = 12 * time.Hour
+	grownupSessionLifetime = 2 * time.Hour
+)
 
 // kidSessions is the in-memory unlock ledger. server.go owns the Server
 // struct and cannot be edited, and the app runs exactly one Server per
@@ -136,14 +142,19 @@ func newSessionToken() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// startSession writes a new session and its cookie.
+// startSession writes a new session and its cookie, lasting the kid or the
+// grown-up session lifetime.
 func (s *Server) startSession(w http.ResponseWriter, sess kidSession) {
 	token, err := newSessionToken()
 	if err != nil {
 		writeError(w, 500, "Something went wrong. Try again.")
 		return
 	}
-	sess.expires = s.deps.Now().Add(sessionLifetime)
+	lifetime := kidSessionLifetime
+	if sess.grownup {
+		lifetime = grownupSessionLifetime
+	}
+	sess.expires = s.deps.Now().Add(lifetime)
 	kidSessions.put(token, sess)
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
@@ -152,7 +163,7 @@ func (s *Server) startSession(w http.ResponseWriter, sess kidSession) {
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 		Expires:  sess.expires,
-		MaxAge:   int(sessionLifetime.Seconds()),
+		MaxAge:   int(lifetime.Seconds()),
 	})
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -200,10 +211,11 @@ func (s *Server) requireLibrary(w http.ResponseWriter) bool {
 	return true
 }
 
-// requireBudget writes 503 when the budget service is not running.
+// requireBudget writes 503 when the budget service is not running yet (the
+// app is still starting).
 func (s *Server) requireBudget(w http.ResponseWriter) bool {
 	if s.deps.Budget == nil {
-		writeError(w, http.StatusServiceUnavailable, "The minutes budget isn't ready yet. Try again in a moment.")
+		writeError(w, http.StatusServiceUnavailable, "The shelf is still starting. Try again in a moment.")
 		return false
 	}
 	return true
@@ -569,7 +581,7 @@ func (s *Server) handleWatchTogether(w http.ResponseWriter, r *http.Request) {
 		if s.pinWrong(w, realmWatchTogether, s.clientIP(r), "") {
 			return
 		}
-		writeError(w, http.StatusUnauthorized, "That PIN didn't work. Ask a grown-up for help.")
+		writeError(w, http.StatusUnauthorized, "That PIN didn't work. Try again.")
 		return
 	}
 	pinThrottle.ok(realmWatchTogether, s.clientIP(r), "")
@@ -614,8 +626,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 // kidJSON and showJSON are the wire shapes of the catalog entries (the
 // library's own structs marshal with capital field names).
 type kidJSON struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Animal string `json:"animal"`
 }
 
 type showJSON struct {
@@ -654,7 +667,7 @@ func (s *Server) handleKids(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]kidJSON, 0, len(kids))
 	for _, k := range kids {
-		out = append(out, kidJSON{ID: string(k.ID), Name: k.Name})
+		out = append(out, kidJSON{ID: string(k.ID), Name: k.Name, Animal: k.Animal})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"kids": out})
 }
@@ -858,6 +871,8 @@ func (s *Server) handleKeepWatching(w http.ResponseWriter, r *http.Request) {
 			"duration": it.DurationSec,
 			"show":     string(it.Show),
 			"showName": it.ShowName,
+			"issue":    it.Issue,
+			"fix":      it.Fix,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
@@ -900,6 +915,8 @@ func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 			"thumb":    thumb,
 			"show":     string(it.Show),
 			"showName": it.ShowName,
+			"issue":    it.Issue,
+			"fix":      it.Fix,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
@@ -955,7 +972,8 @@ type consumeResponse struct {
 // at its show's bin rate (Library.BinRate) and charges budget.Consume,
 // clamped to budget.MaxConsumeSeconds per call. A grown-up session and a
 // free-bin episode never charge and never cut off, even at a zero or
-// negative balance.
+// negative balance. An episode still "Getting ready" (fix pending) does not
+// play, so a tick for it is refused before anything is charged.
 func (s *Server) handleConsume(w http.ResponseWriter, r *http.Request) {
 	sess, ok := s.requireSession(w, r)
 	if !ok {
@@ -980,7 +998,16 @@ func (s *Server) handleConsume(w http.ResponseWriter, r *http.Request) {
 	if !s.requireLibrary(w) {
 		return
 	}
-	rate, err := s.deps.Library.BinRate(r.Context(), core.EpisodeID(req.Episode))
+	rec, err := s.deps.Library.Episode(r.Context(), core.EpisodeID(req.Episode))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "We couldn't find that video.")
+		return
+	}
+	if rec.Fix == core.FixPending {
+		writeError(w, http.StatusConflict, msgGettingReady)
+		return
+	}
+	rate, err := s.deps.Library.BinRate(r.Context(), rec.ID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "We couldn't find that video.")
 		return
@@ -1027,7 +1054,10 @@ func (s *Server) handleConsume(w http.ResponseWriter, r *http.Request) {
 
 // handlePosition saves a kid's resume position (the player sends it on
 // pause, every 10 s and on pagehide). A grown-up session has no account to
-// save, so it is a no-op. A position of 0 clears the saved spot.
+// save, so it is a no-op. A position of 0 clears the saved spot, and so
+// does one within finishedWithin of the episode's end: the player sends 0
+// when an episode ends, and this keeps a finished episode out of Keep
+// watching even when a client sends the end position instead.
 func (s *Server) handlePosition(w http.ResponseWriter, r *http.Request) {
 	sess, ok := s.requireSession(w, r)
 	if !ok {
@@ -1052,13 +1082,22 @@ func (s *Server) handlePosition(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "That didn't look right. Try again.")
 		return
 	}
-	if err := s.deps.Library.SavePosition(r.Context(), sess.kid, core.EpisodeID(req.Episode), req.Pos); err != nil {
+	pos := req.Pos
+	if rec, err := s.deps.Library.Episode(r.Context(), core.EpisodeID(req.Episode)); err == nil &&
+		rec.DurationSec > 0 && pos >= float64(rec.DurationSec)-finishedWithin {
+		pos = 0
+	}
+	if err := s.deps.Library.SavePosition(r.Context(), sess.kid, core.EpisodeID(req.Episode), pos); err != nil {
 		log.Printf("kid: save position: %v", err)
 		writeError(w, 500, "Something went wrong. Try again.")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
+
+// finishedWithin is how close to the end (in seconds) a saved position
+// counts as having finished the episode.
+const finishedWithin = 5.0
 
 // handleResume returns the unlocked kid's saved position for one episode
 // (0 when none). The player restarts only positions above 5 seconds.

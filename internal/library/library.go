@@ -223,6 +223,22 @@ ALTER TABLE episodes ADD COLUMN fix TEXT NOT NULL DEFAULT ''
 	CHECK (fix IN ('', 'pending', 'failed'));
 `,
 	},
+	{
+		Owner:   "library",
+		Version: 7,
+		SQL: `
+-- The scanner remembers, per enqueued file, the ingest job it started and
+-- the file's size and modification time (Unix nanoseconds) when it last
+-- looked. A file whose job failed is enqueued again once its size or
+-- modification time changes, so a parent who replaces a broken file sees
+-- it reach the shelf after the next scan. Rows from before this migration
+-- have no job ('') and no fingerprint (-1): the scanner records the
+-- fingerprint on its next pass and treats a later change the same way.
+ALTER TABLE scan_enqueued ADD COLUMN job TEXT NOT NULL DEFAULT '';
+ALTER TABLE scan_enqueued ADD COLUMN size INTEGER NOT NULL DEFAULT -1;
+ALTER TABLE scan_enqueued ADD COLUMN mtime INTEGER NOT NULL DEFAULT -1;
+`,
+	},
 }
 
 // Library is the catalog over a store.
@@ -481,13 +497,29 @@ ORDER BY lower(s.name), s.name`)
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-
-	// Posters come from the episodes: group every thumbed one by show, then
-	// the first in natural title order is the show's poster (its episode id).
-	epRows, err := l.s.DB().QueryContext(ctx,
-		`SELECT show_id, id, title, thumb FROM episodes`)
-	if err != nil {
+	if err := l.derivePosters(ctx, out); err != nil {
 		return nil, err
+	}
+	return out, nil
+}
+
+// derivePosters sets each show's Poster to its first episode in natural
+// title order that has a thumbnail (that episode's id), "" when none has:
+// the shows.poster column is never written. ListShows and Search share it,
+// so a show looks the same on the shelf and in search results.
+func (l *Library) derivePosters(ctx context.Context, shows []Show) error {
+	if len(shows) == 0 {
+		return nil
+	}
+	byID := make(map[core.ShowID]int, len(shows))
+	for i, sh := range shows {
+		byID[sh.ID] = i
+		shows[i].Poster = ""
+	}
+	epRows, err := l.s.DB().QueryContext(ctx,
+		`SELECT show_id, id, title FROM episodes WHERE thumb != ''`)
+	if err != nil {
+		return err
 	}
 	defer epRows.Close()
 
@@ -496,29 +528,22 @@ ORDER BY lower(s.name), s.name`)
 		var (
 			showID core.ShowID
 			cand   posterCand
-			thumb  string
 		)
-		if err := epRows.Scan(&showID, &cand.id, &cand.title, &thumb); err != nil {
-			return nil, err
+		if err := epRows.Scan(&showID, &cand.id, &cand.title); err != nil {
+			return err
 		}
-		if thumb == "" {
-			continue
+		if _, ok := byID[showID]; ok {
+			byShow[showID] = append(byShow[showID], cand)
 		}
-		byShow[showID] = append(byShow[showID], cand)
 	}
 	if err := epRows.Err(); err != nil {
-		return nil, err
-	}
-
-	byID := make(map[core.ShowID]int, len(out))
-	for i, sh := range out {
-		byID[sh.ID] = i
+		return err
 	}
 	for showID, cands := range byShow {
 		sort.Slice(cands, func(i, j int) bool { return naturalLess(cands[i].title, cands[j].title) })
-		out[byID[showID]].Poster = string(cands[0].id)
+		shows[byID[showID]].Poster = string(cands[0].id)
 	}
-	return out, nil
+	return nil
 }
 
 // ShowEpisodes returns the episodes of one show, ordered naturally by title
@@ -576,6 +601,9 @@ ORDER BY lower(s.name), s.name`, pat)
 		out.Shows = append(out.Shows, sh)
 	}
 	if err := showRows.Err(); err != nil {
+		return SearchResults{}, err
+	}
+	if err := l.derivePosters(ctx, out.Shows); err != nil {
 		return SearchResults{}, err
 	}
 
@@ -685,15 +713,16 @@ type FixingSummary struct {
 // issue) or failed, and lists the newest failed ones, ordered by when the
 // episode was added (shown), newest first. Nothing here touches the jobs
 // table: the pending and failed flags are the episodes' own, written by
-// ingest as the improvement runs.
+// ingest as the improvement runs. The counts are zero on an empty library
+// (SUM over no rows is NULL).
 func (l *Library) FixingSummary(ctx context.Context) (FixingSummary, error) {
 	var sum FixingSummary
 	err := l.s.DB().QueryRowContext(ctx, `
 SELECT
-	SUM(CASE WHEN fix = 'pending' AND issue = 'sound' THEN 1 ELSE 0 END),
-	SUM(CASE WHEN fix = 'pending' AND issue = 'picture' THEN 1 ELSE 0 END),
-	SUM(CASE WHEN fix = 'pending' AND issue = 'format' THEN 1 ELSE 0 END),
-	SUM(CASE WHEN fix = 'failed' THEN 1 ELSE 0 END)
+	COALESCE(SUM(CASE WHEN fix = 'pending' AND issue = 'sound' THEN 1 ELSE 0 END), 0),
+	COALESCE(SUM(CASE WHEN fix = 'pending' AND issue = 'picture' THEN 1 ELSE 0 END), 0),
+	COALESCE(SUM(CASE WHEN fix = 'pending' AND issue = 'format' THEN 1 ELSE 0 END), 0),
+	COALESCE(SUM(CASE WHEN fix = 'failed' THEN 1 ELSE 0 END), 0)
 FROM episodes`).Scan(
 		&sum.PendingSound, &sum.PendingPicture, &sum.PendingFormat, &sum.Failed)
 	if err != nil {

@@ -1,12 +1,13 @@
 // Boss arena: 13 sequential fights, 8 hearts each, 30 seconds per question.
 // Art is inline SVG (the legacy boss_page.py sprites, verbatim) so the page
 // never loads anything from the internet. A wrong answer heals the boss;
-// lethal bosses whack the player's hearts per miss.
-const API='/api/practice';
+// lethal bosses whack the player's hearts per miss. Every answer names the
+// fight and the position of the question on screen, and the page takes no
+// new answer until the next question shows (see math.js).
 const kid=window.KID;
-const $=id=>document.getElementById(id);
-let qs=[],idx=0,t0=0,hp=8,hearts=8,boss=null,rewardCoins=3,php=0,phearts=0,lethal=false;
-let fightHits=0,fightMisses=[];
+const BACK={label:'← Math',go:()=>{location.href=`/practice/${kid}/math`;}};
+let qs=[],round='',idx=0,cur=null,t0=0,hp=8,hearts=8,boss=null,rewardCoins=3,php=0,phearts=0,lethal=false;
+let fightHits=0,fightMisses=[],busy=false,play=0,capped=false,lastMsg=null;
 
 const BOSS_ANIM_CSS='@keyframes bossIdle{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}'
   +'@keyframes bossHit{0%{transform:translate(0,0)}30%{transform:translate(-10px,4px) rotate(-6deg)}100%{transform:translate(0,0)}}'
@@ -36,13 +37,12 @@ mixed:`<circle cx="50" cy="50" r="26" fill="#7a4bd9" stroke="#3d2380" stroke-wid
 wyrm:`<path d="M14 78 Q30 70 42 58 Q54 46 68 44 Q84 42 88 30" stroke="#2d1b4e" stroke-width="16" fill="none" stroke-linecap="round"/><path d="M14 78 Q30 70 42 58 Q54 46 68 44 Q84 42 88 30" stroke="#5e3a9e" stroke-width="9" fill="none" stroke-linecap="round"/><circle cx="86" cy="26" r="10" fill="#2d1b4e" stroke="#5e3a9e" stroke-width="3"/><circle cx="84" cy="24" r="3" fill="#ffd76e"/><circle cx="90" cy="26" r="3" fill="#ffd76e"/><circle cx="84" cy="24" r="1.2" fill="#222"/><circle cx="90" cy="26" r="1.2" fill="#222"/><path d="M90 32 L96 36 L88 38 Z" fill="#ff6b6b"/><path d="M24 74 L14 70 L22 66 Z" fill="#5e3a9e"/><path d="M36 64 L28 58 L36 56 Z" fill="#5e3a9e"/><path d="M52 52 L46 44 L54 44 Z" fill="#5e3a9e"/><path d="M70 48 L66 40 L74 42 Z" fill="#5e3a9e"/>`
 };
 
-function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 function heartsHtml(){
   let h='';
   for(let i=0;i<hearts;i++){
     h+=`<span class="heart ${i<hp?'':'empty'}">♥</span>`;
   }
-  return h;
+  return `<div aria-label="${esc(boss?boss.name:'boss')}: ${hp} of ${hearts} hearts">${h}</div>`;
 }
 function playerHeartsHtml(){
   if(!lethal)return '';
@@ -50,52 +50,71 @@ function playerHeartsHtml(){
   for(let i=0;i<phearts;i++){
     h+=`<span class="pheart ${i<php?'':'empty'}">🧡</span>`;
   }
-  return `<div style="text-align:center;font-size:1.1em;margin-top:2px">you: ${h||'💀'}</div>`;
+  return `<div class="you" aria-label="You: ${php} of ${phearts} hearts">You: ${h}</div>`;
 }
-async function loadStatus(){
-  const d=await fetch(`${API}/boss_status?kid=${kid}`).then(r=>r.json());
-  if(!d.ok)return;
+function menuEl(){show('menu');return $('menu');}
+function qText(q){return `${q.a} ${q.op==='x'?'×':q.op==='/'?'÷':q.op} ${q.b}`;}
+
+async function loadStatus(note){
+  play++;cur=null;busy=false;clearInterval(timerId);
+  const m=menuEl();
+  const d=await api(`/boss_status?kid=${kid}`);
+  if(!d.ok)return failPanel(m,d,"Can't reach the arena right now.",()=>loadStatus(note),BACK);
   if(!d.boss){renderDefeatedAll(d);return;}
-  boss=d.boss;hearts=d.hearts;hp=d.hp;rewardCoins=d.reward_coins||3;
-  lethal=!!(d.boss&&d.boss.lethal);
-  phearts=d.boss&&d.boss.player_hearts?d.boss.player_hearts:3;
+  boss=d.boss;hearts=d.hearts;hp=d.hearts;rewardCoins=d.reward_coins||3;
+  lethal=!!boss.lethal;
+  phearts=boss.player_hearts||3;
   php=d.php!=null?d.php:phearts;
-  renderIntro(d);
+  capped=isCapped(d);
+  renderIntro(d,note);
 }
-function renderIntro(d){
-  const m=$('menu');m.style.display='block';$('play').style.display='none';$('done').style.display='none';
+function renderIntro(d,note){
+  const m=menuEl();
   let def='';
-  if(d.defeated&&d.defeated.length)def=`<div class=muted style="text-align:center;margin-top:8px">Defeated: ${d.defeated.length} 🏆</div>`;
-  m.innerHTML=`
-    <div style="text-align:center">${bossSVG(boss.id,'idle')}</div>
-    <h2 style="text-align:center;margin:4px 0">${boss.emoji} ${esc(boss.name)}</h2>
-    <div class=muted style="text-align:center">${esc(boss.desc)} · ${hearts} hearts · win = 🪙${rewardCoins}</div>
-    <div style="text-align:center;font-size:1.5em;margin:10px 0">${heartsHtml()}${playerHeartsHtml()}</div>
-    <div style="text-align:center"><button class="btn red" style="font-size:1.4em" onclick="startFight()">⚔️ Fight!</button></div>
-    <div class=muted style="text-align:center;margin-top:8px">🪙 ${d.coins} of ${d.coins_per_minute} coins · today: ${Math.floor(d.earned_today)} of ${Math.floor(d.cap)} minutes</div>
-    ${def}
-    <div style="text-align:center;margin-top:12px"><button class="btn gray" onclick="location='/practice'">← Who's practicing?</button></div>`;
+  if(d.defeated&&d.defeated.length)def=`<p class="muted center">Bosses beaten: ${d.defeated.length} 🏆</p>`;
+  m.innerHTML=`${note?`<p class="lead note">${esc(note)}</p>`:''}
+    <div class="center">${bossSVG(boss.id,'idle')}</div>
+    <h2 class="center">${boss.emoji} ${esc(boss.name)}</h2>
+    <p class="lead">${esc(boss.desc)}</p>
+    <p class="lead">Get all ${hearts} right to win!${capped?'':` Win = 🪙${rewardCoins}`}</p>
+    <div class="center" style="font-size:1.5em;margin:10px 0">${heartsHtml()}${playerHeartsHtml()}</div>
+    <p class="muted center">${esc(capped?'🎮 '+CAPPED_MSG:jarText(d,CAPPED_MSG))}</p>
+    ${def}`;
+  const fight=button('⚔️ Fight!','btn red lg',startFight);
+  m.appendChild(fight);
+  m.appendChild(button(BACK.label,'btn gray',BACK.go));
+  focusKey(fight);
 }
 async function startFight(){
-  const d=await fetch(`${API}/boss_round?kid=${kid}`).then(r=>r.json());
-  if(!d.ok)return loadStatus();
-  qs=d.questions;idx=0;hp=d.hearts;hearts=d.hearts;
-  fightHits=0;fightMisses=[];
+  const token=++play;
+  const m=menuEl();
+  m.innerHTML='<p class="lead">Loading…</p>';
+  const d=await api(`/boss_round?kid=${kid}`);
+  if(token!==play)return;
+  if(!d.ok){
+    if(d.status===404)return loadStatus();
+    return failPanel(m,d,"Couldn't start the fight.",startFight,{label:'Menu',go:()=>loadStatus()});
+  }
+  qs=d.questions;round=d.round;idx=0;hp=d.hearts;hearts=d.hearts;
+  boss=d.boss||boss;
+  fightHits=0;fightMisses=[];lastMsg=null;
   lethal=!!(boss&&boss.lethal);
   phearts=boss&&boss.player_hearts?boss.player_hearts:3;
-  php=phearts;
-  $('menu').style.display='none';$('done').style.display='none';$('play').style.display='block';
-  const art=$('art');
-  art.innerHTML=bossSVG(boss.id,'idle');
+  php=d.php!=null&&lethal?d.php:phearts;
+  show('play');
+  $('art').innerHTML=bossSVG(boss.id,'idle');
   updateHearts();
-  $('jar').textContent=`🪙 win = +${rewardCoins} coins`+(lethal?` · you have ${phearts} ♥. Misses WHACK you!`:'');
+  $('jar').textContent=capped?'🎮 Coins are full for today. Win for the trophy!':`🪙 Win = +${rewardCoins} coins`;
   nextQ();
 }
+function setBusy(b){busy=b;$('ans').disabled=b;$('gobtn').disabled=b;}
 function nextQ(){
   if(idx>=qs.length){return fightDone();}
   const q=qs[idx];
-  $('q').textContent=`${q.a} ${q.op==='x'?'×':q.op==='/'?'÷':q.op} ${q.b} = ?`;
-  $('ans').value='';$('fb').textContent='';
+  cur={n:idx,q};
+  $('q').textContent=`${qText(q)} = ?`;
+  $('ans').value='';$('fb').textContent='';$('fb').className='feedback';
+  setBusy(false);
   t0=Date.now();
   startTimer();
   $('ans').focus();
@@ -114,102 +133,134 @@ function startTimer(){
     $('ttxt').textContent=left>0?`⏱ ${Math.ceil(left/1000)}s`:'';
     if(left<=0){
       clearInterval(timerId);
+      if(busy||!cur)return;
       $('ans').value='';
-      submit(true); // timeout: boss strikes
+      send({n:cur.n,q:cur.q,timedOut:true}); // timeout: boss strikes
     }
   };
   tick();timerId=setInterval(tick,100);
 }
 function updateHearts(){
   const h=$('hearts');
-  const prev=h.querySelectorAll('.heart').length;
-  const now=hearts;
-  h.innerHTML=heartsHtml();
-  if(now<prev){ // a heart just drained: pop it for visibility
-    const el=h.querySelectorAll('.heart')[now];
+  const prev=h.querySelectorAll('.heart:not(.empty)').length;
+  h.innerHTML=heartsHtml()+playerHeartsHtml();
+  if(hp<prev){ // a heart just drained: pop it for visibility
+    const el=h.querySelectorAll('.heart')[hp];
     if(el)el.classList.add('pop');
   }
 }
 function showBoss(state){
-  const art=$('art');
-  art.innerHTML=bossSVG(boss.id,state);
+  $('art').innerHTML=bossSVG(boss.id,state);
 }
-async function submit(timedOut){
-  if(idx>=qs.length)return;
+function submit(){
+  if(busy||!cur)return;
+  const v=$('ans').value.trim();
+  if(v===''){$('ans').focus();return;}
+  if(!/^\d+$/.test(v)){
+    $('fb').className='feedback no';$('fb').textContent='Type a number.';
+    $('ans').focus();return;
+  }
   clearInterval(timerId);
-  const given=$('ans').value.trim();
-  if(given==='' && !timedOut)return;
-  const r=await fetch(`${API}/boss_answer`,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({kid,a:qs[idx].a,b:qs[idx].b,op:qs[idx].op,given:timedOut?-999999:parseInt(given,10)})});
-  const d=await r.json();
+  send({n:cur.n,q:cur.q,given:parseInt(v,10),timedOut:false});
+}
+async function send(p){
+  const token=play;
+  setBusy(true);
+  clearInterval(timerId);
+  const d=await api('/boss_answer',{kid,round,n:p.n,a:p.q.a,b:p.q.b,op:p.q.op,
+    given:p.timedOut?-1:p.given});
+  if(token!==play)return;
+  if(!d.ok){
+    if(d.err==='boss_changed')return loadStatus("That boss is gone. Let's go to the next one.");
+    if(d.status===409||d.err==='signin')
+      return failPanel(menuEl(),d,"That fight is over. Let's start a new one.",startFight,{label:'Menu',go:()=>loadStatus()},'⚔️ New fight');
+    setBusy(false);
+    answerFailed(d,()=>send(p));
+    return;
+  }
+  const msg=d.msg||{};
+  lastMsg=msg;
   const fb=$('fb');
   if(d.correct){
     fb.className='feedback ok';fb.textContent='💥 Hit!';
-  }else if(timedOut){
+  }else if(p.timedOut){
     fb.className='feedback no';
     fb.textContent=`⏱ Too slow! ${boss.name} strikes. The answer was ${d.answer}`;
   }else{
     fb.className='feedback no';
-    fb.textContent=lethal?`🐟 WHACK! the answer was ${d.answer}`:`✗ the answer was ${d.answer}`;
+    fb.textContent=lethal?`💥 WHACK! The answer was ${d.answer}`:`✗ The answer was ${d.answer}`;
   }
-  hp=d.msg.hp;php=d.msg.php!=null?d.msg.php:php;updateHearts();
-  showBoss(d.correct?'hit':(lethal?'whack':'idle'));
-  if(d.correct){
-    if(!fightHits)fightHits=0;
-    fightHits++;
-  }else{
-    fightMisses.push({q:`${qs[idx].a} ${qs[idx].op==='x'?'×':qs[idx].op==='/'?'÷':qs[idx].op} ${qs[idx].b}`,a:d.answer});
-  }
-  if(d.msg.killed){setTimeout(killedScreen,600);return;}
-  idx++;
-  setTimeout(nextQ, d.correct?450:1400);
+  // a knock-out reports the hearts the next fight starts with; show the
+  // rows as they were when the kid ran out instead
+  if(msg.killed)php=0;else{hp=msg.hp;if(msg.php!=null)php=msg.php;}
+  updateHearts();
+  showBoss(msg.victory?'defeat':d.correct?'hit':(lethal?'whack':'idle'));
+  if(d.correct)fightHits++;
+  else fightMisses.push({q:qText(p.q),a:d.answer});
+  idx=p.n+1;cur=null;
+  if(msg.killed){setTimeout(()=>{if(token===play)killedScreen();},900);return;}
+  if(msg.victory){setTimeout(()=>{if(token===play)fightDone();},900);return;}
+  // more hearts left than questions: the fight can't be won any more, so
+  // end it now instead of playing on (and, on a lethal boss, losing hearts)
+  if(hp>qs.length-idx){setTimeout(()=>{if(token===play)fightDone();},1400);return;}
+  setTimeout(()=>{if(token===play)nextQ();},d.correct?450:1400);
 }
 function killedScreen(){
-  $('play').style.display='none';$('done').style.display='block';
-  $('done').innerHTML=`<div style="text-align:center">${bossSVG(boss.id,'idle')}</div>
-    <h1 style="text-align:center">💀 ${esc(boss.name)} got you!</h1>
-    <div class=muted style="text-align:center">${phearts} tail whacks. You're out! It is laughing…</div>
-    <div class=muted style="text-align:center;margin-top:4px">Practice up and try again. It will still be here.</div>
-    <div style="text-align:center;margin-top:14px">
-      <button class="btn red" onclick="startFight()">⚔️ Fight again</button>
-      <button class="btn gray" onclick="loadStatus()">Menu</button></div>`;
+  play++;cur=null;
+  const done=$('done');show('done');
+  done.innerHTML=`<div class="center">${bossSVG(boss.id,'idle')}</div>
+    <h1>${boss.emoji} ${esc(boss.name)} won this time!</h1>
+    <p class="lead">${phearts} misses and you're out.</p>
+    <p class="lead">Practice up and try again. It will still be here.</p>`;
+  done.appendChild(button('⚔️ Fight again','btn red',startFight));
+  done.appendChild(button('Menu','btn gray',()=>loadStatus()));
+  focusKey(done.querySelector('.btn.red'));
 }
-async function fightDone(){
-  const d=await fetch(`${API}/boss_status?kid=${kid}`).then(r=>r.json());
-  $('play').style.display='none';$('done').style.display='block';
+function rewardText(r){
+  if(!r||r.kind==='capped')return 'You won! Coins are full for today.';
+  if(r.banked)return `+🪙${rewardCoins} coins. 🎉 +1 minute of watching earned!`;
+  return `+🪙${rewardCoins} coins`;
+}
+function fightDone(){
+  play++;cur=null;clearInterval(timerId);
+  const done=$('done');show('done');
   const total=fightHits+fightMisses.length;
-  const missList=fightMisses.map(m=>`<div class=muted style="font-size:.95em">✗ ${esc(m.q)} = ${m.a}</div>`).join('');
-  const coach=total>0?`<div class=muted style="text-align:center;margin-top:8px">You landed ${fightHits} of ${total} hits. That's ${Math.round(100*fightHits/total)}%!</div>`:'';
-  const tips=missList?`<div style="text-align:center;margin-top:8px"><b>Practice these:</b></div>${missList}`:'';
-  if(d.boss===null||(d.defeated||[]).includes(boss.id)){
-    let h=`<div style="text-align:center">${bossSVG(boss.id,'idle')}</div>
-      <h1 style="text-align:center">🏆 ${esc(boss.name)} defeated!</h1>
-      <div style="text-align:center;font-size:1.3em">+🪙${rewardCoins} coins</div>${coach}${tips}`;
-    if(d.boss)h+=`<div class=muted style="text-align:center;margin-top:8px">Next up: ${d.boss.emoji} ${esc(d.boss.name)}!</div>`;
-    h+=`<div style="text-align:center;margin-top:14px">
-        <button class="btn green" onclick="location.reload()">Continue</button></div>`;
-    $('done').innerHTML=h;
+  const missList=fightMisses.map(m=>`<p class="muted center">✗ ${esc(m.q)} = ${m.a}</p>`).join('');
+  const coach=total>0?`<p class="muted center">You hit ${fightHits} of ${total}.</p>`:'';
+  const tips=missList?`<p class="center"><b>Practice these:</b></p>${missList}`:'';
+  if(lastMsg&&lastMsg.victory){
+    const next=lastMsg.next_boss;
+    let h=`<div class="center">${bossSVG(boss.id,'defeat')}</div>
+      <h1>🏆 ${esc(boss.name)} is beaten!</h1>
+      <div class="award lg">${esc(rewardText(lastMsg.reward))}</div>${coach}`;
+    if(next)h+=`<p class="lead">Next up: ${next.emoji} ${esc(next.name)}!</p>`;
+    done.innerHTML=h;
+    done.appendChild(button('Continue','btn green',()=>loadStatus()));
+    done.appendChild(button(BACK.label,'btn gray',BACK.go));
   }else{
-    let h=`<div style="text-align:center">${bossSVG(boss.id,'idle')}</div>
-      <h1 style="text-align:center">${boss.emoji} ${esc(boss.name)} survives!</h1>
-      <div class=muted style="text-align:center">You hit ${fightHits} of ${total}. It healed ${total-fightHits} times. Get ${hearts} hits in a row to win!</div>${coach}${tips}
-      <div style="text-align:center;margin-top:4px">(the boss healed. Try again!)</div>
-      <div style="text-align:center;margin-top:14px">
-        <button class="btn red" onclick="startFight()">⚔️ Fight again</button>
-        <button class="btn gray" onclick="loadStatus()">Menu</button></div>`;
-    $('done').innerHTML=h;
+    done.innerHTML=`<div class="center">${bossSVG(boss.id,'idle')}</div>
+      <h1>${boss.emoji} ${esc(boss.name)} is still standing!</h1>
+      <p class="lead">A miss makes it strong again. Get all ${hearts} right in one fight to win!</p>${coach}${tips}`;
+    done.appendChild(button('⚔️ Fight again','btn red',startFight));
+    done.appendChild(button('Menu','btn gray',()=>loadStatus()));
   }
+  focusKey(done.querySelector('button'));
 }
 function renderDefeatedAll(d){
-  const m=$('menu');m.style.display='block';$('play').style.display='none';
-  m.innerHTML=`<h2 style="text-align:center">👑 All bosses defeated!</h2>
-    <div style="text-align:center;font-size:1.2em">🏆 ${d.defeated.length} victories</div>
-    <div class=muted style="text-align:center;margin-top:8px">More bosses coming soon…</div>
-    <div style="text-align:center;margin-top:12px"><button class="btn gray" onclick="location='/practice'">← Who's practicing?</button></div>`;
+  const m=menuEl();
+  m.innerHTML=`<h2 class="center">👑 You beat every boss!</h2>
+    <p class="lead">🏆 ${d.defeated.length} wins</p>`;
+  m.appendChild(button(BACK.label,'btn gray',BACK.go));
+  focusKey(m.querySelector('button'));
 }
-document.getElementById('stopbtn').addEventListener('click',()=>{clearInterval(timerId);loadStatus();});
-$('gobtn').addEventListener('click',submit);
-document.getElementById('ans').addEventListener('keydown',e=>{
+function stopFight(){
+  const name=boss?boss.name:'The boss';
+  loadStatus(`You stopped the fight. ${name} healed up.`);
+}
+$('stopbtn').addEventListener('click',stopFight);
+$('gobtn').addEventListener('click',()=>submit());
+$('ans').addEventListener('keydown',e=>{
   if(e.key==='Enter'){e.preventDefault();submit();}
 });
+onEscape(()=>{if(!$('play').hidden)stopFight();else if(!$('done').hidden)loadStatus();else BACK.go();});
 loadStatus();

@@ -479,13 +479,13 @@ func (s *Service) modeUnlockStatusLocked(kid string, cfg Config) (map[string]Gat
 			Locked: !baseMul && abFrac < cfg.UnlockFrac,
 			Have:   round3(abFrac),
 			Need:   cfg.UnlockFrac,
-			Label:  "Set fast records on 30% of ➕/➖ facts",
+			Label:  "Opens when you are quick at more ➕ and ➖",
 		},
 		ModeDiv: {
 			Locked: mFrac < cfg.UnlockFrac,
 			Have:   round3(mFrac),
 			Need:   cfg.UnlockFrac,
-			Label:  "Set fast records on 30% of ✖️ facts",
+			Label:  "Opens when you are quick at more ✖️",
 		},
 	}, nil
 }

@@ -118,6 +118,23 @@ ALTER TABLE household ADD COLUMN safari_screens INTEGER NOT NULL DEFAULT 1;`,
 	Version: 3,
 	SQL: `
 ALTER TABLE household ADD COLUMN hw_encode INTEGER NOT NULL DEFAULT 1;`,
+}, {
+	// animal is the kid's picture on the shelf and in practice, chosen
+	// once by the server and never changed (see Animals). Existing kids
+	// keep the animal the earlier rule showed them: the kid at position i
+	// in name order (ListKids' order) had the i%8th of the first eight
+	// animals. The list is spelled out here, not taken from Animals, so
+	// this migration means the same thing forever.
+	Owner:   "budget",
+	Version: 4,
+	SQL: `
+ALTER TABLE kids ADD COLUMN animal TEXT NOT NULL DEFAULT '';
+UPDATE kids SET animal = (
+	SELECT CASE (o.pos - 1) % 8
+		WHEN 0 THEN '🦊' WHEN 1 THEN '🐺' WHEN 2 THEN '🐰' WHEN 3 THEN '🐻'
+		WHEN 4 THEN '🦁' WHEN 5 THEN '🐧' WHEN 6 THEN '🦄' ELSE '🐨' END
+	FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY name) AS pos FROM kids) AS o
+	WHERE o.id = kids.id);`,
 }}
 
 // Budget owns the kid profiles and their screen-time accounts, backed by the

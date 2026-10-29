@@ -227,7 +227,7 @@ func (s *Server) pinLocked(w http.ResponseWriter, r *http.Request, realm pinReal
 	if !locked {
 		return false
 	}
-	writeError(w, http.StatusTooManyRequests, tooManyPINsMessage(waitSec))
+	writeTooManyPINs(w, waitSec)
 	return true
 }
 
@@ -237,14 +237,24 @@ func (s *Server) pinLocked(w http.ResponseWriter, r *http.Request, realm pinReal
 // brute force without ever refusing a correct PIN from a fresh device.
 func (s *Server) pinWrong(w http.ResponseWriter, realm pinRealm, ip, account string) bool {
 	if waitSec, tripped := pinThrottle.aggregateTripped(realm, s.now()); tripped {
-		writeError(w, http.StatusTooManyRequests, tooManyPINsMessage(waitSec))
+		writeTooManyPINs(w, waitSec)
 		return true
 	}
 	pinThrottle.fail(realm, ip, account, s.now())
 	return false
 }
 
-// tooManyPINsMessage is the plain 429 wording every PIN check shares.
-func tooManyPINsMessage(waitSec int) string {
-	return "Too many wrong PINs. Try again in " + strconv.Itoa(waitSec) + " seconds."
+// tooManyPINsMessage is the plain 429 wording every PIN check shares. A
+// kid reads it too, so it names no number: the wait travels separately.
+const tooManyPINsMessage = "Too many tries. Wait a little bit, then try again."
+
+// writeTooManyPINs writes the shared 429: the plain message, the whole
+// seconds left as "wait" (the kid keypad counts it down and greys its keys)
+// and the same number as a Retry-After header.
+func writeTooManyPINs(w http.ResponseWriter, waitSec int) {
+	if waitSec < 1 {
+		waitSec = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(waitSec))
+	writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": tooManyPINsMessage, "wait": waitSec})
 }

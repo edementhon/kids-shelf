@@ -127,6 +127,40 @@ func TestKeepWatchingOrderingAndCutoff(t *testing.T) {
 	}
 }
 
+// TestKeepWatchingDropsFinished: a saved position within 5 seconds of the
+// episode's end means the episode was finished, so it is not offered to
+// keep watching, whatever the client saved; an episode of unknown length
+// (duration 0) is always listed.
+func TestKeepWatchingDropsFinished(t *testing.T) {
+	ctx := context.Background()
+	lib := newTestLibrary(t)
+	clock(lib)
+	eps := mustBlueprint(t, lib, 3) // 600, 601 and 602 s
+	eps[2].DurationSec = 0
+	mustPublish(t, lib, eps[2])
+	kid := core.KidID("alex")
+	for _, s := range []struct {
+		ep  core.EpisodeID
+		pos float64
+	}{{eps[0].ID, 595}, {eps[1].ID, 595.9}, {eps[2].ID, 900}} {
+		if err := lib.SavePosition(ctx, kid, s.ep, s.pos); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := lib.KeepWatching(ctx, kid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[core.EpisodeID]bool{}
+	for _, it := range items {
+		got[it.Episode] = true
+	}
+	if got[eps[0].ID] || !got[eps[1].ID] || !got[eps[2].ID] || len(items) != 2 {
+		t.Errorf("keep watching = %v, want %s (5.9 s left) and %s (no duration), not the finished %s",
+			got, eps[1].ID, eps[2].ID, eps[0].ID)
+	}
+}
+
 func TestWatchLogAndRecent(t *testing.T) {
 	lib := newTestLibrary(t)
 	clock(lib)
@@ -272,6 +306,61 @@ func TestRecentForKid(t *testing.T) {
 	}
 	if len(got) != recentMax || got[0].Episode != eps[13].ID {
 		t.Errorf("sam's recent = %v, want the newest %d of his own, newest first", ids(got), recentMax)
+	}
+}
+
+// TestPlaybackRowsCarryIssueFix: keep-watching and both recent lists carry
+// each episode's issue and fix, so the kid page can label them and keep a
+// pending one off the player.
+func TestPlaybackRowsCarryIssueFix(t *testing.T) {
+	ctx := context.Background()
+	lib := newTestLibrary(t)
+	clock(lib)
+	eps := mustBlueprint(t, lib, 2)
+	eps[0].Issue, eps[0].Fix = core.IssuePicture, core.FixPending
+	eps[1].Issue, eps[1].Fix = core.IssueSound, core.FixFailed
+	for _, ep := range eps {
+		mustPublish(t, lib, ep)
+	}
+	kid := core.KidID("alex")
+	for _, ep := range eps {
+		if err := lib.SavePosition(ctx, kid, ep.ID, 60); err != nil {
+			t.Fatal(err)
+		}
+		if err := lib.RecordWatch(ctx, kid, ep.ID, ep.Title, 1, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := map[core.EpisodeID][2]string{
+		eps[0].ID: {core.IssuePicture, core.FixPending},
+		eps[1].ID: {core.IssueSound, core.FixFailed},
+	}
+	kw, err := lib.KeepWatching(ctx, kid)
+	if err != nil || len(kw) != 2 {
+		t.Fatalf("KeepWatching = %v, %v", kw, err)
+	}
+	for _, it := range kw {
+		if w := want[it.Episode]; it.Issue != w[0] || it.Fix != w[1] {
+			t.Errorf("keep watching %s: issue %q fix %q, want %q/%q", it.Episode, it.Issue, it.Fix, w[0], w[1])
+		}
+	}
+	household, err := lib.Recent(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, err := lib.RecentForKid(ctx, kid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, items := range map[string][]RecentItem{"Recent": household, "RecentForKid": own} {
+		if len(items) != 2 {
+			t.Fatalf("%s = %d items, want 2", name, len(items))
+		}
+		for _, it := range items {
+			if w := want[it.Episode]; it.Issue != w[0] || it.Fix != w[1] {
+				t.Errorf("%s %s: issue %q fix %q, want %q/%q", name, it.Episode, it.Issue, it.Fix, w[0], w[1])
+			}
+		}
 	}
 }
 

@@ -1,134 +1,169 @@
 // Spelling practice: pick a tier (or the whole bank), hear the word and
 // type it back. Audio comes from the pre-generated clip when the server has
-// one; the browser's speechSynthesis reads the word when it does not.
-const API='/api/practice';
+// one; the browser's speech reads the word when it does not, and the page
+// says so plainly when there is no sound at all. Every answer names its
+// round and the position of the word being played (see math.js).
 const kid=window.KID;
 const HINTS=window.HINTS||{};
-let words=[],idx=0,results=[],t0=0,curTier=null;
-const $=id=>document.getElementById(id);
+const BACK={label:'← Back',go:()=>{location.href='/practice';}};
+let words=[],round='',idx=0,cur=null,results=[],t0=0,curTier=null,busy=false,play=0;
 
+function menuEl(){show('menu');return $('menu');}
+
+function soundBroken(){
+  const h=$('hint');
+  if(h&&!h.textContent.includes('Sound'))h.textContent="Sound isn't working. Ask a grown-up. "+h.textContent;
+}
+
+// playWord plays the clip for the word on screen, falling back to speech
+// once (a missing clip fires both onerror and the play() rejection).
 function playWord(){
-  const w=words[idx];
+  if(!cur)return;
+  const w=cur.word;
+  let fell=false;
+  const fallback=()=>{if(!fell){fell=true;speak(w);}};
   const a=new Audio('/practice/audio/'+encodeURIComponent(w)+'.wav');
-  a.onerror=function(){speak(w);};
-  a.play().catch(function(){speak(w);});
+  a.onerror=fallback;
+  a.play().catch(fallback);
   $('ans').focus();
 }
 function speak(w){
+  const ss=window.speechSynthesis;
+  if(!ss||!window.SpeechSynthesisUtterance){soundBroken();return;}
   try{
-    speechSynthesis.cancel();
+    ss.cancel();
     const u=new SpeechSynthesisUtterance(w);
     u.lang='en-US';
-    speechSynthesis.speak(u);
-  }catch(e){}
+    u.onerror=soundBroken;
+    if(!ss.getVoices().length)soundBroken();
+    ss.speak(u);
+  }catch(e){soundBroken();}
 }
-function hintFor(w){return HINTS[w]?HINTS[w].replace('___','… … …'):'';}
+function hintFor(w){return HINTS[w]?HINTS[w].replace('___','_____'):'';}
 
 async function start(tier){
+  const token=++play;
+  curTier=tier;
+  const m=menuEl();
+  m.innerHTML='<p class="lead">Loading…</p>';
   const q=tier==null?'':`&tier=${tier}`;
-  const r=await fetch(`${API}/spell_round?kid=${kid}${q}`);
-  const d=await r.json();
-  if(!d.ok||!d.words||!d.words.length){return renderMenu();}
-  words=d.words;idx=0;results=[];curTier=tier;
-  $('menu').style.display='none';$('play').style.display='block';$('done').style.display='none';
+  const d=await api(`/spell_round?kid=${kid}${q}`);
+  if(token!==play)return;
+  if(!d.ok||!d.words||!d.words.length)
+    return failPanel(m,d,"Couldn't load the words.",()=>start(tier),{label:'Menu',go:()=>renderMenu()});
+  words=d.words;round=d.round;idx=0;results=[];
+  show('play');
+  $('earned').textContent='';$('jar').textContent='';$('banner').hidden=true;
   refreshJar();
   next();
 }
 function tierBtn(t){
-  return `<button class="choice" style="margin:6px auto;flex-direction:column" onclick="start(${t.tier})">
-    <span>${t.name}</span>
-    <div class="progress" style="width:100%;margin-top:4px"><div class=bar style="width:${t.total?Math.round(t.have/t.total*100):0}%"></div></div>
-    <span class=muted style="font-size:.85em">${t.have}/${t.total} words</span></button>`;
+  const pct=t.total?Math.round(t.have/t.total*100):0;
+  return `<button type="button" class="choice" data-tier="${t.tier}"><span>${esc(t.name)}</span>
+    <div class="progress"><div class="bar" style="width:${pct}%"></div></div>
+    <span class="sub">${t.have} of ${t.total} words</span></button>`;
 }
-function renderMenu(){
-  $('play').style.display='none';$('done').style.display='none';
-  const m=$('menu');m.style.display='block';
-  fetch(`${API}/spell_status?kid=${kid}`).then(r=>r.json()).then(d=>{
-    let h='';
-    if(d.ok){
-      const here=(d.tiers||[]).filter(t=>t.have<t.total)[0]||null;
-      h=`<div class=muted style="text-align:center">Words with records: ${d.recorded}/${d.total}</div>`
-        +`<div class=muted style="text-align:center;margin-top:4px">Spell the word you hear. Fast and right earns 🪙</div>`
-        +(here?`<div class=muted style="text-align:center;margin-top:2px">You are here: ${here.name} (${here.have}/${here.total})</div>`:'')
-        +`<button class="choice" style="margin:14px auto" onclick="start(null)">🎲 Mix it up. All ${d.total} words</button>`
-        +(d.tiers||[]).map(tierBtn).join('')
-        +`<div class=muted style="text-align:center;margin-top:8px">🪙 ${d.coins} of ${d.coins_per_minute} coins · today: ${Math.floor(d.earned_today)} of ${Math.floor(d.cap)} minutes</div>`;
-    }else{h='<div class=muted style="text-align:center">Loading…</div>';}
-    h+=`<button class="choice" style="background:#1f2c3d;border-color:#39506b;font-size:1em" onclick="location='/practice'">← Who's practicing?</button>`;
-    m.innerHTML=h;
-  });
+async function renderMenu(){
+  play++;cur=null;busy=false;
+  const m=menuEl();
+  const d=await api(`/spell_status?kid=${kid}`);
+  if(!d.ok)return failPanel(m,d,"Can't reach practice right now.",renderMenu,BACK);
+  const capped=isCapped(d);
+  const here=(d.tiers||[]).filter(t=>t.have<t.total)[0]||null;
+  let h=`<p class="lead">Hear the word, then type it.${capped?'':' Quick and right earns 🪙'}</p>`
+    +`<p class="muted center">Words you know: ${d.recorded} of ${d.total}</p>`
+    +(here?`<p class="muted center">You are here: ${esc(here.name)} (${here.have} of ${here.total})</p>`:'')
+    +(capped?`<p class="lead capped">🎮 ${SPELL_CAPPED_MSG}</p>`:'')
+    +`<button type="button" class="choice" data-tier="">🎲 Mix it up<span class="sub">All ${d.total} words</span></button>`
+    +(d.tiers||[]).map(tierBtn).join('')
+    +(capped?'':`<p class="muted center">${esc(todayText(d,SPELL_CAPPED_MSG))}</p>`)
+    +`<a class="choice" style="border-color:#4a90d9" href="/practice/${kid}/math">🔢 Math</a>`;
+  m.innerHTML=h;
+  m.appendChild(button(BACK.label,'btn gray',BACK.go));
+  for(const b of m.querySelectorAll('button[data-tier]'))
+    b.addEventListener('click',()=>start(b.dataset.tier===''?null:Number(b.dataset.tier)));
+  focusKey(m.querySelector('button[data-tier]'));
 }
+function setBusy(b){busy=b;$('ans').disabled=b;$('gobtn').disabled=b;}
 function next(){
   if(idx>=words.length){return finish();}
   const w=words[idx];
+  cur={n:idx,word:w};
   $('bar').style.width=(idx/words.length*100)+'%';
   $('hint').textContent=hintFor(w);
-  $('fb').textContent='';$('ans').value='';
+  $('fb').textContent='';$('fb').className='feedback';$('ans').value='';
+  setBusy(false);
   t0=Date.now();
   playWord();
   $('ans').focus();
 }
-async function submit(){
-  if(idx>=words.length)return;
+function submit(){
+  if(busy||!cur)return;
   const given=$('ans').value.trim();
   if(!given)return playWord();
-  const ms=Date.now()-t0;
-  const w=words[idx];
-  const r=await fetch(`${API}/spell_answer`,{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({kid,given,ms,word:w})});
-  const d=await r.json();
-  results.push({word:w,given,ms});
+  send({n:cur.n,word:cur.word,given,ms:Date.now()-t0});
+}
+async function send(p){
+  const token=play;
+  setBusy(true);
+  const d=await api('/spell_answer',{kid,round,n:p.n,word:p.word,given:p.given,ms:p.ms});
+  if(token!==play)return;
+  if(!d.ok){
+    if(d.status===409||d.err==='signin')
+      return failPanel(menuEl(),d,"That round is over. Let's start a new one.",()=>start(curTier),{label:'Menu',go:()=>renderMenu()},'New round');
+    setBusy(false);
+    answerFailed(d,()=>send(p));
+    return;
+  }
+  results.push({word:p.word,given:p.given,correct:!!d.correct});
+  const fb=$('fb');
   if(d.correct){
-    $('fb').className='feedback ok';
-    $('fb').textContent=d.record?`✓ 🏅 ${(ms/1000).toFixed(1)}s. New record!`:'✓';
+    fb.className='feedback ok';
+    fb.textContent=d.record?`✓ ⚡ ${(p.ms/1000).toFixed(1)}s. Your fastest yet!`:'✓';
   }else{
-    $('fb').className='feedback no';
-    $('fb').textContent=`✗  It's spelled: ${d.word}`;
+    fb.className='feedback no';
+    fb.textContent=`✗  It's spelled: ${d.word}`;
   }
   if(d.coin){
-    if(d.coin.banked){
-      $('earned').textContent=`🎉 +1 🎮 minute banked!`;
-      setTimeout(()=>{if($('earned').textContent.includes('banked'))$('earned').textContent='';},3500);
-    }else if(d.coin.kind==='capped'||d.coin.err==='daily cap reached'){
-      $('earned').textContent=`🎮 You earned all your spelling minutes for today. Records start again tomorrow!`;
-    }else if(d.coin.kind==='coin'){
-      $('earned').textContent=`🪙 ${d.coin.coins}/${d.coin.need}`;
+    if(d.coin.banked)banner('🎉 +1 minute of watching earned!');
+    else if(d.coin.kind==='coin'){
+      $('earned').textContent=`🪙 +1 coin! ${d.coin.coins} of ${d.coin.need}`;
       setTimeout(()=>{if($('earned').textContent.includes('🪙'))$('earned').textContent='';},2500);
     }
   }
   refreshJar();
-  idx++;
-  setTimeout(next, d.correct?400:1800);
+  idx=p.n+1;cur=null;
+  setTimeout(()=>{if(token===play)next();},d.correct?400:1800);
 }
 async function refreshJar(){
-  try{const d=await fetch(`${API}/spell_status?kid=${kid}`).then(r=>r.json());
-      if(d.ok)updateJar(d);}catch(e){}
-}
-function updateJar(d){
-  const j=$('jar'); if(!j)return;
-  if(d.coins!=null&&d.cap!=null&&d.earned_today!=null){
-    const room=Math.max(0,d.cap-d.earned_today);
-    if(room<=0){j.textContent=`🪙 jar paused. All ${Math.floor(d.cap)} spelling minutes earned today`;return;}
-    const left=d.coins_per_minute-d.coins;
-    j.textContent=`🪙 ${d.coins} of ${d.coins_per_minute} coins. ${left} more coins = 1 more minute of watching`;
-  }
+  const d=await api(`/spell_status?kid=${kid}`);
+  if(d.ok)$('jar').textContent=jarText(d,SPELL_CAPPED_MSG);
 }
 async function finish(){
-  $('play').style.display='none';$('done').style.display='block';
-  const correct=results.filter(r=>r.given.toLowerCase()===r.word.toLowerCase()).length;
-  const n=results.length;
-  let h=`<h1>${correct} / ${n} spelled right</h1>`;
-  const wrong=results.filter(r=>r.given.toLowerCase()!==r.word.toLowerCase());
+  const token=play;
+  cur=null;
+  const done=$('done');show('done');
+  const correct=results.filter(r=>r.correct).length;
+  let h=`<h1>${correct} / ${results.length} spelled right</h1>`;
+  if(results.length&&correct===results.length)h+=`<div class="award lg">🌟 Every word right! Amazing!</div>`;
+  const wrong=results.filter(r=>!r.correct);
   if(wrong.length){
-    h+=`<div class=card><b>Practice these:</b><ul>${wrong.map(r=>`<li>${r.word}</li>`).join('')}</ul></div>`;
+    h+=`<div class="card"><b>Practice these:</b><ul>${wrong.map(r=>`<li>${esc(r.word)}</li>`).join('')}</ul></div>`;
   }
-  h+=`<div style="margin-top:14px">
-      <button class="btn green" onclick="start(curTier)">More words</button>
-      <button class="btn gray" onclick="renderMenu()">Menu</button></div>`;
-  $('done').innerHTML=h;
+  h+=`<p class="lead" id="today"></p>`;
+  done.innerHTML=h;
+  done.appendChild(button('More words','btn green',()=>start(curTier)));
+  done.appendChild(button('Menu','btn gray',()=>renderMenu()));
+  focusKey(done.querySelector('.btn.green'));
+  const s=await api(`/spell_status?kid=${kid}`);
+  if(s.ok&&token===play&&$('today'))$('today').textContent=todayText(s,SPELL_CAPPED_MSG);
 }
-$('stopbtn').addEventListener('click',renderMenu);
+$('stopbtn').addEventListener('click',()=>renderMenu());
 $('gobtn').addEventListener('click',submit);
-document.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submit();}});
+$('playbtn').addEventListener('click',playWord);
+$('ans').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submit();}});
+onEscape(()=>{if(!$('play').hidden||!$('done').hidden)renderMenu();else BACK.go();});
+// Chromium fills the voice list late; asking early makes it ready by the
+// time a missing clip needs it.
+if(window.speechSynthesis)speechSynthesis.getVoices();
 renderMenu();

@@ -92,6 +92,11 @@ type Service struct {
 	rng   *rand.Rand
 
 	mu sync.Mutex
+
+	// roundsMu guards rounds, the live rounds the pages are playing
+	// (rounds.go). Never held while taking mu.
+	roundsMu sync.Mutex
+	rounds   roundBook
 }
 
 // New builds a service over db. cred receives every minute credited; the

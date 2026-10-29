@@ -18,16 +18,19 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edementhon/kids-shelf/internal/core"
@@ -121,6 +124,13 @@ const (
 	msgNoHelpers = "Video conversion is unavailable: the helper programs could not be set up."
 )
 
+// MsgHelpersWaiting is the pause reason of a job whose helper program
+// (ffprobe or ffmpeg) could not start - the process never ran, which on
+// Windows is how Smart App Control's check of freshly extracted programs
+// looks - so nothing is known about the file yet. internal/app resumes the
+// jobs paused with exactly these words once the helpers start again.
+const MsgHelpersWaiting = "Waiting for kids-shelf's video tools to start. This video will continue on its own."
+
 // payload is the per-job state persisted in the jobs table, grown stage by
 // stage, so a resumed job picks up exactly where it stopped.
 type payload struct {
@@ -150,7 +160,9 @@ type payload struct {
 	// conversion resumes (see runStage).
 	Shown bool `json:"shown"`
 	// Published is the show-phase publish marker: a kill between the
-	// publish and the requeue resumes without publishing twice.
+	// publish and the requeue resumes without publishing twice. A retried
+	// job (RetryPayload) keeps Shown but not Published, so its show stage
+	// republishes the same episode with the new plan's fix status.
 	Published bool `json:"published"`
 	// Improved is the improvement-phase publish marker, the same
 	// idempotency for the converted copy.
@@ -299,6 +311,35 @@ func (s *Queue) IngestStatus(ctx context.Context, jobID string) (core.EpisodeID,
 	}
 }
 
+// RetryPayload is the payload a failed ingest job is retried with (see
+// jobs.Queue.RetryFailedSources): the one Enqueue writes - the same file,
+// source and episode id - so the retry runs the whole pipeline from the
+// probe with a fresh plan, plus the show-phase marker of an episode that
+// is already shown. Such a failed improvement goes through the show stage
+// again because its publish marker is cleared: the same episode id is
+// republished on its original with the new plan's issue and fix "pending"
+// (resume positions stay, keyed by the id), so it reads "Getting ready"
+// while the better copy is made again instead of "failed"; a retry that
+// fails before that still marks it failed (see fail). It also returns the
+// job's episode and source, so the caller can tell whether another
+// episode already plays that source.
+func RetryPayload(raw json.RawMessage) (json.RawMessage, core.EpisodeID, core.Source, error) {
+	var old payload
+	if err := json.Unmarshal(raw, &old); err != nil {
+		return nil, "", core.Source{}, fmt.Errorf("ingest: retry payload: %w", err)
+	}
+	out, err := json.Marshal(payload{
+		File:      old.File,
+		Source:    old.Source,
+		EpisodeID: old.EpisodeID,
+		Shown:     old.Shown,
+	})
+	if err != nil {
+		return nil, "", core.Source{}, fmt.Errorf("ingest: retry payload: %w", err)
+	}
+	return out, old.EpisodeID, old.Source, nil
+}
+
 // newEpisodeID returns a fresh random episode id (128-bit hex), assigned at
 // enqueue so nothing else ever names the episode.
 func newEpisodeID() (core.EpisodeID, error) {
@@ -338,6 +379,22 @@ type Worker struct {
 	// before the first full re-encode, cached, and cut off after three
 	// consecutive failures (see hwenc.go).
 	hw *hwState
+	// helpersBlocked is set when a job paused because a helper could not
+	// start (see HelpersBlocked), so the app knows to re-check the helpers.
+	helpersBlocked atomic.Bool
+}
+
+// HelpersBlocked reports whether a job paused because a helper program
+// could not start since the last ClearHelpersBlocked.
+func (w *Worker) HelpersBlocked() bool {
+	return w.helpersBlocked.Load()
+}
+
+// ClearHelpersBlocked forgets the blocked-helpers flag; internal/app calls
+// it right before it resumes the paused jobs, so a job that pauses again
+// afterwards sets it anew.
+func (w *Worker) ClearHelpersBlocked() {
+	w.helpersBlocked.Store(false)
 }
 
 // WithFixRecorder wires the library's fix-status setter: when an
@@ -456,17 +513,18 @@ func (w *Worker) processOne(ctx context.Context, jobID string) (done bool) {
 	}
 	pl, err := decodePayload(job)
 	if err != nil {
+		// No payload, no episode to mark: the job only fails.
 		w.q.Fail(job.ID, errors.New(msgGeneric))
 		return true
 	}
 	if w.dir == nil {
 		// app.Open could not set up the helper programs; every stage needs
 		// them, so the job fails with the words the parent page shows.
-		w.q.Fail(job.ID, errors.New(msgNoHelpers))
+		w.fail(ctx, job.ID, &pl, errors.New(msgNoHelpers))
 		return true
 	}
 	if err := os.MkdirAll(w.libraryDir(), 0o755); err != nil {
-		w.q.Fail(job.ID, errors.New(msgGeneric))
+		w.fail(ctx, job.ID, &pl, errors.New(msgGeneric))
 		return true
 	}
 	stage := job.Stage
@@ -477,7 +535,7 @@ func (w *Worker) processOne(ctx context.Context, jobID string) (done bool) {
 		return false // killed before the stage ran; leave running for Recover
 	}
 	if err := w.q.Advance(job.ID, stage, pl); err != nil {
-		w.q.Fail(job.ID, errors.New(msgGeneric))
+		w.fail(ctx, job.ID, &pl, errors.New(msgGeneric))
 		return true
 	}
 	next, err := w.runStage(ctx, job.ID, stage, &pl)
@@ -493,7 +551,7 @@ func (w *Worker) processOne(ctx context.Context, jobID string) (done bool) {
 		if aerr := w.q.Advance(job.ID, stage, pl); aerr == nil {
 			w.stageErr(ctx, job.ID, &pl, err)
 		} else {
-			w.q.Fail(job.ID, errors.New(msgGeneric))
+			w.fail(ctx, job.ID, &pl, errors.New(msgGeneric))
 		}
 		return true
 	}
@@ -505,12 +563,12 @@ func (w *Worker) processOne(ctx context.Context, jobID string) (done bool) {
 	}
 	if next == "" {
 		if err := w.q.Done(job.ID); err != nil {
-			w.q.Fail(job.ID, errors.New(msgGeneric))
+			w.fail(ctx, job.ID, &pl, errors.New(msgGeneric))
 		}
 		return true
 	}
 	if err := w.q.Advance(job.ID, next, pl); err != nil {
-		w.q.Fail(job.ID, errors.New(msgGeneric))
+		w.fail(ctx, job.ID, &pl, errors.New(msgGeneric))
 		return true
 	}
 	return false
@@ -520,10 +578,17 @@ func (w *Worker) runStage(ctx context.Context, jobID, stage string, pl *payload)
 	// A folder/NAS job recovered mid-improvement that was never shown (it
 	// predates the show-first change, or a kill landed between the plan
 	// and the old publish) must do the show phase first and only then
-	// requeue for its conversion. YouTube jobs never show in place.
+	// requeue for its conversion. YouTube jobs never show in place. One
+	// that already persisted the old single publish (Published without
+	// Shown) is finished: the old flow published its converted copy, and
+	// the show stage, which skips an already-published job, would requeue
+	// it at convert forever.
 	if pl.Source.Kind != core.SourceYouTube && !pl.Shown {
 		switch stage {
 		case StageConvert, StageVerify, StageThumbnail, StagePublish:
+			if pl.Published {
+				return "", nil
+			}
 			return w.stageShow(ctx, jobID, pl)
 		}
 	}
@@ -554,25 +619,75 @@ func (w *Worker) runStage(ctx context.Context, jobID, stage string, pl *payload)
 const requeuedStage = "requeued"
 
 // stageErr records how a stage failed: a pauseError pauses the job with its
-// parent-readable reason (a full disk is something the parent can fix), any
-// other error fails the job with the error's message, and stages keep their
-// messages in plain words. A failed improvement keeps the episode playing
-// its original file, so the fix is marked "failed" (the issue stays) and
-// the pages can explain why the video plays badly.
+// parent-readable reason (a full disk is something the parent can fix); a
+// failure while a helper program cannot start at all pauses it with
+// MsgHelpersWaiting, because the stage never learned anything about the
+// file (a refused ffprobe is not a damaged file, a refused ffmpeg is not a
+// failed fix); any other error fails the job with the error's message (see
+// fail), and stages keep their messages in plain words.
 func (w *Worker) stageErr(ctx context.Context, jobID string, pl *payload, err error) {
 	var pe *pauseError
 	if errors.As(err, &pe) {
 		w.q.Pause(jobID, pe.reason)
 		return
 	}
-	w.q.Fail(jobID, err)
-	// Only improvements mark anything: a paused job (a full disk) resumes
-	// and keeps its pending fix, and a job that never reached the show
-	// phase published nothing to mark.
-	if pl.Shown && w.fixer != nil {
-		if ferr := w.fixer.SetFixFailed(ctx, pl.EpisodeID); ferr != nil {
-			log.Printf("ingest: mark fix failed for %s: %v", pl.EpisodeID, ferr)
+	if bin := w.helperThatCannotStart(ctx); bin != "" {
+		log.Printf("ingest: %s cannot start; job %s waits for it", bin, jobID)
+		w.helpersBlocked.Store(true)
+		w.q.Pause(jobID, MsgHelpersWaiting)
+		return
+	}
+	w.fail(ctx, jobID, pl, err)
+}
+
+// helperThatCannotStart runs ffprobe and ffmpeg once each (-version, under
+// the encoder-listing timeout) after a stage failed and returns the first
+// that could not start, or "" when both ran. Stages turn helper errors into
+// plain words, so this is how a failure is told apart from a helper the
+// operating system refused to run. It always really starts the binaries
+// (never the injectable runner): the question is whether this machine
+// lets them run.
+func (w *Worker) helperThatCannotStart(ctx context.Context) string {
+	for _, bin := range []string{w.dir.FFprobe, w.dir.FFmpeg} {
+		cctx, cancel := context.WithTimeout(ctx, hwListTimeout)
+		_, err := runCombined(cctx, bin, "-version")
+		cancel()
+		if HelperCannotStart(err) {
+			return bin
 		}
+	}
+	return ""
+}
+
+// HelperCannotStart reports whether err from running a helper means the
+// process never ran: the binary is missing or not executable, or the
+// operating system refused to start it (on Windows an Application Control
+// or Smart App Control block surfaces as a start error). A helper that ran
+// and exited non-zero (*exec.ExitError), or a run cut short by its
+// context, is not one.
+func HelperCannotStart(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var exit *exec.ExitError
+	return !errors.As(err, &exit)
+}
+
+// fail is the one terminal failure of a job whose payload decoded: the job
+// fails with err's plain words and, when the episode is already shown and
+// its improved copy not yet published, the fix is marked "failed" (the
+// issue stays), so the episode leaves "Getting ready" and plays its
+// original while the pages explain why it plays badly. A paused job (a
+// full disk) never comes here: it resumes and keeps its pending fix, and
+// a job that never reached the show phase published nothing to mark. The
+// mark outlives a cancelled ctx: the job's failure is already recorded.
+func (w *Worker) fail(ctx context.Context, jobID string, pl *payload, err error) {
+	w.q.Fail(jobID, err)
+	if !pl.Shown || pl.Improved || w.fixer == nil {
+		return
+	}
+	if ferr := w.fixer.SetFixFailed(context.WithoutCancel(ctx), pl.EpisodeID); ferr != nil {
+		log.Printf("ingest: mark fix failed for %s: %v", pl.EpisodeID, ferr)
 	}
 }
 
@@ -1140,9 +1255,9 @@ func (w *Worker) stagePublish(ctx context.Context, jobID string, pl *payload) (s
 	if pl.Improved {
 		return "", nil
 	}
-	// A job from before the show-first change (YouTube, or a folder/NAS
-	// job the old single-publish flow already finished) marked Published;
-	// nothing more is wanted from it.
+	// A YouTube job from before the show-first change marked Published
+	// (a folder/NAS one finishes in runStage); nothing more is wanted
+	// from it.
 	if !pl.Shown && pl.Published {
 		return "", nil
 	}

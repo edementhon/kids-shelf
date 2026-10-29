@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.Heading}} - Kids Shelf</title>
+<style>
+/* A kid message page on the libraries origin: the external-link page, the
+   "libraries are not working" page and the nothing-here page. It may show
+   inside the reader's frame, so every way out targets the whole tab. */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: system-ui, sans-serif;
+  background: #fdf6e3;
+  color: #333;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+.card { max-width: 640px; }
+.pic { width: 96px; height: 96px; margin: 0 auto 12px; display: block; }
+h1 { font-size: 1.8em; margin: 0 0 10px; line-height: 1.25; }
+p { font-size: 1.25em; line-height: 1.5; margin: 0 0 26px; color: #444; }
+.btns { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  min-width: 260px;
+  padding: 14px 32px;
+  border-radius: 40px;
+  border: none;
+  font: inherit;
+  font-size: 1.4em;
+  font-weight: bold;
+  text-decoration: none;
+  cursor: pointer;
+  background: #6c9;
+  color: #062;
+  touch-action: manipulation;
+}
+.btn.two { background: #f0eee4; color: #333; font-size: 1.15em; min-height: 56px; }
+.btn:active { filter: brightness(0.92); }
+.btn:focus-visible { outline: 4px solid #2b5f8a; outline-offset: 3px; }
+@media (min-width: 1200px) and (min-height: 800px) {
+  body { font-size: 22px; }
+  .pic { width: 140px; height: 140px; }
+}
+</style>
+</head>
+<body>
+<main class="card">
+  <svg class="pic" viewBox="0 0 64 64" aria-hidden="true">
+    <path d="M8 14c8-3 16-3 24 2v38c-8-5-16-5-24-2z" fill="#6c9"/>
+    <path d="M56 14c-8-3-16-3-24 2v38c8-5 16-5 24-2z" fill="#9dd9b9"/>
+    <path d="M32 16v38" stroke="#2a7a4b" stroke-width="2"/>
+  </svg>
+  <h1>{{.Heading}}</h1>
+  <p>{{.Text}}</p>
+  <div class="btns">
+    <a class="btn" id="back" href="{{.BackHref}}" target="_top"{{if .BackIsHistory}} data-history="1"{{end}}>{{.BackLabel}}</a>
+    {{if .Retry}}<button class="btn two" id="retry" type="button">Try again</button>{{end}}
+  </div>
+</main>
+<script>
+'use strict';
+(function () {
+  var back = document.getElementById('back');
+  // "Back to the book" steps back in history when there is somewhere to go
+  // back to (the reader page the kid came from); a page opened in a new tab
+  // has no history, so the link itself leads to the libraries list. The
+  // click never reaches the reader's own link handler (this page may sit
+  // in its frame), which would take the app's address for an outside link.
+  function goBack(e) {
+    if (e) e.stopPropagation();
+    if (back.dataset.history && history.length > 1) {
+      if (e) e.preventDefault();
+      history.back();
+    } else if (!e) {
+      back.click();
+    }
+  }
+  back.addEventListener('click', goBack);
+  var retry = document.getElementById('retry');
+  if (retry) retry.addEventListener('click', function () { location.reload(); });
+  // Esc works like the big button, so a keyboard-only kid is never stuck.
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') goBack(null);
+  });
+  back.focus({ preventScroll: true });
+})();
+</script>
+</body>
+</html>

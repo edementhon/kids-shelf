@@ -1,0 +1,53 @@
+/* Kids Shelf bar on top of kiwix-serve's reader (/kiwix/viewer, libraries
+   origin). The libraries proxy adds this stylesheet and the bar markup to
+   the reader page, so a big, always-visible way home sits above the book
+   at every size; kiwix's own small house button and its language pop-up
+   (a dead end for a keyboard) are hidden. */
+.ks-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #fdf6e3;
+  border-bottom: 2px solid #e8dfc4;
+  font-family: system-ui, sans-serif;
+  position: relative;
+  z-index: 10;
+}
+.ks-bar .ks-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 8px 20px 8px 14px;
+  border-radius: 30px;
+  background: #6c9;
+  color: #062;
+  font-size: 20px; /* px: kiwix's own stylesheet shrinks rem to 10px */
+  font-weight: bold;
+  text-decoration: none;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+.ks-bar .ks-btn.ks-two { background: #f0eee4; color: #333; }
+.ks-bar .ks-btn svg { width: 28px; height: 28px; flex: none; }
+.ks-bar .ks-btn:active { filter: brightness(0.92); }
+.ks-bar .ks-btn:focus-visible { outline: 4px solid #2b5f8a; outline-offset: 2px; }
+@media (max-width: 420px) {
+  .ks-bar { gap: 8px; padding: 6px 8px; }
+  .ks-bar .ks-btn { font-size: 18px; padding: 6px 14px 6px 10px; min-height: 48px; }
+}
+@media (min-width: 1200px) and (min-height: 800px) {
+  .ks-bar { padding: 10px 16px; gap: 16px; }
+  .ks-bar .ks-btn { min-height: 64px; font-size: 26px; padding: 10px 28px 10px 20px; }
+  .ks-bar .ks-btn svg { width: 36px; height: 36px; }
+}
+
+/* kiwix's own way out (its "welcome page" house, which only led to the
+   libraries list) and the UI language button, whose pop-up cannot be
+   closed with Esc, a tap outside, or Tab. */
+#kiwix_serve_taskbar_library_button,
+#kiwixtoolbar a:has(> #uiLanguageSelectorButton) {
+  display: none !important;
+}

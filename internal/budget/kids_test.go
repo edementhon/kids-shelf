@@ -2,9 +2,11 @@ package budget
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/edementhon/kids-shelf/internal/core"
+	"github.com/edementhon/kids-shelf/internal/store"
 )
 
 // TestCreateKidIdempotentByName: creating a name that already exists returns
@@ -109,8 +111,55 @@ func TestRenameKid(t *testing.T) {
 	if err := b.RenameKid(ctx, ghostID, "x"); !errors.Is(err, ErrNoSuchKid) {
 		t.Errorf("RenameKid(unknown): err = %v, want ErrNoSuchKid", err)
 	}
+	// the same name in other letter cases is taken too, and the error names
+	// the kid as stored
+	var taken *KidNameTakenError
+	if err := b.RenameKid(ctx, id, "SAM"); !errors.As(err, &taken) || taken.Name != "sam" {
+		t.Errorf("RenameKid onto SAM: err = %v, want KidNameTakenError for sam", err)
+	}
+	// a kid may change the case of its own name
+	if err := b.RenameKid(ctx, id, "Alex2"); err != nil {
+		t.Errorf("RenameKid alex2 to Alex2: %v", err)
+	}
 	if err := b.RenameKid(ctx, id, ""); err == nil {
 		t.Error("RenameKid to empty name: want error")
+	}
+}
+
+// TestAddKidRefusesTakenName: the parent page's add refuses a name that is
+// already a kid's, in any letter case (Unicode too), and never touches the
+// existing kid's PIN; CreateKid stays idempotent for migrate.
+func TestAddKidRefusesTakenName(t *testing.T) {
+	b, _ := newTestBudget(t, at(nowOct26))
+	ava, err := b.AddKid(ctx, "Ava", "1111")
+	if err != nil {
+		t.Fatalf("AddKid: %v", err)
+	}
+	for _, name := range []string{"Ava", "ava", "AVA"} {
+		var taken *KidNameTakenError
+		if _, err := b.AddKid(ctx, name, "5555"); !errors.As(err, &taken) || taken.Name != "Ava" {
+			t.Errorf("AddKid(%q): err = %v, want KidNameTakenError for Ava", name, err)
+		}
+	}
+	if !b.VerifyKidPIN(ctx, ava, "1111") || b.VerifyKidPIN(ctx, ava, "5555") {
+		t.Error("a refused add changed the existing kid's PIN")
+	}
+	if _, err := b.AddKid(ctx, "Élodie", "2222"); err != nil {
+		t.Fatalf("AddKid(Élodie): %v", err)
+	}
+	if _, err := b.AddKid(ctx, "élodie", "3333"); !errors.As(err, new(*KidNameTakenError)) {
+		t.Errorf("AddKid(élodie): err = %v, want KidNameTakenError", err)
+	}
+	if _, err := b.AddKid(ctx, "", "3333"); err == nil {
+		t.Error("AddKid with empty name: want error")
+	}
+	kids, err := b.ListKids(ctx)
+	if err != nil || len(kids) != 2 {
+		t.Errorf("kids = %v (%v), want Ava and Élodie only", kids, err)
+	}
+	// migrate's CreateKid still returns the existing id for the exact name.
+	if id, err := b.CreateKid(ctx, "Ava", "9999"); err != nil || id != ava {
+		t.Errorf("CreateKid(Ava) = %s, %v; want the existing id %s", id, err, ava)
 	}
 }
 
@@ -244,5 +293,154 @@ func TestKidsInterface(t *testing.T) {
 	var kids core.Kids = &Budget{}
 	if kids == nil {
 		t.Fatal("Budget does not implement core.Kids")
+	}
+}
+
+// animalsByName lists the kids and returns each kid's animal by name,
+// failing the test when a kid has none or two kids share one.
+func animalsByName(t *testing.T, b *Budget) map[string]string {
+	t.Helper()
+	kids, err := b.ListKids(ctx)
+	if err != nil {
+		t.Fatalf("ListKids: %v", err)
+	}
+	out := make(map[string]string, len(kids))
+	seen := make(map[string]string)
+	for _, k := range kids {
+		if k.Animal == "" {
+			t.Fatalf("%s has no animal", k.Name)
+		}
+		if other, ok := seen[k.Animal]; ok {
+			t.Fatalf("%s and %s share %s", other, k.Name, k.Animal)
+		}
+		seen[k.Animal] = k.Name
+		out[k.Name] = k.Animal
+	}
+	return out
+}
+
+// TestKidAnimalsStayWhenKidsComeAndGo: a kid's animal is chosen once, so
+// adding a kid who sorts first, or removing one, changes nobody else's.
+func TestKidAnimalsStayWhenKidsComeAndGo(t *testing.T) {
+	b, _ := newTestBudget(t, at(nowOct26))
+	if _, err := b.AddKid(ctx, "Bea", "1111"); err != nil {
+		t.Fatalf("AddKid Bea: %v", err)
+	}
+	mustCreateKid(t, b, "Cy", "2222") // the importer's path
+	before := animalsByName(t, b)
+
+	aaron, err := b.AddKid(ctx, "Aaron", "3333")
+	if err != nil {
+		t.Fatalf("AddKid Aaron: %v", err)
+	}
+	added := animalsByName(t, b)
+	for _, name := range []string{"Bea", "Cy"} {
+		if added[name] != before[name] {
+			t.Errorf("adding Aaron changed %s from %s to %s", name, before[name], added[name])
+		}
+	}
+
+	if err := b.RemoveKid(ctx, aaron); err != nil {
+		t.Fatalf("RemoveKid: %v", err)
+	}
+	removed := animalsByName(t, b)
+	for _, name := range []string{"Bea", "Cy"} {
+		if removed[name] != before[name] {
+			t.Errorf("removing Aaron changed %s from %s to %s", name, before[name], removed[name])
+		}
+	}
+}
+
+// TestKidAnimalsMigrationKeepsOldAnimals: kids that existed before
+// animals were stored keep the animal the old rule showed them: position i
+// in ListKids' name order gets the i%8th of the old eight.
+func TestKidAnimalsMigrationKeepsOldAnimals(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "budget.sqlite"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	var before []store.Migration
+	for _, m := range Migrations {
+		if m.Version < 4 {
+			before = append(before, m)
+		}
+	}
+	if err := s.Migrate(before...); err != nil {
+		t.Fatalf("migrate to version 3: %v", err)
+	}
+	// Inserted out of order; byte order puts "Zed" before "abby".
+	names := []string{"sam", "Zed", "abby", "kim", "Ben", "lou", "max", "eve", "dan", "ida"}
+	for i, name := range names {
+		if _, err := s.DB().Exec(`INSERT INTO kids (id, name, pin, created) VALUES (?, ?, '0000', '')`,
+			name+"-id", name); err != nil {
+			t.Fatalf("insert kid %d: %v", i, err)
+		}
+	}
+	b, err := New(s)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	kids, err := b.ListKids(ctx)
+	if err != nil {
+		t.Fatalf("ListKids: %v", err)
+	}
+	old := []string{"🦊", "🐺", "🐰", "🐻", "🦁", "🐧", "🦄", "🐨"}
+	wantOrder := []string{"Ben", "Zed", "abby", "dan", "eve", "ida", "kim", "lou", "max", "sam"}
+	if len(kids) != len(wantOrder) {
+		t.Fatalf("ListKids = %v, want %d kids", kids, len(wantOrder))
+	}
+	for i, k := range kids {
+		if k.Name != wantOrder[i] || k.Animal != old[i%len(old)] {
+			t.Errorf("kids[%d] = %s %s, want %s %s", i, k.Name, k.Animal, wantOrder[i], old[i%len(old)])
+		}
+	}
+}
+
+// TestKidAnimalsAssignedOnceWhenListed: a kid stored without an animal
+// gets a free one the first time the kids are listed, and keeps it.
+func TestKidAnimalsAssignedOnceWhenListed(t *testing.T) {
+	b, s := newTestBudget(t, at(nowOct26))
+	mustCreateKid(t, b, "alex", "1111")
+	if _, err := s.DB().Exec(`INSERT INTO kids (id, name, pin, created) VALUES ('bare-id', 'bo', '0000', '')`); err != nil {
+		t.Fatalf("insert bare kid: %v", err)
+	}
+	first := animalsByName(t, b)
+	var stored string
+	if err := s.DB().QueryRow(`SELECT animal FROM kids WHERE id = 'bare-id'`).Scan(&stored); err != nil {
+		t.Fatalf("read stored animal: %v", err)
+	}
+	if stored != first["bo"] {
+		t.Errorf("bo's animal stored as %q, listed as %q", stored, first["bo"])
+	}
+	if again := animalsByName(t, b); again["bo"] != first["bo"] || again["alex"] != first["alex"] {
+		t.Errorf("second listing %v, first %v", again, first)
+	}
+}
+
+// TestPickAnimal: the hashed slot when free, the next free animal after it
+// when not, and the hashed slot again once every animal is taken.
+func TestPickAnimal(t *testing.T) {
+	const id = "0123456789abcdef0123456789abcdef"
+	slot := pickAnimal(id, nil)
+	start := -1
+	for i, a := range Animals {
+		if a == slot {
+			start = i
+		}
+	}
+	if start < 0 {
+		t.Fatalf("pickAnimal = %q, not an animal", slot)
+	}
+	next := Animals[(start+1)%len(Animals)]
+	if got := pickAnimal(id, map[string]bool{slot: true}); got != next {
+		t.Errorf("slot taken: pickAnimal = %s, want the next one %s", got, next)
+	}
+	all := make(map[string]bool)
+	for _, a := range Animals {
+		all[a] = true
+	}
+	if got := pickAnimal(id, all); got != slot {
+		t.Errorf("all taken: pickAnimal = %s, want the hashed slot %s", got, slot)
 	}
 }

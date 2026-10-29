@@ -4,15 +4,18 @@
 // server-rendered shells over plain JS/CSS embedded from static/practice;
 // every answer is graded by the service, and earned minutes go to the
 // budget counter through practice's Crediter. JSON lives under
-// /api/practice with the legacy ?kid= query shape.
+// /api/practice with the legacy ?kid= query shape. A kid practices only as
+// the kid signed in with their PIN (the shelf's unlock session), so one
+// sibling cannot earn minutes or spoil records on another's card.
 package web
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"html"
 	"io/fs"
 	"math"
@@ -20,6 +23,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/edementhon/kids-shelf/internal/practice"
 )
@@ -65,8 +69,44 @@ func practicePage(title, body string) string {
 	return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>` + html.EscapeString(title) + `</title>
-<link rel="stylesheet" href="/static/practice/practice.css">
+<link rel="stylesheet" href="` + practiceAsset("practice.css") + `">
 </head><body><div class="page">` + body + `</div></body></html>`
+}
+
+var (
+	practiceAssetsOnce sync.Once
+	practiceAssetURLs  map[string]string
+)
+
+// practiceAsset returns the URL of a static/practice file with a content
+// hash in the query, so a new build's scripts replace the day-long cached
+// ones at once (an old cached script would not send what the APIs need).
+func practiceAsset(name string) string {
+	practiceAssetsOnce.Do(func() {
+		practiceAssetURLs = make(map[string]string)
+		entries, err := fs.ReadDir(practiceStatic, "static/practice")
+		if err != nil {
+			panic(err) // the embed always carries the static files
+		}
+		for _, e := range entries {
+			b, err := practiceStatic.ReadFile("static/practice/" + e.Name())
+			if err != nil {
+				panic(err)
+			}
+			sum := sha256.Sum256(b)
+			practiceAssetURLs[e.Name()] = "/static/practice/" + e.Name() + "?v=" + hex.EncodeToString(sum[:6])
+		}
+	})
+	if u, ok := practiceAssetURLs[name]; ok {
+		return u
+	}
+	return "/static/practice/" + name
+}
+
+// practiceScripts loads the shared helpers, then the page script.
+func practiceScripts(page string) string {
+	return `<script src="` + practiceAsset("common.js") + `"></script>
+<script src="` + practiceAsset(page) + `"></script>`
 }
 
 // writePracticePage answers a page request with the shared shell.
@@ -83,17 +123,13 @@ func practicePageError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
 	fmt.Fprint(w, practicePage(msg, `<h1>`+html.EscapeString(msg)+`</h1>
-<p class="muted" style="text-align:center">Back to <a href="/practice">who's practicing</a>.</p>`))
+<div class="col"><a class="btn gray" href="/practice">← Back</a></div>`))
 }
 
-// practiceEmojis give each kid a stable animal on the practice cards, the
-// way the legacy mathfacts app assigned one per hardcoded kid.
-var practiceEmojis = []string{"🦊", "🐸", "🐨", "🐻", "🦁", "🐯", "🐵", "🐼", "🦄", "🐷"}
-
-func kidEmoji(id string) string {
-	h := fnv.New32a()
-	h.Write([]byte(id))
-	return practiceEmojis[h.Sum32()%uint32(len(practiceEmojis))]
+// practiceKidInfo is a resolved kid: display name and shelf animal.
+type practiceKidInfo struct {
+	name  string
+	emoji string
 }
 
 func practiceKidMessage(code int) string {
@@ -102,48 +138,67 @@ func practiceKidMessage(code int) string {
 		return "Practice is not running right now."
 	case http.StatusNotFound:
 		return "That kid isn't here."
+	case http.StatusUnauthorized:
+		return "Pick your name and type your PIN first."
 	default:
 		return "Could not load the kids."
 	}
 }
 
-// practiceKid resolves a kid id to its display name. The returned status is
+// practiceKid resolves a kid id to its name and animal and checks that this
+// kid is the one signed in with their PIN. The returned status is
 // http.StatusOK, or the error status to report (the caller picks the
 // response format: JSON for APIs, HTML for pages).
-func (s *Server) practiceKid(r *http.Request, id string) (string, int) {
+func (s *Server) practiceKid(r *http.Request, id string) (practiceKidInfo, int) {
 	if s.deps.Practice == nil || s.deps.Budget == nil {
-		return "", http.StatusServiceUnavailable
+		return practiceKidInfo{}, http.StatusServiceUnavailable
 	}
 	kids, err := s.deps.Budget.ListKids(r.Context())
 	if err != nil {
-		return "", http.StatusInternalServerError
+		return practiceKidInfo{}, http.StatusInternalServerError
 	}
 	for _, k := range kids {
-		if string(k.ID) == id {
-			return k.Name, http.StatusOK
+		if string(k.ID) != id {
+			continue
 		}
+		if sess, ok := s.currentSession(r); !ok || sess.grownup || string(sess.kid) != id {
+			return practiceKidInfo{}, http.StatusUnauthorized
+		}
+		return practiceKidInfo{name: k.Name, emoji: k.Animal}, http.StatusOK
 	}
-	return "", http.StatusNotFound
+	return practiceKidInfo{}, http.StatusNotFound
 }
 
-// practiceKidOK is practiceKid for JSON APIs: failures answer writeError.
-func (s *Server) practiceKidOK(w http.ResponseWriter, r *http.Request, id string) (string, bool) {
-	name, code := s.practiceKid(r, id)
-	if code != http.StatusOK {
+// practiceKidOK is practiceKid for JSON APIs: failures answer JSON, and a
+// missing sign-in carries err "signin" so the page can send the kid back
+// to the PIN screen.
+func (s *Server) practiceKidOK(w http.ResponseWriter, r *http.Request, id string) (practiceKidInfo, bool) {
+	kid, code := s.practiceKid(r, id)
+	switch code {
+	case http.StatusOK:
+		return kid, true
+	case http.StatusUnauthorized:
+		writeJSON(w, code, map[string]string{"error": practiceKidMessage(code), "err": "signin"})
+	default:
 		writeError(w, code, practiceKidMessage(code))
-		return "", false
 	}
-	return name, true
+	return practiceKidInfo{}, false
 }
 
-// practicePageKidOK is practiceKid for pages: failures answer HTML.
-func (s *Server) practicePageKidOK(w http.ResponseWriter, r *http.Request, id string) (string, bool) {
-	name, code := s.practiceKid(r, id)
-	if code == http.StatusOK {
-		return name, true
+// practicePageKidOK is practiceKid for pages: a kid who is not signed in is
+// sent to the practice home to type their PIN; other failures answer HTML.
+func (s *Server) practicePageKidOK(w http.ResponseWriter, r *http.Request, id string) (practiceKidInfo, bool) {
+	kid, code := s.practiceKid(r, id)
+	switch code {
+	case http.StatusOK:
+		return kid, true
+	case http.StatusUnauthorized:
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, "/practice", http.StatusSeeOther)
+	default:
+		practicePageError(w, code, practiceKidMessage(code))
 	}
-	practicePageError(w, code, practiceKidMessage(code))
-	return "", false
+	return practiceKidInfo{}, false
 }
 
 // ------------------------------------------------------------ JSON shapes
@@ -249,7 +304,11 @@ func practiceFail(w http.ResponseWriter, err error) {
 	case errors.Is(err, practice.ErrNoBoss):
 		writeError(w, http.StatusNotFound, "Every boss is already defeated.")
 	case errors.Is(err, practice.ErrBossChanged):
-		writeError(w, http.StatusConflict, "That fight came from an old page. Start a new one.")
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "That boss is gone. Let's go to the next one.", "err": "boss_changed"})
+	case errors.Is(err, practice.ErrStaleAnswer):
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "That round is over. Let's start a new one.", "err": "stale"})
 	default:
 		writeError(w, http.StatusInternalServerError, "Something went wrong. Try again.")
 	}
@@ -257,6 +316,9 @@ func practiceFail(w http.ResponseWriter, err error) {
 
 // ------------------------------------------------------------------ pages
 
+// handlePracticeHome is "who's practicing": the signed-in kid's math and
+// spelling cards, or, when nobody is signed in, the kids to pick from with
+// a PIN box (the same unlock as the shelf).
 func (s *Server) handlePracticeHome(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Practice == nil || s.deps.Budget == nil {
 		practicePageError(w, http.StatusServiceUnavailable, "Practice is not running right now.")
@@ -268,54 +330,94 @@ func (s *Server) handlePracticeHome(w http.ResponseWriter, r *http.Request) {
 		practicePageError(w, http.StatusInternalServerError, "Could not load the kids.")
 		return
 	}
+	back := `<a class="btn gray" href="/">← Back to the shelf</a>`
+	if len(kids) == 0 {
+		writePracticePage(w, "Practice", `<h1>🔢 Practice</h1>
+<p class="lead">No kids are set up yet. A grown-up can add kids on the parent page.</p>
+<div class="col"><a class="btn" href="/admin">Open the parent page</a>`+back+`</div>`)
+		return
+	}
+	sess, signedIn := s.currentSession(r)
+	me := -1
+	if signedIn && !sess.grownup {
+		for i, k := range kids {
+			if k.ID == sess.kid {
+				me = i
+			}
+		}
+	}
+	if me < 0 {
+		var tiles strings.Builder
+		for _, k := range kids {
+			fmt.Fprintf(&tiles, `<button type="button" class="choice" data-kid="%s" data-name="%s">%s %s</button>
+`, html.EscapeString(string(k.ID)), html.EscapeString(k.Name),
+				html.EscapeString(k.Animal), html.EscapeString(k.Name))
+		}
+		writePracticePage(w, "Practice", `<h1>🔢 Practice</h1>
+<div id="pick"><p class="lead">Who's practicing?</p>
+<div class="col">`+tiles.String()+back+`</div></div>
+<div id="pin" class="col" hidden>
+<p class="lead" id="pinwho"></p>
+<input class="ans" id="pinbox" type="password" inputmode="numeric" autocomplete="off" enterkeyhint="go" aria-label="Your PIN">
+<div class="feedback no" id="pinmsg" role="alert"></div>
+<button type="button" class="btn green" id="pingo">Go</button>
+<button type="button" class="btn gray" id="pinback">← Back</button>
+</div>
+`+practiceScripts("home.js"))
+		return
+	}
+	k := kids[me]
+	id := string(k.ID)
 	counter, err := pr.Counter()
 	if err != nil {
 		practicePageError(w, http.StatusInternalServerError, "Could not read the settings.")
 		return
 	}
-	var cards strings.Builder
-	for _, k := range kids {
-		id := string(k.ID)
-		ma, err := pr.Awards(id)
-		if err != nil {
-			practiceFail(w, err)
-			return
-		}
-		sa, err := pr.SpellAwards(id)
-		if err != nil {
-			practiceFail(w, err)
-			return
-		}
-		cfg, err := pr.ConfigFor(id)
-		if err != nil {
-			practiceFail(w, err)
-			return
-		}
-		today, saved, err := bud.Balance(r.Context(), k.ID, counter)
-		if err != nil {
-			practicePageError(w, http.StatusInternalServerError, "Could not read the budget.")
-			return
-		}
-		banked := today + saved
-		fmt.Fprintf(&cards, `<button class="choice" onclick="location='/practice/%s/math'" style="flex-direction:column">
-<span>%s %s</span>
-<span class="muted" style="font-size:.8em;margin-top:2px">🎮 %s video minutes · today %s of %s minutes you can earn</span>
-<span class="muted" style="font-size:.8em">🪙 %d of %d coins. %d coins earn you 1 more minute of watching</span>
-</button>`, id, kidEmoji(id), html.EscapeString(k.Name),
-			formatMinutes(banked), formatMinutes(ma.Earned), formatMinutes(ma.Cap),
-			ma.Coins, cfg.CoinsPerMinute, cfg.CoinsPerMinute)
-		fmt.Fprintf(&cards, `<button class="choice" onclick="location='/practice/%s/spell'" style="flex-direction:column">
-<span>🔤 %s Spelling</span>
-<span class="muted" style="font-size:.8em;margin-top:2px">Spelling today %s of %s minutes you can earn · 🪙 %d of %d coins. %d coins earn you 1 more minute</span>
-</button>`, id, html.EscapeString(k.Name),
-			formatMinutes(sa.Earned), formatMinutes(sa.Cap),
-			sa.Coins, cfg.CoinsPerMinute, cfg.CoinsPerMinute)
+	ma, err := pr.Awards(id)
+	if err != nil {
+		practicePageError(w, http.StatusInternalServerError, "Could not load your practice. Try again.")
+		return
 	}
-	body := `<h1>🔢 Math Practice</h1>
-<div class="muted" style="text-align:center;margin-bottom:16px">Who's practicing?</div>
-<div style="display:flex;flex-direction:column;align-items:center">` + cards.String() + `
-<a class="btn gray" href="/" style="margin-top:16px;min-height:44px;display:inline-flex;align-items:center;padding:0 20px">← Back to the shelf</a></div>`
-	writePracticePage(w, "Math Practice", body)
+	sa, err := pr.SpellAwards(id)
+	if err != nil {
+		practicePageError(w, http.StatusInternalServerError, "Could not load your practice. Try again.")
+		return
+	}
+	today, saved, err := bud.Balance(r.Context(), k.ID, counter)
+	if err != nil {
+		practicePageError(w, http.StatusInternalServerError, "Could not read the budget.")
+		return
+	}
+	body := fmt.Sprintf(`<h1>%s %s</h1>
+<p class="lead">🎮 You have %s to watch.</p>
+<div class="col">
+<a class="choice col-card" href="/practice/%s/math"><span>🔢 Math</span><span class="sub">%s</span></a>
+<a class="choice col-card" href="/practice/%s/spell"><span>🔤 Spelling</span><span class="sub">%s</span></a>
+<button type="button" class="btn gray" id="notme">🔒 Not you?</button>
+%s</div>
+%s`, html.EscapeString(k.Animal), html.EscapeString(k.Name),
+		minutesWord(today+saved),
+		id, earnedLine(ma.Earned, ma.Cap),
+		id, earnedLine(sa.Earned, sa.Cap),
+		back, practiceScripts("home.js"))
+	writePracticePage(w, "Practice", body)
+}
+
+// minutesWord is "1 minute", "3 minutes": whole minutes in kid words.
+func minutesWord(m float64) string {
+	n := formatMinutes(m)
+	if n == "1" {
+		return "1 minute"
+	}
+	return n + " minutes"
+}
+
+// earnedLine says how much of today's earning is done, in kid words.
+func earnedLine(earned, capMin float64) string {
+	if earned >= capMin-0.001 {
+		return "All " + minutesWord(capMin) + " earned today"
+	}
+	return "Earned today: " + formatMinutes(earned) + " of " + minutesWord(capMin)
 }
 
 // formatMinutes shows whole minutes, never below 0, on kid screens: floats
@@ -324,126 +426,118 @@ func formatMinutes(m float64) string {
 	return strconv.Itoa(int(math.Max(0, math.Floor(m))))
 }
 
-const practiceRoundMarkup = `<div id="menu"></div>
-<div id="play" style="display:none">
+// practiceRoundMarkup is the math and check-up play area. The answer box
+// is a text box with the number keypad (no spinner arrows, and the arrow
+// keys never change a typed answer).
+const practiceRoundMarkup = `<div id="menu" class="col"><p class="lead">Loading…</p></div>
+<div id="play" hidden>
 <div class="progress"><div class="bar" id="bar" style="width:0%"></div></div>
-<div id="earned" class="muted" style="text-align:center;margin-bottom:6px"></div>
-<div id="jar" style="text-align:center;margin-bottom:4px;font-size:1.1em;font-weight:700;color:#ffd76e"></div>
-<div id="bar-line" style="text-align:center;margin-bottom:10px;font-size:1.05em;color:#ffd76e;font-weight:600"></div>
+<div id="banner" class="banner" role="status" hidden></div>
+<div id="earned" class="muted center"></div>
+<div id="jar" class="jar"></div>
+<div id="bar-line" class="goal"></div>
 <div class="eq"><span class="big" id="q"></span></div>
 <div class="ansrow">
-<input class="ans" id="ans" type="number" inputmode="numeric" autocomplete="off" enterkeyhint="go">
-<button class="btn" id="gobtn" style="font-size:1.6em">✓</button>
+<input class="ans" id="ans" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="go" aria-label="Your answer">
+<button type="button" class="btn" id="gobtn" style="font-size:1.6em" aria-label="Check">✓</button>
 </div>
-<div class="feedback" id="fb"></div>
-<div style="text-align:center;margin-top:14px"><button type="button" class="btn gray" id="stopbtn">Stop this round</button></div>
+<div class="feedback" id="fb" role="status"></div>
+<div class="col"><button type="button" class="btn gray" id="stopbtn">Stop this round</button></div>
 </div>
-<div id="done" style="display:none"></div>`
+<div id="done" class="col" hidden></div>`
 
-func roundPageBody(id, name string, checkup bool) string {
-	h1 := `<h1>` + kidEmoji(id) + " " + html.EscapeString(name) + `</h1>`
+func roundPageBody(id string, kid practiceKidInfo, checkup bool) string {
+	h1 := `<h1>` + kid.emoji + " " + html.EscapeString(kid.name) + `</h1>`
 	seed := "0"
 	if checkup {
-		h1 = `<h1>🩺 Check-up: ` + html.EscapeString(name) + `</h1>`
+		h1 = `<h1>🩺 Check-up: ` + html.EscapeString(kid.name) + `</h1>`
 		seed = "1"
 	}
-	return h1 + `<div id="menustatus" class="muted" style="text-align:center;margin-bottom:10px"></div>` +
-		practiceRoundMarkup +
+	return h1 + practiceRoundMarkup +
 		`<script>window.KID=` + strconv.Quote(id) + `;window.CHECKUP=` + seed + `;</script>
-<script src="/static/practice/math.js"></script>`
+` + practiceScripts("math.js")
 }
 
 // handlePracticePage dispatches /practice/{page...} to the four kid pages,
 // parsing the kid id and page name from the remainder.
 func (s *Server) handlePracticePage(w http.ResponseWriter, r *http.Request) {
 	rest := r.PathValue("page")
-	kid, page, ok := strings.Cut(rest, "/")
+	id, page, ok := strings.Cut(rest, "/")
 	if !ok {
 		practicePageError(w, http.StatusNotFound, "That isn't a practice page.")
 		return
 	}
 	switch page {
-	case "math":
-		name, ok := s.practicePageKidOK(w, r, kid)
-		if !ok {
-			return
-		}
-		writePracticePage(w, name+" - Math", roundPageBody(kid, name, false))
-	case "checkup":
-		name, ok := s.practicePageKidOK(w, r, kid)
-		if !ok {
-			return
-		}
-		writePracticePage(w, "Check-up - "+name, roundPageBody(kid, name, true))
-	case "spell":
-		s.handleSpellPage(w, r, kid)
-	case "boss":
-		s.handleBossPage(w, r, kid)
+	case "math", "checkup", "spell", "boss":
 	default:
 		practicePageError(w, http.StatusNotFound, "That isn't a practice page.")
+		return
 	}
-}
-
-func (s *Server) handleSpellPage(w http.ResponseWriter, r *http.Request, id string) {
-	name, ok := s.practicePageKidOK(w, r, id)
+	kid, ok := s.practicePageKidOK(w, r, id)
 	if !ok {
 		return
 	}
+	switch page {
+	case "math":
+		writePracticePage(w, kid.name+" - Math", roundPageBody(id, kid, false))
+	case "checkup":
+		writePracticePage(w, "Check-up - "+kid.name, roundPageBody(id, kid, true))
+	case "spell":
+		writePracticePage(w, kid.name+" - Spelling", spellPageBody(id, kid))
+	case "boss":
+		writePracticePage(w, "Boss Arena", bossPageBody(id))
+	}
+}
+
+func spellPageBody(id string, kid practiceKidInfo) string {
 	hints := make(map[string]string)
 	for _, w := range practice.Words() {
 		hints[w.Word] = w.Hint
 	}
 	hintJSON, _ := json.Marshal(hints)
-	body := `<h1>` + kidEmoji(id) + " " + html.EscapeString(name) + ` - 🔤 Spelling</h1>
-<div id="menu"><div class="muted" style="text-align:center">Loading…</div></div>
-<div id="play" style="display:none">
+	return `<h1>` + kid.emoji + " " + html.EscapeString(kid.name) + `: 🔤 Spelling</h1>
+<div id="menu" class="col"><p class="lead">Loading…</p></div>
+<div id="play" hidden>
 <div class="progress"><div class="bar" id="bar" style="width:0%"></div></div>
-<div id="earned" class="muted" style="text-align:center;margin-bottom:6px"></div>
-<div id="jar" style="text-align:center;margin-bottom:4px;font-size:1.1em;font-weight:700;color:#ffd76e"></div>
-<div style="text-align:center;margin:18px 0">
-<button class="btn orange" style="font-size:1.6em" onclick="playWord()">🔊 Play the word</button>
+<div id="banner" class="banner" role="status" hidden></div>
+<div id="earned" class="muted center"></div>
+<div id="jar" class="jar"></div>
+<div class="col">
+<button type="button" class="btn orange" style="font-size:1.6em" id="playbtn">🔊 Play the word</button>
 </div>
-<div class="muted" style="text-align:center;margin-bottom:6px" id="hint"></div>
+<div class="hint" id="hint"></div>
 <div class="ansrow">
-<input class="ans" id="ans" style="width:280px" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="type the word" enterkeyhint="go">
-<button class="btn green" id="gobtn" style="font-size:1.5em">✓</button>
+<input class="ans" id="ans" style="width:280px" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="type the word" enterkeyhint="go" aria-label="Type the word">
+<button type="button" class="btn green" id="gobtn" style="font-size:1.5em" aria-label="Check">✓</button>
 </div>
-<div id="fb" class="feedback" style="min-height:1.5em;margin-top:10px"></div>
-<div style="text-align:center;margin-top:14px"><button type="button" class="btn gray" id="stopbtn">Stop this round</button></div>
+<div id="fb" class="feedback" role="status"></div>
+<div class="col"><button type="button" class="btn gray" id="stopbtn">Stop this round</button></div>
 </div>
-<div id="done" style="display:none"></div>
+<div id="done" class="col" hidden></div>
 <script>window.KID=` + strconv.Quote(id) + `;window.HINTS=` + string(hintJSON) + `;</script>
-<script src="/static/practice/spell.js"></script>`
-	writePracticePage(w, name+" - Spelling", body)
+` + practiceScripts("spell.js")
 }
 
-func (s *Server) handleBossPage(w http.ResponseWriter, r *http.Request, id string) {
-	_, ok := s.practicePageKidOK(w, r, id)
-	if !ok {
-		return
-	}
-	body := `<h1 style="text-align:center">⚔️ Boss Arena</h1>
-<div id="menu"><div class="muted" style="text-align:center">Loading…</div></div>
-<div id="play" style="display:none">
-<div id="art" style="text-align:center"></div>
-<div id="hearts" style="text-align:center;font-size:1.6em;color:#e04b4b"></div>
-<div id="jar" style="text-align:center;margin:6px 0;font-weight:700;color:#ffd76e"></div>
-<div id="q" style="text-align:center;font-size:2em;font-weight:800;margin:14px 0"></div>
-<div style="max-width:260px;margin:0 auto 4px;height:10px;border-radius:6px;background:#2a3547;overflow:hidden">
-<div id="tbar" style="height:100%;width:100%;background:#4ba3e0;border-radius:6px"></div>
-</div>
-<div id="ttxt" class="muted" style="text-align:center;font-size:.85em"></div>
+func bossPageBody(id string) string {
+	return `<h1>⚔️ Boss Arena</h1>
+<div id="menu" class="col"><p class="lead">Loading…</p></div>
+<div id="play" hidden>
+<div id="art" class="center"></div>
+<div id="hearts" class="center" style="font-size:1.6em"></div>
+<div id="jar" class="jar"></div>
+<div id="q" class="center" style="font-size:2em;font-weight:800;margin:14px 0"></div>
+<div class="timer"><div id="tbar"></div></div>
+<div id="ttxt" class="muted center"></div>
 <div class="ansrow">
-<input class="ans" id="ans" style="width:200px" autocomplete="off" inputmode="numeric" placeholder="?" enterkeyhint="go">
-<button class="btn red" id="gobtn" style="font-size:1.5em">✓</button>
+<input class="ans" id="ans" style="width:200px" type="text" autocomplete="off" inputmode="numeric" pattern="[0-9]*" placeholder="?" enterkeyhint="go" aria-label="Your answer">
+<button type="button" class="btn red" id="gobtn" style="font-size:1.5em" aria-label="Check">✓</button>
 </div>
-<div id="fb" class="feedback" style="min-height:1.5em;margin-top:10px"></div>
-<div style="text-align:center;margin-top:14px"><button type="button" class="btn gray" id="stopbtn">Stop the fight</button></div>
+<div id="fb" class="feedback" role="status"></div>
+<div class="col"><button type="button" class="btn gray" id="stopbtn">Stop the fight</button></div>
 </div>
-<div id="done" style="display:none"></div>
+<div id="done" class="col" hidden></div>
 <script>window.KID=` + strconv.Quote(id) + `;</script>
-<script src="/static/practice/boss.js"></script>`
-	writePracticePage(w, "Boss Arena", body)
+` + practiceScripts("boss.js")
 }
 
 // ------------------------------------------------------------- spell audio
@@ -587,12 +681,18 @@ func (s *Server) handlePracticeRound(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "mode": mode, "checkup": checkup, "questions": questions,
+		"round": pr.OpenMathRound(id, mode, qs),
 	})
 }
 
+// practiceAnswerBody is one math answer. Round and N name the question on
+// screen (the round id from /api/practice/round and its position), so a
+// repeated or early send can never grade a question the kid has not seen.
 type practiceAnswerBody struct {
 	Kid   string `json:"kid"`
 	Mode  string `json:"mode"`
+	Round string `json:"round"`
+	N     int    `json:"n"`
 	A     int    `json:"a"`
 	B     int    `json:"b"`
 	Op    string `json:"op"`
@@ -609,8 +709,8 @@ func (s *Server) handlePracticeAnswer(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.practiceKidOK(w, r, body.Kid); !ok {
 		return
 	}
-	out, err := s.deps.Practice.RecordAnswer(r.Context(), body.Kid, body.Mode,
-		body.A, body.B, body.Op, body.Given, body.Ms)
+	out, err := s.deps.Practice.RecordRoundAnswer(r.Context(), body.Kid, body.Mode,
+		body.Round, body.N, body.A, body.B, body.Op, body.Given, body.Ms)
 	if err != nil {
 		practiceFail(w, err)
 		return
@@ -749,11 +849,17 @@ func (s *Server) handleSpellRound(w http.ResponseWriter, r *http.Request) {
 		practiceFail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "words": words})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "words": words, "round": pr.OpenSpellRound(id, words),
+	})
 }
 
+// practiceSpellAnswerBody is one spelling answer; Round and N name the
+// word being played, as in practiceAnswerBody.
 type practiceSpellAnswerBody struct {
 	Kid   string `json:"kid"`
+	Round string `json:"round"`
+	N     int    `json:"n"`
 	Word  string `json:"word"`
 	Given string `json:"given"`
 	Ms    int    `json:"ms"`
@@ -768,8 +874,8 @@ func (s *Server) handleSpellAnswer(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.practiceKidOK(w, r, body.Kid); !ok {
 		return
 	}
-	out, err := s.deps.Practice.RecordSpellAnswer(r.Context(), body.Kid,
-		body.Word, body.Given, body.Ms)
+	out, err := s.deps.Practice.RecordSpellRoundAnswer(r.Context(), body.Kid,
+		body.Round, body.N, body.Word, body.Given, body.Ms)
 	if err != nil {
 		practiceFail(w, err)
 		return
@@ -815,12 +921,17 @@ func (s *Server) handleBossRound(w http.ResponseWriter, r *http.Request) {
 		questions = append(questions, practiceQuestionView{A: q.A, B: q.B, Op: q.Op})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true, "boss": bossView(f.Boss), "hearts": f.Hearts, "questions": questions,
+		"ok": true, "boss": bossView(f.Boss), "hearts": f.Hearts, "php": f.PHP,
+		"questions": questions, "round": f.Round,
 	})
 }
 
+// practiceBossAnswerBody is one boss answer; Round and N name the question
+// on screen of the fight from /api/practice/boss_round.
 type practiceBossAnswerBody struct {
 	Kid   string `json:"kid"`
+	Round string `json:"round"`
+	N     int    `json:"n"`
 	A     int    `json:"a"`
 	B     int    `json:"b"`
 	Op    string `json:"op"`
@@ -836,17 +947,9 @@ func (s *Server) handleBossAnswer(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.practiceKidOK(w, r, body.Kid); !ok {
 		return
 	}
-	m, err := s.deps.Practice.BossAnswer(r.Context(), body.Kid,
-		body.A, body.B, body.Op, body.Given)
+	m, err := s.deps.Practice.BossRoundAnswer(r.Context(), body.Kid,
+		body.Round, body.N, body.A, body.B, body.Op, body.Given)
 	if err != nil {
-		if errors.Is(err, practice.ErrBossChanged) {
-			writeJSON(w, http.StatusConflict, map[string]any{
-				"error":  "That fight came from an old page. Start a new one.",
-				"err":    "boss_changed",
-				"answer": practice.AnswerOf(body.A, body.B, body.Op),
-			})
-			return
-		}
 		practiceFail(w, err)
 		return
 	}

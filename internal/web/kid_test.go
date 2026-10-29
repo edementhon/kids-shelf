@@ -476,8 +476,12 @@ func TestKidPINBruteForceThrottle(t *testing.T) {
 		t.Fatalf("sixth try: status %d, want 429 (body %v)", resp.StatusCode, m)
 	}
 	msg, _ := m["error"].(string)
-	if !strings.Contains(msg, "Too many wrong PINs. Try again in") {
-		t.Errorf("429 message = %q, want the plain try-again wording", msg)
+	if msg != "Too many tries. Wait a little bit, then try again." {
+		t.Errorf("429 message = %q, want the plain kid wording", msg)
+	}
+	// The keypad counts the lockout down from this field.
+	if wait, _ := m["wait"].(float64); wait < 1 {
+		t.Errorf("429 wait = %v, want the lockout seconds", m["wait"])
 	}
 	if resp, _ := e.do("GET", "/api/kid/me", nil); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("me after locked-out unlock: status %d, want 401 (no session)", resp.StatusCode)
@@ -1343,5 +1347,180 @@ func TestWatchNextSkipsPending(t *testing.T) {
 	// The last episode has no next.
 	if next, title := nextOf("ep-3"); next != "" || title != "" {
 		t.Errorf("ep-3 next = %q/%q, want empty", next, title)
+	}
+}
+
+// TestConsumeRefusesPending: a metering tick for an episode whose better
+// copy is still being made ("Getting ready", fix pending) is refused before
+// any charge, like /media and /api/kid/started, whatever the client sends.
+func TestConsumeRefusesPending(t *testing.T) {
+	e := newKidEnv(t)
+	e.publishShow("show-fun", "Fun Show", library.BinFun, "ep-ready", "Ready", 300)
+	if err := e.lib.Publish(e.ctx, core.Episode{
+		ID: "ep-pending", ShowID: "show-fun", Title: "Pending", File: "/media/ep-pending.mkv", DurationSec: 300,
+		Source: core.Source{Kind: core.SourceFolder, Path: "Fun Show/ep-pending.mkv", Title: "Pending", Show: "Fun Show"},
+		Issue:  core.IssuePicture, Fix: core.FixPending,
+	}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	e.importToday(e.ada, 10, 0)
+	e.unlockAda()
+	status, m := e.consume("ep-pending", 5)
+	if status != http.StatusConflict {
+		t.Fatalf("consume pending: status %d body %v, want 409", status, m)
+	}
+	if msg, _ := m["error"].(string); msg != msgGettingReady {
+		t.Errorf("consume pending error = %q, want %q", msg, msgGettingReady)
+	}
+	resp, bal := e.do("GET", "/api/balance", nil)
+	if resp.StatusCode != http.StatusOK || bal["total"] != 10.0 {
+		t.Errorf("balance after a refused tick = %v, want 10 minutes untouched", bal)
+	}
+	// A playable episode of the same show still charges (5 s at fun rate).
+	if status, m := e.consume("ep-ready", 5); status != http.StatusOK || m["total"] != 9.92 {
+		t.Errorf("consume ready = %d %v, want 9.92 left", status, m)
+	}
+}
+
+// TestPositionNearEndClears: a position reported within 5 seconds of the
+// episode's end clears the resume spot, so a finished episode leaves Keep
+// watching even when a client sends the end position instead of 0; one
+// just outside the last 5 seconds is still saved.
+func TestPositionNearEndClears(t *testing.T) {
+	e := newKidEnv(t)
+	fun, _, _ := e.seedCatalog() // 180 s
+	e.unlockAda()
+	resume := func() float64 {
+		t.Helper()
+		resp, m := e.do("GET", "/api/kid/resume/"+string(fun), nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("resume: status %d body %v", resp.StatusCode, m)
+		}
+		pos, _ := m["pos"].(float64)
+		return pos
+	}
+	e.do("POST", "/api/kid/position", map[string]any{"episode": string(fun), "pos": 174})
+	if got := resume(); got != 174 {
+		t.Fatalf("resume after 174 s = %v, want 174 (6 s before the end is kept)", got)
+	}
+	e.do("POST", "/api/kid/position", map[string]any{"episode": string(fun), "pos": 176})
+	if got := resume(); got != 0 {
+		t.Errorf("resume after 176 s of 180 = %v, want 0 (finished)", got)
+	}
+	_, m := e.do("GET", "/api/keep-watching", nil)
+	if items, _ := m["items"].([]any); len(items) != 0 {
+		t.Errorf("keep watching after the end = %v, want empty", items)
+	}
+}
+
+// TestKeepWatchingAndRecentCarryIssueFix: both recommendation rows send
+// each episode's issue and fix, so the kid page labels them and sends a
+// pending one to its "Getting ready" panel instead of the player.
+func TestKeepWatchingAndRecentCarryIssueFix(t *testing.T) {
+	e := newKidEnv(t)
+	e.publishWithStatus("s1", "Fix Show", "ep-failed", "Quiet", core.IssueSound, core.FixFailed)
+	e.unlockAda()
+	e.do("POST", "/api/kid/position", map[string]any{"episode": "ep-failed", "pos": 42})
+	if resp, m := e.do("POST", "/api/kid/started", map[string]any{"episode": "ep-failed"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("started: status %d body %v", resp.StatusCode, m)
+	}
+	// An episode watched earlier that backfill or a retry marked pending.
+	e.publishWithStatus("s1", "Fix Show", "ep-later", "Later", core.IssuePicture, core.FixPending)
+	if err := e.lib.ImportResume(e.ctx, e.ada, "ep-later", 30, fixedNow()); err != nil {
+		t.Fatalf("ImportResume: %v", err)
+	}
+	if err := e.lib.ImportHouseholdRecent(e.ctx, "ep-later", fixedNow().Add(-time.Hour), e.ada); err != nil {
+		t.Fatalf("ImportHouseholdRecent: %v", err)
+	}
+	want := map[string][2]string{
+		"ep-failed": {core.IssueSound, core.FixFailed},
+		"ep-later":  {core.IssuePicture, core.FixPending},
+	}
+	check := func(path string) {
+		t.Helper()
+		resp, m := e.do("GET", path, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status %d body %v", path, resp.StatusCode, m)
+		}
+		items, _ := m["items"].([]any)
+		if len(items) != len(want) {
+			t.Fatalf("%s items = %v, want %d", path, items, len(want))
+		}
+		for _, raw := range items {
+			it := raw.(map[string]any)
+			w := want[it["episode"].(string)]
+			if it["issue"] != w[0] || it["fix"] != w[1] {
+				t.Errorf("%s %s: issue %v fix %v, want %s/%s", path, it["episode"], it["issue"], it["fix"], w[0], w[1])
+			}
+		}
+	}
+	check("/api/keep-watching")
+	check("/api/recent")
+	if resp, _ := e.do("POST", "/api/kid/watch-together", map[string]string{"pin": "9999"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("watch-together: status %d", resp.StatusCode)
+	}
+	check("/api/recent") // the household list
+}
+
+// TestWatchTogetherSessionIsShort: a grown-up watch-together session (free,
+// unmetered) ends after 2 hours, so a kid cannot keep watching for free on
+// a device a grown-up walked away from; a kid's own unlock keeps the long
+// kid session lifetime.
+func TestWatchTogetherSessionIsShort(t *testing.T) {
+	e, advance := newKidEnvClock(t)
+	resp, _ := e.do("POST", "/api/kid/watch-together", map[string]string{"pin": "9999"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("watch-together: status %d", resp.StatusCode)
+	}
+	for _, c := range resp.Cookies() {
+		if c.Name == sessionCookie && c.MaxAge != int((2*time.Hour).Seconds()) {
+			t.Errorf("grown-up cookie MaxAge = %d, want %d", c.MaxAge, int((2 * time.Hour).Seconds()))
+		}
+	}
+	advance(2*time.Hour - time.Minute)
+	if resp, _ := e.do("GET", "/api/kid/me", nil); resp.StatusCode != http.StatusOK {
+		t.Fatalf("grown-up session before 2 h: status %d, want 200", resp.StatusCode)
+	}
+	advance(2 * time.Minute)
+	if resp, _ := e.do("GET", "/api/kid/me", nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("grown-up session after 2 h: status %d, want 401", resp.StatusCode)
+	}
+
+	e.unlockAda()
+	advance(3 * time.Hour)
+	if resp, m := e.do("GET", "/api/kid/me", nil); resp.StatusCode != http.StatusOK || m["grownup"] != false {
+		t.Errorf("kid session after 3 h: status %d body %v, want still unlocked", resp.StatusCode, m)
+	}
+}
+
+// TestEntryMessagesSpeakToTheirReader: a wrong grown-up PIN tells the
+// grown-up to try again (not to ask a grown-up), and an unlock before the
+// minutes service is up says plainly that the shelf is still starting.
+func TestEntryMessagesSpeakToTheirReader(t *testing.T) {
+	e := newKidEnv(t)
+	resp, m := e.do("POST", "/api/kid/watch-together", map[string]string{"pin": "0000"})
+	msg, _ := m["error"].(string)
+	if resp.StatusCode != http.StatusUnauthorized || strings.Contains(strings.ToLower(msg), "ask a grown-up") || !strings.Contains(msg, "Try again") {
+		t.Errorf("wrong grown-up PIN = %d %q, want 401 asking the grown-up to try again", resp.StatusCode, msg)
+	}
+
+	starting := httptest.NewServer(NewApp("kid-test", Deps{Library: e.lib}).Mux())
+	t.Cleanup(starting.Close)
+	req, err := http.NewRequest(http.MethodPost, starting.URL+"/api/kid/unlock", strings.NewReader(`{"kid":"x","pin":"1234"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", starting.URL)
+	r, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	var body map[string]any
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	msg, _ = body["error"].(string)
+	if r.StatusCode != http.StatusServiceUnavailable || !strings.Contains(msg, "still starting") || strings.Contains(msg, "budget") {
+		t.Errorf("unlock while starting = %d %q, want 503 saying the shelf is still starting", r.StatusCode, msg)
 	}
 }

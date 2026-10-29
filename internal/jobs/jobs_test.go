@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 
@@ -637,5 +638,208 @@ func TestFailedFolderJobsRequeuedByMigration(t *testing.T) {
 	}
 	if job == nil || (job.ID != "folder" && job.ID != "nas") {
 		t.Fatalf("first claim = %+v, want a requeued folder/NAS job", job)
+	}
+}
+
+// insertSourceJob writes an ingest job row the way ingest marshals its
+// payload (core.Source embedded untagged, so its keys are "Kind" and
+// "Path") with an explicit seq, the enqueue order.
+func insertSourceJob(t *testing.T, s *store.Store, id, state string, seq int, src core.Source, shown bool) {
+	t.Helper()
+	payload, err := json.Marshal(struct {
+		File      string      `json:"file"`
+		Source    core.Source `json:"source"`
+		EpisodeID string      `json:"episode_id"`
+		Shown     bool        `json:"shown"`
+	}{src.Path, src, "ep-" + id, shown})
+	if err != nil {
+		t.Fatal(err)
+	}
+	errText := ""
+	if state == StateFailed {
+		errText = "something broke"
+	}
+	now := "2026-10-01T00:00:00Z"
+	if _, err := s.DB().Exec(
+		`INSERT INTO jobs (id, kind, stage, state, payload, error, created, updated, seq)
+		 VALUES (?, 'ingest', 'convert', ?, ?, ?, ?, ?, ?)`,
+		id, state, string(payload), errText, now, now, seq,
+	); err != nil {
+		t.Fatalf("insert %s: %v", id, err)
+	}
+}
+
+// TestMigrationV5RetriesOnlyCurrentJob: the v5 second chance requeues only
+// a source's current job, its latest, and only when every job of that
+// source failed. A failed job superseded by a later job of the same source
+// (a done retry, a queued one, or a later failure) keeps its failure, so
+// the same file is never published twice.
+func TestMigrationV5RetriesOnlyCurrentJob(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "test.sqlite"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if err := s.Migrate(Migrations[:3]...); err != nil {
+		t.Fatalf("migrate v1-v3: %v", err)
+	}
+	src := func(name string) core.Source {
+		return core.Source{Kind: core.SourceFolder, Path: "/mnt/" + name, Title: name, Show: "S"}
+	}
+	insertSourceJob(t, s, "a-old", StateFailed, 1, src("a.mkv"), false)
+	insertSourceJob(t, s, "a-new", StateDone, 2, src("a.mkv"), false)
+	insertSourceJob(t, s, "b-old", StateFailed, 3, src("b.mkv"), false)
+	insertSourceJob(t, s, "b-new", StateFailed, 4, src("b.mkv"), false)
+	insertSourceJob(t, s, "c-old", StateFailed, 5, src("c.mkv"), false)
+	insertSourceJob(t, s, "c-new", StateQueued, 6, src("c.mkv"), false)
+	insertSourceJob(t, s, "d", StateFailed, 7, src("d.mkv"), false)
+	if err := s.Migrate(Migrations[3:]...); err != nil {
+		t.Fatalf("migrate v4-: %v", err)
+	}
+	q, err := New(s)
+	if err != nil {
+		t.Fatalf("jobs.New: %v", err)
+	}
+	for id, want := range map[string]string{
+		"a-old": StateFailed, "a-new": StateDone,
+		"b-old": StateFailed, "b-new": StateQueued,
+		"c-old": StateFailed, "c-new": StateQueued,
+		"d": StateQueued,
+	} {
+		j, err := q.Get(id)
+		if err != nil {
+			t.Fatalf("Get %s: %v", id, err)
+		}
+		if j.State != want {
+			t.Errorf("%s: state %s, want %s", id, j.State, want)
+		}
+	}
+}
+
+// TestRetryFailedSourcesCurrentJobOnly: the per-version retry requeues the
+// current failed job of each folder/NAS source, never one superseded by a
+// later job of the same source; prepare sees every candidate, may leave it
+// failed (ok false) and supplies the payload it is requeued with. Nothing
+// lands before the caller commits.
+func TestRetryFailedSourcesCurrentJobOnly(t *testing.T) {
+	q := newTestQueue(t)
+	s := q.store
+	src := func(kind core.SourceKind, name string) core.Source {
+		return core.Source{Kind: kind, Path: "/mnt/" + name, Title: name, Show: "S"}
+	}
+	insertSourceJob(t, s, "a-old", StateFailed, 1, src(core.SourceFolder, "a.mkv"), false)
+	insertSourceJob(t, s, "a-new", StateDone, 2, src(core.SourceFolder, "a.mkv"), false)
+	insertSourceJob(t, s, "b-old", StateFailed, 3, src(core.SourceNAS, "b.mkv"), true)
+	insertSourceJob(t, s, "b-new", StateFailed, 4, src(core.SourceNAS, "b.mkv"), true)
+	insertSourceJob(t, s, "c-old", StateFailed, 5, src(core.SourceFolder, "c.mkv"), false)
+	insertSourceJob(t, s, "c-new", StateRunning, 6, src(core.SourceFolder, "c.mkv"), false)
+	insertSourceJob(t, s, "keep", StateFailed, 7, src(core.SourceFolder, "keep.mkv"), true)
+	insertSourceJob(t, s, "yt", StateFailed, 8, src(core.SourceYouTube, "yt"), false)
+	// The same path under another source kind is another source.
+	insertSourceJob(t, s, "a-nas", StateFailed, 9, src(core.SourceNAS, "a.mkv"), false)
+
+	var seen []string
+	prepare := func(j *Job) (json.RawMessage, bool, error) {
+		seen = append(seen, j.ID)
+		if j.ID == "keep" {
+			return nil, false, nil
+		}
+		return json.RawMessage(`{"retried":"` + j.ID + `"}`), true, nil
+	}
+	tx, err := s.DB().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := q.RetryFailedSources(tx, "ingest", []string{"folder", "nas"}, prepare)
+	if err != nil {
+		t.Fatalf("RetryFailedSources: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("requeued %d, want 2 (b-new, a-nas)", n)
+	}
+	slices.Sort(seen)
+	if want := []string{"a-nas", "b-new", "keep"}; !slices.Equal(seen, want) {
+		t.Errorf("prepare saw %v, want %v", seen, want)
+	}
+	// Rolled back, nothing changed.
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if j, _ := q.Get("b-new"); j.State != StateFailed {
+		t.Fatalf("after rollback b-new is %s, want failed", j.State)
+	}
+
+	tx, err = s.DB().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.RetryFailedSources(tx, "ingest", []string{"folder", "nas"}, prepare); err != nil {
+		t.Fatalf("RetryFailedSources: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{
+		"a-old": StateFailed, "a-new": StateDone,
+		"b-old": StateFailed, "b-new": StateQueued,
+		"c-old": StateFailed, "c-new": StateRunning,
+		"keep": StateFailed, "yt": StateFailed, "a-nas": StateQueued,
+	} {
+		j, err := q.Get(id)
+		if err != nil {
+			t.Fatalf("Get %s: %v", id, err)
+		}
+		if j.State != want {
+			t.Errorf("%s: state %s, want %s", id, j.State, want)
+		}
+		if want == StateQueued {
+			if j.Stage != "" || j.Error != "" || j.Priority != 0 || j.Attempts != 0 {
+				t.Errorf("%s requeued with stage %q error %q priority %d attempts %d, want a fresh start",
+					id, j.Stage, j.Error, j.Priority, j.Attempts)
+			}
+			if string(j.Payload) != `{"retried":"`+id+`"}` {
+				t.Errorf("%s payload = %s, want the prepared one", id, j.Payload)
+			}
+		}
+	}
+}
+
+// TestResumePaused: jobs paused for one reason go back to the queue at the
+// stage they paused on, keeping their priority; jobs paused for another
+// reason (a full disk) and other kinds stay paused.
+func TestResumePaused(t *testing.T) {
+	q := newTestQueue(t)
+	mk := func(kind, reason string) string {
+		t.Helper()
+		id, err := q.Enqueue(kind, map[string]string{"k": kind})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := q.Requeue(id, "convert", 2000042); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := q.ClaimRange(kind, 2000042, 2000042); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.Pause(id, reason); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	blocked := mk("ingest", "waiting for tools")
+	disk := mk("ingest", "disk full")
+	other := mk("kiwix", "waiting for tools")
+	n, err := q.ResumePaused("ingest", "waiting for tools")
+	if err != nil || n != 1 {
+		t.Fatalf("ResumePaused = %d, %v; want 1", n, err)
+	}
+	j, _ := q.Get(blocked)
+	if j.State != StateQueued || j.Stage != "convert" || j.Priority != 2000042 || j.Error != "" {
+		t.Errorf("resumed job = %s/%s/%d/%q, want queued at convert, priority kept, no error", j.State, j.Stage, j.Priority, j.Error)
+	}
+	for _, id := range []string{disk, other} {
+		if j, _ := q.Get(id); j.State != StatePaused {
+			t.Errorf("%s is %s, want still paused", id, j.State)
+		}
 	}
 }

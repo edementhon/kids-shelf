@@ -8,64 +8,73 @@
 </head>
 <body>
 <header class="topbar">
-  <h1>🧰 kids-shelf · add videos &amp; libraries</h1>
+  <h1>kids-shelf · add videos &amp; libraries</h1>
   <nav><a class="navlink" href="/admin">← Parent page</a></nav>
 </header>
-<div class="msg hidden" id="msg"></div>
 
 <section class="card" id="sec-youtube">
-  <h2>▶️ Add from YouTube</h2>
+  <h2>Add from YouTube</h2>
   <p class="note">Paste a video, a playlist or a channel link. The download runs on this computer in the background.</p>
   <form id="ytform" class="inlineform">
-    <input type="url" id="yturl" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off">
+    <input type="text" inputmode="url" id="yturl" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false" aria-label="YouTube link">
     <button class="btn add" type="submit">Add</button>
   </form>
   <div id="ytjobs" class="jobs"></div>
 </section>
 
 <section class="card" id="sec-sources">
-  <h2>📂 Add a folder or NAS share</h2>
-  <p class="note">Videos found in the folder appear on the shelf. NAS = a network drive, like a Synology or a Plex box.</p>
+  <h2>Add a folder or NAS share</h2>
+  <p class="note">Each folder inside the folder you add becomes a show on the shelf, named after that folder. Videos placed straight in the folder you add go into one show named after it. NAS = a network drive, like a Synology or a Plex box.</p>
   <form id="srcform" class="inlineform">
-    <select id="srckind" class="mini">
+    <select id="srckind" class="mini" aria-label="Where the folder is">
       <option value="folder">A folder on this computer</option>
       <option value="nas">A network drive (NAS)</option>
     </select>
-    <input type="text" id="srcpath" placeholder="Path to the folder, e.g. __KS_OS_PATH__" autocomplete="off" spellcheck="false">
-    <button class="btn add" type="submit">Add folder</button>
+    <input type="text" id="srcpath" placeholder="Path to the folder, e.g. __KS_OS_PATH__" autocomplete="off" spellcheck="false" aria-label="Path to the folder">
+    <button class="btn add" type="submit" id="srcadd">Add folder</button>
   </form>
   <details class="pathshelp">
     <summary>Where do I find the path?</summary>
     <ul>
-      <li><b>Windows:</b> a folder like <code>D:\Videos\Kids</code>; a NAS share is at <code>\\SERVER\Kids</code>.</li>
+      <li><b>Windows:</b> a folder like <code>D:\Videos\Kids</code>; a NAS share is at <code>\\SERVER\Kids</code>. In File Explorer, right-click the folder and choose "Copy as path".</li>
       <li><b>Mac:</b> a folder like <code>/Users/you/Movies/Kids</code>; a NAS share appears under <code>/Volumes/</code>.</li>
       <li><b>Linux:</b> a folder like <code>/home/you/Videos/Kids</code>; a NAS share is usually mounted at <code>/mnt/</code> or <code>/media/</code>.</li>
     </ul>
-    <p>Tip: connect the NAS first so this computer can see it, then paste its address here.</p>
+    <p>A good layout: <code>Kids/Bluey/episode 1.mp4</code>, <code>Kids/Peppa Pig/episode 1.mp4</code>. Add the <code>Kids</code> folder and you get two shows.</p>
+    <p>Tip: connect the NAS first so this computer can see it, then paste its address here. Choosing "A network drive (NAS)" makes the list tell you to check the NAS when it can't be reached.</p>
   </details>
   <div class="rowbtns"><button class="btn amber" id="scanbtn" type="button">Scan now</button></div>
   <div id="sources" class="sourcelist"></div>
 </section>
 
 <section class="card" id="sec-convert">
-  <h2>⚙️ Conversions</h2>
-  <p class="note">Videos are turned into a format every tablet can play. This list shows the work waiting and running.</p>
+  <h2>Conversions</h2>
+  <p class="note">Videos are turned into a format every tablet can play. This list shows the work waiting and running, and what finished in the last day. A video that could not be added can be tried again.</p>
   <div id="ingestjobs" class="jobs"></div>
 </section>
 
 <section class="card" id="sec-fixing">
-  <h2>🔧 Fixing videos</h2>
+  <h2>Fixing videos</h2>
   <p class="note">Some videos cannot play well yet, so kids-shelf makes them a better copy in the background. This card lists the ones still waiting and the ones it could not fix.</p>
   <div id="fixing" class="jobs"></div>
 </section>
 
 <section class="card" id="sec-libraries">
-  <h2>📚 Offline libraries</h2>
-  <p class="note">Libraries work with no internet (great for trips). Think about space before you download: <b>all of English Wikipedia needs about 120 GB. Wikipedia's top 100 articles: 318 MB.</b> The kids' encyclopedia Vikidia is 74 MB.</p>
+  <h2>Offline libraries</h2>
+  <p class="note">Once downloaded, libraries work with no internet (great for trips). Think about space before you download: <b>all of English Wikipedia needs about 120 GB. Wikipedia's top 100 articles: 318 MB.</b> The kids' encyclopedia Vikidia is 74 MB.</p>
+  <p class="warnline hidden" id="libwarn" role="status"></p>
+  <div class="picks" id="catpicks">
+    <span class="pickslabel">Good for kids:</span>
+    <button class="btn chip" type="button" data-pick-cat="vikidia">Kids' encyclopedia</button>
+    <button class="btn chip" type="button" data-pick-q="wikipedia 100">Wikipedia's top 100</button>
+    <button class="btn chip" type="button" data-pick-cat="phet">Science games</button>
+    <button class="btn chip" type="button" data-pick-cat="gutenberg">Free books</button>
+    <button class="btn chip" type="button" data-pick-cat="wiktionary">Dictionary</button>
+  </div>
   <div class="filters">
-    <input type="search" id="catq" placeholder="Search libraries…" autocomplete="off">
-    <select id="catlang" class="mini"><option value="">Any language</option></select>
-    <select id="catcat" class="mini"><option value="">Any kind</option></select>
+    <input type="search" id="catq" placeholder="Search libraries…" autocomplete="off" aria-label="Search libraries">
+    <select id="catlang" class="mini" aria-label="Language"><option value="">Any language</option></select>
+    <select id="catcat" class="mini" aria-label="Kind of library"><option value="">Any kind</option></select>
     <button class="btn" id="catsearch" type="button">Search</button>
   </div>
   <div id="catstatus" class="statusline"></div>
@@ -79,8 +88,8 @@
 </section>
 
 <div class="overlay hidden" id="confirm">
-  <div class="overlay-box">
-    <h2>Download library?</h2>
+  <div class="overlay-box" role="dialog" aria-modal="true" aria-labelledby="confirmtitle">
+    <h2 id="confirmtitle">Download library?</h2>
     <p id="confirmtext" class="note"></p>
     <div class="rowbtns center">
       <button class="btn add" id="confirmok" type="button">Download</button>
@@ -90,8 +99,8 @@
 </div>
 
 <div class="overlay hidden" id="removeconfirm">
-  <div class="overlay-box">
-    <h2>Remove library?</h2>
+  <div class="overlay-box" role="dialog" aria-modal="true" aria-labelledby="removetitle">
+    <h2 id="removetitle">Remove library?</h2>
     <p id="removeconfirmtext" class="note"></p>
     <div class="rowbtns center">
       <button class="btn sub" id="removeok" type="button">Remove</button>
@@ -100,16 +109,36 @@
   </div>
 </div>
 
+<div class="overlay hidden" id="srcconfirm">
+  <div class="overlay-box" role="dialog" aria-modal="true" aria-labelledby="srcconfirmtitle">
+    <h2 id="srcconfirmtitle">Remove this folder from the list?</h2>
+    <p id="srcconfirmtext" class="note"></p>
+    <div class="rowbtns center">
+      <button class="btn sub" id="srcremoveok" type="button">Remove from the list</button>
+      <button class="btn" id="srcremoveno" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay hidden" id="pinoverlay">
-  <div class="overlay-box">
-    <h2>Parent PIN</h2>
+  <div class="overlay-box" role="dialog" aria-modal="true" aria-labelledby="pintitle">
+    <h2 id="pintitle">Parent PIN</h2>
     <p class="note">Enter the parent PIN to manage videos and libraries.</p>
-    <input type="password" id="pinval" inputmode="numeric" maxlength="4" placeholder="••••">
-    <p class="err hidden" id="pinerr">That PIN is not right. Try again.</p>
+    <input type="password" id="pinval" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off" aria-label="Parent PIN">
+    <p class="err hidden" id="pinerr" role="alert">That PIN is not right. Try again.</p>
     <div class="rowbtns center">
       <button class="btn add" id="pinok" type="button">Unlock</button>
     </div>
+    <div class="rowbtns center">
+      <a class="btn linkbtn" href="/">Back to the kids' shelf</a>
+    </div>
+    <p class="note center">Forgot the PIN? <a href="/admin">Open the parent page</a> on the computer kids-shelf runs on to reset it.</p>
   </div>
+</div>
+
+<div class="toast hidden" id="toast">
+  <span id="toasttext"></span>
+  <button type="button" class="toastclose" id="toastclose" aria-label="Close this message">×</button>
 </div>
 
 <script src="/admin/content/static/content.js"></script>

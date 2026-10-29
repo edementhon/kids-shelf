@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -32,6 +33,44 @@ func TestPinLockDurationCapsBeforeOverflow(t *testing.T) {
 		if got := pinLockDuration(tc.failures); got != tc.want {
 			t.Errorf("pinLockDuration(%d) = %v, want %v", tc.failures, got, tc.want)
 		}
+	}
+}
+
+// TestTooManyPINsKidWording: the 429 a kid reads on the keypad names no
+// number of seconds; the wait travels as "wait" and Retry-After so the
+// keypad can count it down and grey its keys.
+func TestTooManyPINsKidWording(t *testing.T) {
+	now := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	s := NewApp("throttle-test", Deps{DataDir: t.TempDir(), Now: func() time.Time { return now }})
+	pinThrottle.reset()
+	t.Cleanup(pinThrottle.reset)
+	for range pinThrottleAfter {
+		pinThrottle.fail(realmKidUnlock, "192.0.2.10", "ava", now)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/api/kid/unlock", nil)
+	r.RemoteAddr = "192.0.2.10:5555"
+	rec := httptest.NewRecorder()
+	if !s.pinLocked(rec, r, realmKidUnlock, "ava") {
+		t.Fatal("pinLocked = false after five wrong tries, want true")
+	}
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status %d, want 429", rec.Code)
+	}
+	var out struct {
+		Error string `json:"error"`
+		Wait  int    `json:"wait"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("body %q: %v", rec.Body.String(), err)
+	}
+	if out.Error != "Too many tries. Wait a little bit, then try again." {
+		t.Errorf("error = %q, want the kid wording", out.Error)
+	}
+	if out.Wait != 30 {
+		t.Errorf("wait = %d, want 30 (the first lockout)", out.Wait)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "30" {
+		t.Errorf("Retry-After = %q, want 30", got)
 	}
 }
 
