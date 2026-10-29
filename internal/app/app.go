@@ -537,6 +537,7 @@ func (a *App) Deps() web.Deps {
 		ClipsDir: a.clipsDir,
 		DataDir:  a.dataDir,
 		Now:      time.Now,
+		LANName:  os.Getenv("KS_LAN_NAME"),
 	}
 	// A nil *kiwix.Server assigned to the interface would make a non-nil
 	// interface and the /kiwix/ routes would treat libraries as available

@@ -248,11 +248,13 @@ func programLiteral(program string) string {
 }
 
 // allowScript returns the PowerShell that frees the program in the
-// firewall: every enabled inbound Block rule bound to its path goes, and a
-// fresh inbound Allow rule for it takes their place. The program path is
-// embedded as a single-quoted literal, so a path containing a quote cannot
-// break out of the script. It is pure so tests can check the escaping on
-// any platform; the Windows implementation runs it elevated.
+// firewall: every enabled inbound Block rule bound to its path goes, and
+// fresh inbound Allow rules for it take their place: TCP for the shelf's
+// ports, and UDP 5353 so tablets can find it by the name kids-shelf.local
+// (internal/mdns). The program path is embedded as a single-quoted
+// literal, so a path containing a quote cannot break out of the script. It
+// is pure so tests can check the escaping on any platform; the Windows
+// implementation runs it elevated.
 func allowScript(program string) string {
 	return "try {" +
 		"  Get-NetFirewallApplicationFilter -Program " + programLiteral(program) + " |" +
@@ -261,6 +263,9 @@ func allowScript(program string) string {
 		"    Remove-NetFirewallRule -ErrorAction Stop ;" +
 		"  New-NetFirewallRule -DisplayName 'kids-shelf' -Direction Inbound -Action Allow" +
 		"    -Program " + programLiteral(program) + " -Protocol TCP -Profile Any -RemoteAddress LocalSubnet" +
+		"    -ErrorAction Stop | Out-Null ;" +
+		"  New-NetFirewallRule -DisplayName 'kids-shelf (name)' -Direction Inbound -Action Allow" +
+		"    -Program " + programLiteral(program) + " -Protocol UDP -LocalPort 5353 -Profile Any -RemoteAddress LocalSubnet" +
 		"    -ErrorAction Stop | Out-Null" +
 		"} catch { Write-Error $_; exit 1 }"
 }

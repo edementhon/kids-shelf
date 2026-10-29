@@ -52,8 +52,12 @@ func newPracticeApp(t *testing.T) *practiceApp {
 	clips := t.TempDir()
 	// The practice service dedupes sessions by second-precision timestamp,
 	// so the fast loops below advance the clock between rounds instead of
-	// finishing several rounds inside one second.
-	now := time.Now()
+	// finishing several rounds inside one second. Each call moves it a
+	// minute, and one test makes over 60 calls, so it starts at 08:00 today:
+	// started from the real time after about 23:00, it crossed midnight
+	// mid-test and the daily caps reset (2026-10-29).
+	y, m, d := time.Now().Date()
+	now := time.Date(y, m, d, 8, 0, 0, 0, time.Local)
 	clock := func() time.Time {
 		now = now.Add(time.Minute)
 		return now

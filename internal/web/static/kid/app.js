@@ -931,6 +931,19 @@ async function runSearch(q) {
   }
 }
 
+// Opened from the parent page's QR code (?connect=1): tell kids-shelf once,
+// so the parent page can say a tablet connected, then drop the marker from
+// the address bar so a home-screen icon saved afterwards has the plain
+// address.
+function connectPing() {
+  const q = new URLSearchParams(location.search);
+  if (q.get('connect') !== '1') return;
+  fetch('/api/connected', { method: 'POST' }).catch(() => { /* only a nicety for the parent page */ });
+  q.delete('connect');
+  const rest = q.toString();
+  history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+}
+
 // ---------------------------------------------------------------------------
 // Wire up
 // ---------------------------------------------------------------------------
@@ -973,5 +986,6 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('pageshow', (ev) => { if (ev.persisted) init(); });
   window.addEventListener('online', () => { if (!$('who-retry').hidden) init(); });
   document.getElementById('q').addEventListener('input', onSearchInput);
+  connectPing();
   init();
 });

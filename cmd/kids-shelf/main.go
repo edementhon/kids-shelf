@@ -307,6 +307,7 @@ func runSupervisor(ctx context.Context, dir, install string, port int, noBrowser
 		Port:       port,
 		InstallDir: install,
 		NoBrowser:  noBrowser,
+		Announce:   true,
 		Child:      entryPath,
 		Resolve:    resolve,
 		Env:        []string{"KS_INSTALL=" + install, "KS_UPDATE_BASEURL=" + os.Getenv("KS_UPDATE_BASEURL")},

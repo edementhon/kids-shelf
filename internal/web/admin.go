@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -25,6 +24,7 @@ import (
 	"github.com/edementhon/kids-shelf/internal/budget"
 	"github.com/edementhon/kids-shelf/internal/core"
 	"github.com/edementhon/kids-shelf/internal/firewall"
+	"github.com/edementhon/kids-shelf/internal/lanaddr"
 	"github.com/edementhon/kids-shelf/internal/library"
 	"github.com/edementhon/kids-shelf/internal/update"
 )
@@ -524,7 +524,11 @@ type adminBins struct {
 type adminSettings struct {
 	Counter string `json:"counter,omitempty"` // absent when practice is not running
 	Address string `json:"address"`
-	QRSVG   string `json:"qr_svg"`
+	// NameAddress is the same page by the name the computer announces on
+	// the home network ("http://kids-shelf.local:8070/"), or "" when it
+	// announces none.
+	NameAddress string `json:"name_address"`
+	QRSVG       string `json:"qr_svg"` // the IP address with connectQuery
 	// SafariScreens is the "some screens are iPads, iPhones or Macs using
 	// Safari" setting: while on, remux-only files are converted to MP4 in
 	// the background after they appear on the shelf.
@@ -637,7 +641,8 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 		st.Settings.Counter, _ = p.Counter()
 	}
 	st.Settings.Address = s.adminAddress(r)
-	if svg, err := qrSVG(st.Settings.Address); err == nil {
+	st.Settings.NameAddress = s.nameAddress(r)
+	if svg, err := addressQR(st.Settings.Address); err == nil {
 		st.Settings.QRSVG = svg
 	}
 	if on, err := b.SafariScreens(ctx); err == nil {
@@ -729,19 +734,19 @@ func (s *Server) handleAdminState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
-// handleAdminAddress returns the LAN address and its QR code on their own,
-// used by the Settings panel and by tests.
+// handleAdminAddress returns the LAN address, the announced-name address
+// and the QR code on their own, used by the Settings panel and by tests.
 func (s *Server) handleAdminAddress(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
 	}
 	addr := s.adminAddress(r)
-	svg, err := qrSVG(addr)
+	svg, err := addressQR(addr)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "The QR code could not be drawn.")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"address": addr, "qr_svg": svg})
+	writeJSON(w, http.StatusOK, map[string]string{"address": addr, "name_address": s.nameAddress(r), "qr_svg": svg})
 }
 
 // ─── helpers and firewall problems ────────────────────────────────────────
@@ -1431,15 +1436,9 @@ func (s *Server) handleAdminRemove(w http.ResponseWriter, r *http.Request) {
 // adminAddress returns "http://<lan-ip>:<port>/", the address other devices
 // on the home network use to reach the shelf. The port is the one the
 // browser itself used to open this page (the launcher picks 8070 or the next
-// free port); the IP is the home-network address lanIPv4 picks.
+// free port); the IP is the home-network address lanaddr.Best picks.
 func (s *Server) adminAddress(r *http.Request) string {
-	port := ""
-	if _, p, err := net.SplitHostPort(r.Host); err == nil {
-		port = p
-	} else if i := strings.LastIndex(r.Host, ":"); i >= 0 {
-		port = r.Host[i+1:]
-	}
-	ip := lanIPv4()
+	ip := lanaddr.Best()
 	if ip == "" {
 		host := r.Host
 		if i := strings.LastIndex(host, ":"); i >= 0 {
@@ -1452,95 +1451,48 @@ func (s *Server) adminAddress(r *http.Request) string {
 			ip = "localhost"
 		}
 	}
-	u := "http://" + ip
+	return addressFor(ip, requestPort(r))
+}
+
+// nameAddress returns "http://<name>:<port>/" for the name the supervisor
+// announces on the home network (Deps.LANName, kids-shelf.local), on the
+// same port as adminAddress, or "" when no name is announced.
+func (s *Server) nameAddress(r *http.Request) string {
+	if s.deps.LANName == "" {
+		return ""
+	}
+	return addressFor(s.deps.LANName, requestPort(r))
+}
+
+// requestPort returns the port the browser used to reach this page, or ""
+// when the Host header has none.
+func requestPort(r *http.Request) string {
+	if _, p, err := net.SplitHostPort(r.Host); err == nil {
+		return p
+	}
+	if i := strings.LastIndex(r.Host, ":"); i >= 0 {
+		return r.Host[i+1:]
+	}
+	return ""
+}
+
+func addressFor(host, port string) string {
+	u := "http://" + host
 	if port != "" {
 		u += ":" + port
 	}
 	return u + "/"
 }
 
-// lanIPv4 returns the IPv4 address tablets on the home network can reach,
-// or "" when this machine has none (see pickLANIPv4).
-func lanIPv4() string {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return ""
-	}
-	var cands []lanCandidate
-	for _, ifc := range ifaces {
-		addrs, err := ifc.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, a := range addrs {
-			c := lanCandidate{ones: -1, flags: ifc.Flags}
-			switch v := a.(type) {
-			case *net.IPNet:
-				c.ip = v.IP.To4()
-				ones, bits := v.Mask.Size()
-				if bits == 8*net.IPv6len {
-					ones -= 8 * (net.IPv6len - net.IPv4len) // a v4 address in a 16-byte mask
-				}
-				c.ones = ones
-			case *net.IPAddr:
-				c.ip = v.IP.To4()
-			}
-			if c.ip != nil {
-				cands = append(cands, c)
-			}
-		}
-	}
-	return pickLANIPv4(cands)
-}
+// connectQuery ends the address the QR code carries: the kid page opened
+// from it tells the parent page that a tablet connected (connect.go), then
+// drops it from the address bar.
+const connectQuery = "?connect=1"
 
-// lanCandidate is one IPv4 address of one interface: the address, its
-// prefix length (-1 when unknown) and the interface's flags.
-type lanCandidate struct {
-	ip    net.IP
-	ones  int
-	flags net.Flags
-}
-
-// pickLANIPv4 chooses the address to show for other devices. It skips
-// interfaces that are down, have no link (an idle Docker bridge), are
-// loopback or point-to-point, addresses with a /32 prefix (VPN tunnels such
-// as WireGuard hand out a single host address; on a home server running
-// Mullvad the tunnel's 10.68.x.x won over the LAN before this), and
-// link-local 169.254/16. Of the rest it prefers 192.168/16, the usual home
-// router range, then 10/8 (some ISP routers use 10.0.0.x), then 172.16/12
-// (mostly container and VM bridges), then anything else; the lowest address
-// wins within a range.
-func pickLANIPv4(cands []lanCandidate) string {
-	best, bestRank := net.IP(nil), 0
-	for _, c := range cands {
-		f := c.flags
-		if f&net.FlagUp == 0 || f&net.FlagRunning == 0 || f&(net.FlagLoopback|net.FlagPointToPoint) != 0 {
-			continue
-		}
-		if len(c.ip) != net.IPv4len || c.ones == 32 || c.ip.IsLinkLocalUnicast() {
-			continue
-		}
-		r := lanRank(c.ip)
-		if best == nil || r < bestRank || (r == bestRank && bytes.Compare(c.ip, best) < 0) {
-			best, bestRank = c.ip, r
-		}
-	}
-	if best == nil {
-		return ""
-	}
-	return best.String()
-}
-
-func lanRank(ip net.IP) int {
-	switch {
-	case ip[0] == 192 && ip[1] == 168:
-		return 0
-	case ip[0] == 10:
-		return 1
-	case ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31:
-		return 2
-	}
-	return 3
+// addressQR draws the QR code for addr, the IP address (it works without
+// the announced name), with connectQuery added.
+func addressQR(addr string) (string, error) {
+	return qrSVG(addr + connectQuery)
 }
 
 // ─── QR codes ──────────────────────────────────────────────────────────────

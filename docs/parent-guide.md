@@ -131,7 +131,8 @@ If the tablets cannot connect, your firewall may be blocking kids-shelf's two po
    only you know. The kids can see the **Grown-ups** link, so the page always needs it. You can
    change it later under Settings. **Forgot it?** Open the parent page on the computer kids-shelf
    runs on (from its icon there), click **Forgot the PIN?**, then **Reset the parent PIN**. A
-   tablet or phone cannot reset it.
+   tablet or phone cannot reset it. Once the PIN is saved, the page walks you through connecting
+   a tablet (see "Connect the tablets" below).
 2. **Add your kids**, each with their own PIN, and set their daily minutes.
 3. **Set a grown-up PIN** under Settings. "Watch together" (free watching with a grown-up)
    asks for it; until you set one, it tells the kids to ask you. Watching together ends after two
@@ -139,10 +140,21 @@ If the tablets cannot connect, your firewall may be blocking kids-shelf's two po
 
 ## Connect the tablets
 
-Near the top of the parent page is **Address for other devices**, with an address like
-`http://192.168.1.20:8070/` and a QR code. On each tablet, open that address in the browser,
-or point the camera at the QR code, and add it to the home screen. The tablets must be on the
-same Wi-Fi as the computer.
+Right after you make the parent PIN, the parent page opens **Connect a tablet or phone**. Do this
+for each tablet:
+
+1. Put the tablet on the same Wi-Fi as the computer.
+2. Open the tablet's camera and point it at the QR code on the screen, then tap the link that
+   appears. The shelf opens on the tablet, and the parent page says **"A tablet just
+   connected."** No camera? Type the address the page shows into the tablet's browser:
+   `kids-shelf.local:8070`. If that does not open, type the number address the page shows
+   instead, like `192.168.1.20:8070`. (Some computers cannot announce the name; then the page
+   shows only the number address.)
+3. Add it to the home screen, so the kids can find it. On an iPad or iPhone (Safari): **Share**,
+   then **Add to Home Screen**. On Android (Chrome): the **⋮** menu, then **Add to Home screen**.
+
+To connect another tablet later, click **Connect a tablet** in **Address for other devices**,
+near the top of the parent page. That card also shows the address and the QR code.
 
 ## Add videos and libraries
 

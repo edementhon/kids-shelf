@@ -126,6 +126,10 @@ type Deps struct {
 	// port). Zero: this copy serves no separate origin, so /kiwix/ URLs
 	// stay relative to the app origin.
 	LibrariesPort int
+	// LANName is the name the supervisor announces on the home network
+	// (KS_LAN_NAME, "kids-shelf.local"). Empty: no name is announced, so
+	// the parent page shows only the IP address.
+	LANName string
 }
 
 // registrar adds one area's routes to the server's mux.

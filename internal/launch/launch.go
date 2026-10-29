@@ -87,6 +87,11 @@ type Options struct {
 	// shutdown.
 	OpenHandler func(ctx context.Context) (h, libraries http.Handler, close func(), err error)
 	NoBrowser   bool
+	// Announce answers to the name kids-shelf.local on the home network
+	// (internal/mdns) while a supervisor runs, and tells the app child
+	// through KS_LAN_NAME. In-process runs (dev builds, tests) never
+	// announce: they must not claim the name.
+	Announce bool
 
 	// InstallDir is the install root whose install.lock Run takes before
 	// the instance lock and holds for the launcher's whole life (PLAN 1a);

@@ -18,6 +18,9 @@
 #                      `gh auth login` on the host)
 #   KS_RELEASE_REPO    owner/name of the repository the draft release is
 #                      created in (default edementhon/kids-shelf)
+#   KS_RELEASE_NAME    optional release name, shown in the title as
+#                      "kids-shelf v0.2.0 (Adventurous Axolotl)"; the names
+#                      run alphabetically (docs/RELEASING.md)
 #
 # Fails (non-zero) without publishing when SHA256SUMS.sig does not verify
 # against the pinned public key, when SHA256SUMS does not name a
@@ -89,11 +92,27 @@ done < <(grep -v '^version:' "$OUT/SHA256SUMS")
 if [ "${KS_PUBLISH:-0}" = "1" ]; then
 	command -v gh >/dev/null 2>&1 || die "KS_PUBLISH=1 needs gh; run 'gh auth login' on this host first"
 	KS_RELEASE_REPO="${KS_RELEASE_REPO:-edementhon/kids-shelf}"
-	log "creating the draft GitHub release $VERSION in $KS_RELEASE_REPO"
+	TITLE="kids-shelf $VERSION"
+	if [ -n "${KS_RELEASE_NAME:-}" ]; then
+		TITLE="$TITLE ($KS_RELEASE_NAME)"
+	fi
+	log "creating the draft GitHub release \"$TITLE\" in $KS_RELEASE_REPO"
+	# Parents land on the release page from the parent guide, so the notes
+	# say which zip is theirs. Passing --title and --notes also keeps gh
+	# from asking questions; the release is a normal one (not a prerelease):
+	# the updater and releases/latest skip prereleases.
+	NOTES="Download the zip for your computer, then follow the parent guide: https://github.com/$KS_RELEASE_REPO/blob/main/docs/parent-guide.md
+
+- Windows PC: kids-shelf_windows_amd64.zip
+- Mac with an Apple chip (M1 or newer): kids-shelf_darwin_arm64.zip
+- Mac with an Intel chip: kids-shelf_darwin_amd64.zip
+- Linux PC: kids-shelf_linux_amd64.zip; Raspberry Pi and other ARM computers: kids-shelf_linux_arm64.zip
+
+Already installed? kids-shelf updates itself."
 	# gh runs with --repo and absolute asset paths: $OUT usually lives
 	# outside any repository checkout, where gh cannot resolve the target
 	# repo, so the --repo flag carries it explicitly.
-	gh release create --repo "$KS_RELEASE_REPO" --draft "$VERSION" --title "kids-shelf $VERSION" \
+	gh release create --repo "$KS_RELEASE_REPO" --draft "$VERSION" --title "$TITLE" --notes "$NOTES" \
 		"$OUT"/kids-shelf_*.zip "$OUT/SHA256SUMS" "$OUT/SHA256SUMS.sig" "$HELPER_SOURCES"
 	log "draft created: https://github.com/$KS_RELEASE_REPO/releases (review and publish it there)"
 else

@@ -118,6 +118,10 @@ func supervise(ctx context.Context, opts Options) error {
 	}
 	defer libL.Close()
 
+	// The name lasts the launcher's life, across child restarts.
+	lanName, stopName := announceName(opts)
+	defer stopName()
+
 	// The public listeners answer through the proxies, which hold the
 	// private child base URLs.
 	token, err := proxyToken()
@@ -139,7 +143,7 @@ func supervise(ctx context.Context, opts Options) error {
 	// bind-failure reruns and trial rollbacks republish instance.json
 	// while the same tab is already connected, so they must not open
 	// another one.
-	state := &superviseState{}
+	state := &superviseState{lanName: lanName}
 	for {
 		child, err := resolveChild(opts)
 		if err != nil {
@@ -187,6 +191,9 @@ type superviseState struct {
 	// browserOpened is set once the browser has been opened for this
 	// launcher's life: on the first publish, and never again.
 	browserOpened bool
+	// lanName is the name tablets can use (envLANName), "" when the
+	// launcher is not answering to one.
+	lanName string
 }
 
 const (
@@ -276,6 +283,7 @@ func superviseOne(ctx context.Context, opts Options, state *superviseState, chil
 		"KS_PROXY_TOKEN="+token,
 		"KS_PUBLIC_PORT="+strconv.Itoa(appPort),
 		"KS_PUBLIC_LIBRARIES_PORT="+strconv.Itoa(libPort),
+		envLANName+"="+state.lanName,
 	)
 	// The parent page refuses Quit and Remove while the journal says an
 	// unconfirmed trial is in flight (its own durable trial state), so the

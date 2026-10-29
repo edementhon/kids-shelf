@@ -32,8 +32,10 @@
 <section class="card" id="sec-address">
   <h2>📱 Address for other devices</h2>
   <p class="addr" id="addr"></p>
+  <p class="addrname hidden" id="addrname">Or type <b id="addrname-text"></b></p>
   <img id="qr" alt="QR code with the address on it" class="qr hidden">
   <p class="note">Type this address on phones and tablets, or scan the code.</p>
+  <div class="rowbtns"><button type="button" class="btn add" id="connect-open">📱 Connect a tablet</button></div>
 </section>
 
 
@@ -152,6 +154,35 @@
   <span id="msgtext"></span>
   <button type="button" id="msgaction" class="msgaction hidden"></button>
   <button type="button" id="msgclose" class="msgclose" aria-label="Close this message">✕</button>
+</div>
+
+<!-- Connect a tablet: opens right after the first parent PIN is made, and
+     from the address card. Done, Esc or a tap on the dimmed backdrop close it. -->
+<div class="overlay hidden" id="connectoverlay">
+  <div class="overlay-box connect-box" id="connectbox" role="dialog" aria-modal="true" aria-labelledby="connecttitle" tabindex="-1">
+    <h2 id="connecttitle">📱 Connect a tablet or phone</h2>
+    <div class="connect-fw hidden" id="connect-fw">
+      <p class="firewall-note">Tablets can't reach kids-shelf yet.</p>
+      <button type="button" class="btn add" id="connect-fw-allow">Let tablets in</button>
+      <p class="note">Windows will ask for the computer's administrator password.</p>
+    </div>
+    <p class="connect-nolan hidden" id="connect-nolan">This computer is not on a home network. Connect it to your Wi-Fi or router, then open this again.</p>
+    <ol class="connect-steps" id="connect-steps">
+      <li>Put the tablet on the same Wi-Fi as this computer.</li>
+      <li>Open the tablet's camera and point it at this code. Tap the link that appears.
+        <img id="connect-qr" class="connect-qr" alt="QR code with the address on it">
+        <p class="connect-type">No camera? Type this in the tablet's browser:</p>
+        <p class="connect-addr" id="connect-addr"></p>
+        <p class="note hidden" id="connect-ipline">If that does not open, type <b id="connect-ip"></b></p>
+      </li>
+      <li>Add it to the home screen so the kids can find it.
+        <p class="note">iPad and iPhone (Safari): Share, then Add to Home Screen.</p>
+        <p class="note">Android (Chrome): the ⋮ menu, then Add to Home screen.</p>
+      </li>
+    </ol>
+    <p class="connect-ok" id="connect-ok" role="status" aria-live="polite"></p>
+    <div class="rowbtns center gap"><button type="button" id="connect-done" class="btn add">Done</button></div>
+  </div>
 </div>
 
 <div class="overlay hidden" id="pinoverlay">

@@ -134,9 +134,16 @@ function renderProblems(problems) {
   $('helpers').classList.toggle('hidden', !helpersText);
 
   const fw = problems && problems.firewall;
-  const blocked = fw && fw.blocked && !fw.unknown;
-  $('firewall').classList.toggle('show', !!blocked);
-  $('sec-problems').classList.toggle('show', !!(helpersText || blocked));
+  showFirewall(!!(fw && fw.blocked && !fw.unknown));
+}
+
+/* showFirewall shows or hides the "Tablets can't reach kids-shelf yet" line
+   with its Let tablets in button, in the problems card and in the Connect a
+   tablet step alike. */
+function showFirewall(blocked) {
+  $('firewall').classList.toggle('show', blocked);
+  $('connect-fw').classList.toggle('hidden', !blocked);
+  $('sec-problems').classList.toggle('show', blocked || !$('helpers').classList.contains('hidden'));
 }
 
 async function refreshProblems() {
@@ -153,8 +160,7 @@ async function letTabletsIn() {
   const fw = (out && out.firewall) || {};
   if (!fw.blocked && !fw.unknown) {
     msg('Tablets and phones can reach kids-shelf now.');
-    $('firewall').classList.remove('show');
-    $('sec-problems').classList.toggle('show', !$('helpers').classList.contains('hidden'));
+    showFirewall(false);
   } else if (fw.unknown) {
     msg('kids-shelf could not check whether tablets can get in. Try opening the address on a tablet; if it does not work, press Let tablets in again.', true);
   } else {
@@ -358,15 +364,98 @@ function renderSettings() {
   $('counterrow').classList.toggle('hidden', !counter || counter === 'video');
 }
 
+/* bareAddress shows an address the way it is typed: no http://, no
+   trailing slash. */
+function bareAddress(addr) {
+  return String(addr || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
 function renderAddress() {
   $('addr').textContent = STATE.settings.address || '';
+  const name = bareAddress(STATE.settings.name_address);
+  $('addrname-text').textContent = name;
+  $('addrname').classList.toggle('hidden', !name);
   const qr = $('qr');
   if (STATE.settings.qr_svg) {
-    qr.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(STATE.settings.qr_svg);
+    qr.src = qrSrc(STATE.settings.qr_svg);
     qr.classList.remove('hidden');
   } else {
     qr.classList.add('hidden');
   }
+}
+
+function qrSrc(svg) {
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+
+/* ── connect a tablet ─────────────────────────────────────────────────── */
+/* The step opens right after the first parent PIN is made, and from the
+   address card. While it is open it asks every 2 seconds whether a tablet
+   opened the QR code's address, and says so when one did. */
+let connectOpener = null; // where focus goes back to on close
+let connectRun = 0;       // bumps on every open and close; a stale poll stops
+let connectBase = null;   // the latest ping already there when the step opened
+
+/* onHomeNetwork reports whether the address other devices would use is a
+   real network address, not this computer talking to itself. */
+function onHomeNetwork(addr) {
+  let host;
+  try { host = new URL(addr).hostname; } catch (e) { return false; }
+  return !!host && host !== 'localhost' && host !== '[::1]' && !/^127\./.test(host);
+}
+
+function renderConnect() {
+  const s = STATE.settings;
+  const lan = onHomeNetwork(s.address) && !!s.qr_svg;
+  $('connect-nolan').classList.toggle('hidden', lan);
+  $('connect-steps').classList.toggle('hidden', !lan);
+  if (!lan) return;
+  $('connect-qr').src = qrSrc(s.qr_svg);
+  const ip = bareAddress(s.address);
+  const name = bareAddress(s.name_address);
+  $('connect-addr').textContent = name || ip;
+  $('connect-ip').textContent = ip;
+  $('connect-ipline').classList.toggle('hidden', !name);
+}
+
+function openConnect(opener) {
+  if (!STATE) return;
+  hideMenu(false);
+  connectOpener = opener || null;
+  renderConnect();
+  $('connect-ok').textContent = '';
+  $('connectoverlay').classList.remove('hidden');
+  $('connectbox').focus();
+  refreshProblems(); // the firewall line follows the latest check
+  connectBase = null;
+  pollConnect(++connectRun);
+}
+
+function closeConnect() {
+  if ($('connectoverlay').classList.contains('hidden')) return;
+  connectRun++;
+  $('connectoverlay').classList.add('hidden');
+  const back = connectOpener && connectOpener.isConnected && connectOpener.offsetParent
+    ? connectOpener : $('connect-open');
+  connectOpener = null;
+  back.focus();
+}
+
+async function pollConnect(run) {
+  let st;
+  try {
+    st = await api('/api/admin/connect/status', { quiet: true });
+  } catch (e) {
+    if (e && e.pinRequired) { closeConnect(); return; } // the PIN lock is up
+    st = null; // a missed answer: ask again next time
+  }
+  if (run !== connectRun) return; // closed or reopened meanwhile
+  if (st) {
+    const last = st.last || '';
+    if (connectBase === null) connectBase = last;
+    else if (last && last !== connectBase) $('connect-ok').textContent = '✓ A tablet just connected.';
+  }
+  setTimeout(() => { if (run === connectRun) pollConnect(run); }, 2000);
 }
 
 async function counterToVideo() {
@@ -525,6 +614,7 @@ async function saveSetup(e) {
     $('setupoverlay').classList.add('hidden');
     await load();
     msg('Parent PIN saved. You will need it to open this page.');
+    openConnect($('connect-open'));
   } catch (err) {
     if (err && err.status === 409) { showPin(err.message); return; } // someone made one meanwhile
     if (err && err.status === 429) { lockedOut('setuperr', err, ['setuppin', 'setuppin2', 'setupok']); return; }
@@ -818,12 +908,28 @@ $('lock').addEventListener('click', lockPage);
 $('quit').addEventListener('click', quitApp);
 $('remove').addEventListener('click', removeApp);
 $('fw-allow').addEventListener('click', letTabletsIn);
+$('connect-fw-allow').addEventListener('click', letTabletsIn);
+$('connect-open').addEventListener('click', e => openConnect(e.currentTarget));
+$('connect-done').addEventListener('click', closeConnect);
+// A tap on the dimmed backdrop closes the step; a press that starts inside
+// the box and slides off it does not.
+let connectDownOnBackdrop = false;
+$('connectoverlay').addEventListener('pointerdown', e => { connectDownOnBackdrop = e.target === e.currentTarget; });
+$('connectoverlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget && connectDownOnBackdrop) closeConnect();
+  connectDownOnBackdrop = false;
+});
 $('msgclose').addEventListener('click', hideMsg);
 $('msgaction').addEventListener('click', () => { if (msgAction) msgAction(); });
 $('stoppedclose').addEventListener('click', () => $('stopped').classList.add('hidden'));
 document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
   const s = $('stopped');
-  if (e.key === 'Escape' && !s.classList.contains('hidden') && !s.dataset.final) s.classList.add('hidden');
+  if (!s.classList.contains('hidden')) {
+    if (!s.dataset.final) s.classList.add('hidden');
+  } else if ($('pinoverlay').classList.contains('hidden') && $('setupoverlay').classList.contains('hidden')) {
+    closeConnect();
+  }
 });
 
 setupDrag();

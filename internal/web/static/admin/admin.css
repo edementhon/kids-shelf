@@ -195,6 +195,9 @@ td.free { color: var(--add); }
 .rowbtns.center { justify-content: center; }
 .addr { font-size: 1.1rem; font-weight: 700; margin: 6px 0; overflow-wrap: anywhere; }
 .qr { width: 220px; height: 220px; background: #fff; border-radius: 12px; display: block; margin-top: 6px; }
+.addrname { margin: 0 0 6px; }
+.addrname b { font-size: 1.1rem; overflow-wrap: anywhere; }
+#sec-address .rowbtns { margin-top: 12px; }
 .updatemsg { margin: 0 0 10px; }
 
 /* ── test video ── */
@@ -249,6 +252,33 @@ button.textbtn {
 }
 .setupform label { display: block; text-align: left; font-weight: 600; margin-top: 10px; }
 .setupform input { margin: 6px 0 0; }
+/* Connect a tablet: a tall step, so the backdrop scrolls on a short or
+   narrow screen instead of cutting the box off. */
+#connectoverlay { overflow-y: auto; padding: 12px 0; }
+.connect-box { margin: auto; max-width: 520px; text-align: left; }
+.connect-box h2 { text-align: center; }
+.connect-fw { background: var(--chip); border-radius: 12px; padding: 12px; margin: 0 0 14px; }
+.connect-fw .firewall-note { color: #fca5a5; margin: 0 0 8px; }
+.connect-fw .note { margin: 8px 0 0; }
+.connect-nolan { font-weight: 600; }
+.connect-steps { margin: 0; padding-left: 1.4em; line-height: 1.4; }
+.connect-steps > li { margin: 0 0 16px; font-weight: 600; }
+.connect-steps > li p { font-weight: 400; }
+.connect-steps .note { font-size: .95rem; margin: 4px 0; }
+.connect-qr {
+  display: block;
+  width: 260px;
+  height: 260px;
+  max-width: 100%;
+  margin: 12px auto;
+  background: #fff;
+  border-radius: 12px;
+}
+.connect-type { margin: 8px 0 2px; }
+.connect-addr { font-size: 1.6rem; font-weight: 700; margin: 2px 0 6px; overflow-wrap: anywhere; }
+.connect-ok { color: var(--add); font-size: 1.15rem; font-weight: 700; text-align: center; margin: 4px 0 0; }
+.connect-ok:empty { margin: 0; }
+.connect-box:focus { outline: none; } /* focused only so Tab starts inside */
 /* A ⋯ menu sits in the page right after its button, under it. */
 .menu {
   position: absolute;

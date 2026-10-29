@@ -12,7 +12,8 @@
 #      instance.json records (8070 or the next free port).
 #   4. check the install layout: Linux ~/.local/share/kids-shelf/app,
 #      macOS ~/Library/Application Support/kids-shelf/app, plus the entry
-#      app at ~/Applications/kids-shelf.app.
+#      app at /Applications/kids-shelf.app (~/Applications/kids-shelf.app
+#      when the account cannot write /Applications).
 #   5. make the parent PIN like a parent's first visit does (POST
 #      /api/admin/pin/setup; the parent page always needs one), keep the
 #      session cookie, then POST /api/admin/remove with it, the same-origin
@@ -101,7 +102,14 @@ unset XDG_DATA_HOME
 if [ "$OS" = "Darwin" ]; then
 	DATA_DIR="$HOME/Library/Application Support/kids-shelf"
 	INSTALL_DIR="$DATA_DIR/app"
-	ENTRY_BUNDLE="$HOME/Applications/kids-shelf.app"
+	# The same choice as internal/install entryBundleDst: /Applications when
+	# the account can write it (admin accounts, GitHub's runners), else
+	# ~/Applications. HOME does not move /Applications.
+	if [ -w /Applications ]; then
+		ENTRY_BUNDLE="/Applications/kids-shelf.app"
+	else
+		ENTRY_BUNDLE="$HOME/Applications/kids-shelf.app"
+	fi
 else
 	DATA_DIR="$HOME/.local/share/kids-shelf"
 	INSTALL_DIR="$DATA_DIR/app"
@@ -117,8 +125,13 @@ echo "smoke-install: running the extracted build (installer role)"
 APP_PID=$!
 
 # Wait for instance.json, then for /healthz on the recorded public port
-# (8070, or the next free port when it is taken: internal/launch).
+# (8070, or the next free port when it is taken: internal/launch). The
+# installer starts the installed launcher and exits 0, which is the normal
+# hand-off; only a non-zero exit is a failure. On macOS the install takes
+# long enough that the installer is often gone before the launcher writes
+# instance.json (macos-smoke, v0.2.0).
 PORT=""
+INSTALLER_EXIT=""
 for _ in $(seq 1 120); do
 	if [ -f "$DATA_DIR/instance.json" ]; then
 		PORT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("port", 0))' "$DATA_DIR/instance.json" 2>/dev/null || true)"
@@ -126,8 +139,13 @@ for _ in $(seq 1 120); do
 			break
 		fi
 	fi
-	if ! kill -0 "$APP_PID" 2>/dev/null; then
-		fail "the installer process died before instance.json appeared; its log ends with: $(tail -5 "$TMP/app.log")"
+	if [ -z "$INSTALLER_EXIT" ] && ! kill -0 "$APP_PID" 2>/dev/null; then
+		INSTALLER_EXIT=0
+		wait "$APP_PID" || INSTALLER_EXIT=$?
+		if [ "$INSTALLER_EXIT" != 0 ]; then
+			fail "the installer exited with status $INSTALLER_EXIT before instance.json appeared; its log ends with: $(tail -5 "$TMP/app.log")"
+		fi
+		echo "smoke-install: the installer handed off to the installed launcher (exit 0)"
 	fi
 	sleep 1
 done

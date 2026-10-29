@@ -47,6 +47,7 @@ and go.sum pin. Versions match go.mod at the time of writing.
 
 | Module | Version | Licence |
 | --- | --- | --- |
+| golang.org/x/net | v0.62.0 | BSD-3-Clause |
 | golang.org/x/sys | v0.49.0 | BSD-3-Clause |
 | modernc.org/sqlite | v1.61.0 | BSD-3-Clause (also bundles SQLite itself, public domain; see its LICENSE-SQLITE) |
 | github.com/dustin/go-humanize | v1.1.0 | MIT |
