@@ -180,3 +180,26 @@ func TestHelpersProblemWords(t *testing.T) {
 		t.Errorf("all working = %q, want none", got)
 	}
 }
+
+// TestHelpersWaitingOnlyForWindowsCheck: the parent page drops its "quit and
+// reopen, or install again" advice only while Windows is still checking the
+// video tools (a wait that ends by itself); any other helper problem keeps it.
+func TestHelpersWaitingOnlyForWindowsCheck(t *testing.T) {
+	blockedVideo := tools.SelfTestResult{FFmpeg: false, FFprobe: false, Qjs: true, KiwixServe: true}
+	a := &App{}
+	if a.helpersWaitingFunc() {
+		t.Error("waiting with no problem at all")
+	}
+	a.setHelpersProblem(summarizeSelfTest("windows", blockedVideo, true))
+	if !a.helpersWaitingFunc() {
+		t.Error("not waiting while Windows checks the video tools")
+	}
+	a.setHelpersProblem(summarizeSelfTest("windows", blockedVideo, false))
+	if a.helpersWaitingFunc() {
+		t.Error("waiting for a helper that crashed (not a Windows check)")
+	}
+	a.setHelpersProblem("Video conversion is unavailable: the helper programs could not be set up (not enough disk space).")
+	if a.helpersWaitingFunc() {
+		t.Error("waiting for a setup failure")
+	}
+}

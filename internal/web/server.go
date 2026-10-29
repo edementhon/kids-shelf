@@ -99,6 +99,10 @@ type Deps struct {
 	// helper programs (ffmpeg, ffprobe, qjs, kiwix-serve) for the parent
 	// page, or "" when they are fine (nil: nothing to report).
 	HelpersProblem func() string
+	// HelpersWaiting reports whether that problem is a wait that ends by
+	// itself (Windows still checking the video tools), so the page leaves
+	// out its "quit and reopen, or install again" advice (nil: never).
+	HelpersWaiting func() bool
 	// VideoEncoder returns the parent page's "Video conversion uses:"
 	// name from the ingest worker's cached hardware selection (nil: the
 	// parent page says the conversion has not been checked yet).

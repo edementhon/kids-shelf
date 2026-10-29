@@ -1450,6 +1450,7 @@ func TestAdminProblemsShape(t *testing.T) {
 	ts, _, _ := newTestAdmin(t, func(d *Deps) {
 		d.Firewall = &fakeFirewall{status: FirewallStatus{Blocked: true, Detail: "Windows Firewall is blocking kids-shelf."}}
 		d.HelpersProblem = func() string { return "The video tools are missing." }
+		d.HelpersWaiting = func() bool { return true }
 	})
 	resp, out := doReq(t, http.MethodGet, ts.URL+"/api/admin/problems", nil)
 	if resp.StatusCode != http.StatusOK {
@@ -1457,6 +1458,9 @@ func TestAdminProblemsShape(t *testing.T) {
 	}
 	if helpers, _ := out["helpers"].(string); helpers != "The video tools are missing." {
 		t.Errorf("helpers = %q, want the problem text", helpers)
+	}
+	if w, _ := out["helpers_waiting"].(bool); !w {
+		t.Errorf("helpers_waiting = %v, want true when the app reports a wait", out["helpers_waiting"])
 	}
 	fw, ok := out["firewall"].(map[string]any)
 	if !ok {
@@ -1484,6 +1488,9 @@ func TestAdminProblemsShape(t *testing.T) {
 	}
 	if helpers, ok := out2["helpers"].(string); !ok || helpers != "" {
 		t.Errorf("helpers without a check = %v, want \"\"", out2["helpers"])
+	}
+	if w, ok := out2["helpers_waiting"].(bool); !ok || w {
+		t.Errorf("helpers_waiting without a check = %v, want false", out2["helpers_waiting"])
 	}
 }
 

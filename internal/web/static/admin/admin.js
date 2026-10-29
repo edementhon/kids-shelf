@@ -125,7 +125,12 @@ function renderAll() {
 /* ── helpers and firewall problems ───────────────────────────────────── */
 function renderProblems(problems) {
   const helpersText = (problems && problems.helpers) || '';
+  // A wait that ends by itself (Windows still checking the video tools)
+  // gets only its own words: no "did not start", no "install again".
+  const waiting = !!(problems && problems.helpers_waiting);
   $('helpersproblem').textContent = helpersText;
+  $('helperslead').classList.toggle('hidden', waiting);
+  $('helpersadvice').classList.toggle('hidden', waiting);
   $('helpers').classList.toggle('hidden', !helpersText);
 
   const fw = problems && problems.firewall;

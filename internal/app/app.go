@@ -231,6 +231,16 @@ func (a *App) helpersProblemFunc() string {
 	return a.helpersProblem
 }
 
+// helpersWaitingFunc reports whether the current problem is Windows still
+// checking the video tools: a wait that ends by itself (the paused videos
+// resume), not something the parent has to fix, so the parent page leaves
+// out its "quit and reopen, or install again" advice.
+func (a *App) helpersWaitingFunc() bool {
+	a.helpersMu.Lock()
+	defer a.helpersMu.Unlock()
+	return strings.HasPrefix(a.helpersProblem, windowsCheckingWords)
+}
+
 // windowsCheckingWords is the parent page's problem while Windows refuses
 // to start the freshly extracted video helpers: Smart App Control checks a
 // new unsigned program for a while (in the Windows VM about 20 minutes and
@@ -538,6 +548,7 @@ func (a *App) Deps() web.Deps {
 	// HelpersProblem is the parent page's plain-words view of the helper
 	// programs, recorded by setupHelpers from the background self-test.
 	d.HelpersProblem = a.helpersProblemFunc
+	d.HelpersWaiting = a.helpersWaitingFunc
 	// VideoEncoder is the parent page's "Video conversion uses:" name,
 	// read from the ingest worker's cached hardware selection; it never
 	// probes anything.

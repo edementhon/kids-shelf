@@ -755,9 +755,12 @@ func (s *Server) handleAdminProblems(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
 	}
-	problems := map[string]any{"helpers": ""}
+	problems := map[string]any{"helpers": "", "helpers_waiting": false}
 	if s.deps.HelpersProblem != nil {
 		problems["helpers"] = s.deps.HelpersProblem()
+	}
+	if s.deps.HelpersWaiting != nil {
+		problems["helpers_waiting"] = s.deps.HelpersWaiting()
 	}
 	if s.deps.Firewall != nil {
 		st := s.deps.Firewall.Status(r.Context())
