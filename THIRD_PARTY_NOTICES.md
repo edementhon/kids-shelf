@@ -18,6 +18,7 @@ The Go module sources are the ones go.sum pins.
 | --- | --- | --- | --- |
 | FFmpeg (ffmpeg, ffprobe, plus ffmpeg-hw on linux/amd64) | 9.0.2 | GPL-2.0-or-later as built: configured with `--enable-gpl` and libx264 (stock FFmpeg without the GPL parts is LGPL-2.1-or-later; LICENSE.md in the sources explains the split). ffmpeg-hw is the same build linked against glibc (2.28 symbol baseline) with the h264_vaapi, h264_nvenc and h264_qsv encoders; it loads libva/libva-drm from the user's system at run time | https://ffmpeg.org/ |
 | x264 | b35605ace3ddf7c1a5d67a2eb553f034aef41d55 | GPL-2.0-or-later | https://code.videolan.org/videolan/x264 |
+| dav1d (libdav1d, the AV1 decoder inside every ffmpeg and ffmpeg-hw) | 1.5.4 | BSD-2-Clause | https://code.videolan.org/videolan/dav1d |
 | QuickJS-NG (qjs) | 0.17.0 | MIT | https://github.com/quickjs-ng/quickjs |
 | kiwix-tools (kiwix-serve) | 3.8.2 | GPL-3.0-or-later | https://github.com/kiwix/kiwix-tools |
 | libkiwix | 14.2.1 | GPL-3.0-or-later | https://github.com/kiwix/libkiwix |

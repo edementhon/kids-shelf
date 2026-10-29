@@ -616,7 +616,7 @@ func (w *Worker) stageProbe(ctx context.Context, pl *payload) (string, error) {
 	pl.MoovFront = moov
 	if a, aerr := Plan(info); aerr == nil && (a == ActionKeep || a == ActionInplace) {
 		vIdx, aIdx := info.selectStreams()
-		if err := w.decodeCheck(ctx, pl.File, vIdx, aIdx, float64(info.Duration)); err != nil {
+		if err := w.decodeCheck(ctx, pl.File, vIdx, aIdx, float64(info.Duration), true); err != nil {
 			return "", errors.New(msgDamaged)
 		}
 	}
@@ -1023,8 +1023,13 @@ func (w *Worker) verifyOutput(ctx context.Context, pl *payload) error {
 	}
 	// Decode through the end on the same chosen streams: remux and
 	// re-encodes renumber them (video 0, audio 1), while a kept file keeps
-	// the input's own numbering, cover art included.
-	if err := w.decodeCheck(ctx, pl.Output, vIdx, aIdx, float64(info.Duration)); err != nil {
+	// the input's own numbering, cover art included. Only a full re-encode
+	// is held to a glitch-free decode: every other plan copies the source's
+	// video bitstream as it is, so a small glitch the original already had
+	// (browsers play through it) is in the copy too, and rejecting the copy
+	// for it would leave the episode on the worse original.
+	strict := pl.Action == ActionFull
+	if err := w.decodeCheck(ctx, pl.Output, vIdx, aIdx, float64(info.Duration), strict); err != nil {
 		return errors.New(convertMsg(pl.Shown))
 	}
 	return nil
@@ -1033,14 +1038,14 @@ func (w *Worker) verifyOutput(ctx context.Context, pl *payload) error {
 // decodeCheck makes ffmpeg decode every byte of the chosen streams' media
 // data and requires it to hold through the probed duration. The decoded
 // frames are thrown away by the null muxer (-f null -), but the decode is
-// real: corrupt payload data - a truncated mdat, zeroed frames, a broken
-// bitstream - fails the h264/aac decoder, and -xerror turns any such error
-// into a nonzero exit. The last output timestamp, read from the -progress
-// file, must reach within a second of the probed duration, so a file cut
-// exactly on a packet boundary - which ends the pass cleanly but early - is
-// still rejected. wantDur <= 1 s skips the timestamp check; -xerror alone
-// still rejects damaged data.
-func (w *Worker) decodeCheck(ctx context.Context, path string, vIdx, aIdx int, wantDur float64) error {
+// real. With strict, -xerror turns any decode error (a broken bitstream,
+// zeroed frames) into a nonzero exit. Without it, isolated bad frames pass,
+// while a stream that mostly fails to decode still ends ffmpeg with an
+// error (its default -max_error_rate). Either way the last output
+// timestamp, read from the -progress file, must reach within a second of
+// the probed duration, so a truncated file is rejected even when it ends
+// cleanly on a packet boundary. wantDur <= 1 s skips the timestamp check.
+func (w *Worker) decodeCheck(ctx context.Context, path string, vIdx, aIdx int, wantDur float64, strict bool) error {
 	prog, err := os.CreateTemp("", "kids-shelf-ingest-*.log")
 	if err != nil {
 		return err
@@ -1048,8 +1053,12 @@ func (w *Worker) decodeCheck(ctx context.Context, path string, vIdx, aIdx int, w
 	progPath := prog.Name()
 	prog.Close()
 	defer os.Remove(progPath)
-	args := []string{"-v", "error", "-xerror", "-nostdin", "-progress", progPath,
-		"-i", path, "-map", "0:" + strconv.Itoa(vIdx)}
+	args := []string{"-v", "error"}
+	if strict {
+		args = append(args, "-xerror")
+	}
+	args = append(args, "-nostdin", "-progress", progPath,
+		"-i", path, "-map", "0:"+strconv.Itoa(vIdx))
 	if aIdx >= 0 {
 		args = append(args, "-map", "0:"+strconv.Itoa(aIdx))
 	}

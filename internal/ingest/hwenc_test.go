@@ -596,7 +596,7 @@ func TestHWRedoNeverLoops(t *testing.T) {
 		// and the software redo), the way the existing verify-failure
 		// test does.
 		for _, a := range args {
-			if a == "-xerror" {
+			if a == "-progress" {
 				return nil, errors.New("exit status 1")
 			}
 		}

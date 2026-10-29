@@ -147,6 +147,10 @@ if [ ! -d "$S/quickjs" ]; then
   tar xzf "$D/quickjs-ng-v$QJS_VERSION.tar.gz" -C "$S"
   mv "$S/quickjs-$QJS_VERSION" "$S/quickjs"
 fi
+if [ ! -d "$S/dav1d-$DAV1D_VERSION" ]; then
+  fetch dav1d "$DAV1D_URL" "$DAV1D_SHA256" "$D/dav1d-$DAV1D_VERSION.tar.xz"
+  tar xJf "$D/dav1d-$DAV1D_VERSION.tar.xz" -C "$S"
+fi
  fetch sample "$SAMPLE_URL" "$SAMPLE_SHA256" "$D/sample.mp4"
 
 # ---- 2c. hardware-encoder sources (per-target, see the loop below) --------
@@ -203,6 +207,35 @@ HP="$O/linux_amd64_hw/prefix"
 . "$SELF_DIR/kiwix.sh"
 kiwix_host_tools
 kiwix_sources
+
+# ---- 2d. dav1d (software AV1 decoder for ffmpeg's libdav1d) ---------------
+# ffmpeg's native av1 decoder only drives hardware accelerators (none are
+# enabled in these builds), so it fails every frame; AV1 input decodes
+# through libdav1d on all five targets and in ffmpeg-hw instead.  Static
+# library only (meson + ninja from kiwix_host_tools; CLI tools, tests and
+# examples off), both bit depths (8 and 16, i.e. 10/12-bit AV1 too).
+# Assembly is on everywhere: nasm (the $NASM_BIN built above, named in the
+# cross file) for x86_64 elf64/win64/macho64, the compiler's integrated
+# assembler for aarch64 linux and darwin.
+# dav1d_build <label> <cross file> <prefix> <build dir>
+dav1d_build() {
+  local label="$1" cf="$2" prefix="$3" bd="$4"
+  if [ -f "$prefix/lib/libdav1d.a" ]; then
+    log "have libdav1d.a ($label)"
+    return 0
+  fi
+  rm -rf "$bd"
+  log "dav1d: meson setup ($label)"
+  ( cd "$S/dav1d-$DAV1D_VERSION" && python3 -m mesonbuild.mesonmain setup "$bd" \
+      --cross-file "$cf" --prefix "$prefix" --libdir lib \
+      --buildtype release -Ddefault_library=static -Denable_asm=true \
+      -Denable_tools=false -Denable_tests=false -Denable_examples=false \
+      -Denable_docs=false ) 2>&1 | tee -a "$BUILD_LOG" \
+    || die "dav1d meson failed for $label (see $BUILD_LOG)"
+  log "dav1d: build + install ($label)"
+  ( cd "$bd" && ninja -j"$BUILD_JOBS" && ninja install ) 2>&1 | tee -a "$BUILD_LOG" \
+    || die "dav1d build failed for $label (see $BUILD_LOG)"
+}
 
 # ---- 3. five targets -------------------------------------------------------
 # label | zig triple | arch | ffmpeg --target-os | x264 --host
@@ -459,6 +492,28 @@ EOF
     x264_t=0
   fi
 
+  # --- dav1d (static libdav1d for ffmpeg, see section 2d) --------------------
+  case "$LABEL" in
+    linux/*)   DSYS=linux ;;
+    windows/*) DSYS=windows ;;
+    darwin/*)  DSYS=darwin ;;
+  esac
+  cat > "$S/cross-dav1d-$KEY.txt" <<EOF
+[binaries]
+c = '$WRAP'
+ar = '$ZAR'
+ranlib = '$ZRAN'
+nasm = '$NASM_BIN'
+pkg-config = 'pkg-config'
+
+[host_machine]
+system = '$DSYS'
+cpu_family = '$ARCH'
+cpu = '$ARCH'
+endian = 'little'
+EOF
+  dav1d_build "$LABEL" "$S/cross-dav1d-$KEY.txt" "$P" "$S/dav1dbuild-$KEY"
+
   # --- ffmpeg + ffprobe (out-of-tree build) ---------------------------------
   # FFmpeg 9 has no separate mp4/webm demuxer components (mov/matroska cover
   # them) and no mp3/mpeg4/eac3 parsers (mpegaudio/mpeg4video/ac3 cover them);
@@ -466,6 +521,9 @@ EOF
   # indev and gets disabled by --disable-everything (see the runtime section).
   # The null muxer (plus its default codecs wrapped_avframe/pcm_s16le) is added
   # for the decode-to-discard check in the runtime section.
+  # AV1 decodes through libdav1d only: ffmpeg's native av1 decoder is a
+  # hwaccel front end that fails every frame without one (and no hwaccel is
+  # enabled), so it is left out rather than kept as a dead second choice.
   # ffmpeg/ffprobe are binary-gated like the rest of the stack: a per-target
   # repair (e.g. the windows ICU data fix) must not rebuild them -- they do
   # not depend on ICU. On linux an existing but unstripped pair is equally
@@ -497,8 +555,9 @@ EOF
         --target-os="$FFOS" --arch="$ARCH" --enable-cross-compile \
         --disable-everything --disable-autodetect --disable-doc --disable-network \
         --disable-stripping --enable-gpl --enable-static --disable-shared --enable-libx264 \
+        --enable-libdav1d \
         ${HW_OPTS[@]+"${HW_OPTS[@]}"} \
-        --enable-decoder=h264,hevc,aac,ac3,eac3,dca,mp3,mp2,vorbis,flac,vp9,av1,mpeg4,opus${HW_DECODERS:+,$HW_DECODERS} \
+        --enable-decoder=h264,hevc,aac,ac3,eac3,dca,mp3,mp2,vorbis,flac,vp9,libdav1d,mpeg4,opus${HW_DECODERS:+,$HW_DECODERS} \
         --enable-encoder=libx264,aac,mjpeg,wrapped_avframe,pcm_s16le${HW_ENCODERS:+,$HW_ENCODERS} \
         --enable-parser=aac,ac3,dca,h264,hevc,mpeg4video,mpegaudio,opus,vp9,av1 \
         --enable-demuxer=mov,matroska,mpegts,avi \
@@ -661,6 +720,7 @@ EOF
 c = ['$ZHW']
 ar = ['$ZIG', 'ar']
 ranlib = ['$ZIG', 'ranlib']
+nasm = '$NASM_BIN'
 pkg-config = 'pkg-config'
 [host_machine]
 system = 'linux'
@@ -698,6 +758,8 @@ EOF
         ( cd "$VABD" && ninja -j"$BUILD_JOBS" && $MESON install -C "$VABD" ) \
             2>&1 | tee -a "$BUILD_LOG" || die "libva-hw build failed"
       fi
+      # static libdav1d (glibc) into the hw prefix, see section 2d
+      dav1d_build "linux/amd64 ffmpeg-hw" "$S/cross-hw.txt" "$HP" "$S/dav1dbuild-hw"
       # ffmpeg-hw itself: same component set as the software build plus
       # h264_vaapi/h264_nvenc/h264_qsv and the hardware filters.  lavfi +
       # testsrc are added so the software path is exercisable without an
@@ -713,9 +775,9 @@ EOF
           --target-os=linux --arch=x86_64 --enable-cross-compile \
           --disable-everything --disable-autodetect --disable-doc --disable-network \
           --disable-stripping --disable-ffplay --disable-ffprobe --enable-indev=lavfi \
-          --enable-gpl --enable-static --disable-shared --enable-libx264 \
+          --enable-gpl --enable-static --disable-shared --enable-libx264 --enable-libdav1d \
           --enable-libvpl --enable-ffnvcodec --enable-nvenc --enable-vaapi \
-          --enable-decoder=h264,hevc,aac,ac3,eac3,dca,mp3,mp2,vorbis,flac,vp9,av1,mpeg4,opus,wrapped_avframe \
+          --enable-decoder=h264,hevc,aac,ac3,eac3,dca,mp3,mp2,vorbis,flac,vp9,libdav1d,mpeg4,opus,wrapped_avframe \
           --enable-encoder=libx264,aac,mjpeg,wrapped_avframe,pcm_s16le,h264_vaapi,h264_nvenc,h264_qsv \
           --enable-parser=aac,ac3,dca,h264,hevc,mpeg4video,mpegaudio,opus,vp9,av1 \
           --enable-demuxer=mov,matroska,mpegts,avi \

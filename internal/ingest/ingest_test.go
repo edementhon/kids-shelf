@@ -871,6 +871,52 @@ func TestPipelineAudio(t *testing.T) {
 	}
 }
 
+// TestPipelineAudioKeepsSourceGlitches: a sound fix copies the picture
+// unchanged, so a small decode glitch already in the original (common in
+// web downloads; browsers play straight through it) is in the copy too.
+// Verify used to decode the copy with -xerror, stop at that glitch and
+// throw the copy away, which left the episode playing its silent Dolby
+// original (6 episodes of a real library, 2026-10-29). The copy must
+// publish; truncation is still caught by the through-the-end timestamp.
+func TestPipelineAudioKeepsSourceGlitches(t *testing.T) {
+	helpers, full := fixtureEnv(t)
+	// H.264 + AC-3 in Matroska with an IDR every 24 frames, then 32 bytes
+	// in the middle of the file overwritten: they land inside one frame's
+	// block, which damages that frame and leaves the container readable.
+	src := filepath.Join(t.TempDir(), "glitch-ac3.mkv")
+	genFixture(t, full, src,
+		"-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p", "-g", "24",
+		"-c:a", "ac3", "-b:a", "192k", "-f", "matroska")
+	b, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := len(b) / 2; i < len(b)/2+32; i++ {
+		b[i] = 0xAA
+	}
+	if err := os.WriteFile(src, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The fixture must really carry the glitch the strict check stops at.
+	if err := exec.Command(filepath.Join(helpers, "ffmpeg"), "-v", "error", "-xerror", "-nostdin", "-i", src, "-map", "0:0", "-f", "null", "-").Run(); err == nil {
+		t.Fatal("fixture decodes cleanly with -xerror; the corruption did not take")
+	}
+
+	h := newHarness(t, helpers)
+	before := sha256File(t, src)
+	id := h.enqueue(t, src)
+	h.runToEnd(t, id)
+	ep, _ := suitImprove(t, h, id, src)
+	info := probePath(t, helpers, ep.File)
+	if v := info.Video(); v == nil || v.CodecName != "h264" {
+		t.Errorf("converted video = %+v, want the copied h264", v)
+	}
+	if a := info.Audio(); len(a) == 0 || a[0].CodecName != "aac" {
+		t.Errorf("converted audio = %+v, want aac", a)
+	}
+	assertIntact(t, src, before)
+}
+
 func TestPipelineFull(t *testing.T) {
 	helpers, _ := fixtureEnv(t)
 	f := makeFixtures(t)
@@ -1964,10 +2010,11 @@ func TestFailedImprovementKeepsEpisode(t *testing.T) {
 			return []byte("ffmpeg: invalid argument\n"), errors.New("exit status 1")
 		}, true},
 		{"verify", func(ctx context.Context, name string, args ...string) ([]byte, error) {
-			// Fail only the through-the-end decode pass, which carries
-			// -xerror; the show thumbnail and the remux itself succeed.
+			// Fail only the through-the-end decode pass, which writes a
+			// -progress file; the show thumbnail and the remux itself
+			// succeed.
 			for _, a := range args {
-				if a == "-xerror" {
+				if a == "-progress" {
 					return nil, errors.New("exit status 1")
 				}
 			}
