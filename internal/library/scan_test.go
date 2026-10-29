@@ -671,3 +671,29 @@ func TestCountVideos(t *testing.T) {
 		t.Fatal("CountVideos of a missing folder: want an error")
 	}
 }
+
+// TestCountVideosSymlinkedRoot: a source folder that is a symlink is read
+// through the link, by the count the parent page checks when it is added
+// exactly like by the scanner that later finds its videos.
+func TestCountVideosSymlinkedRoot(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "loose.mp4"), "v")
+	writeFile(t, filepath.Join(root, "Show", "a.mkv"), "v")
+	writeFile(t, filepath.Join(root, "Show", "Season 1", "b.mp4"), "v")
+	link := filepath.Join(t.TempDir(), "Kids videos")
+	if err := os.Symlink(root, link); err != nil {
+		t.Skipf("symlinks unavailable here: %v", err)
+	}
+	n, err := CountVideos(ctx, link)
+	if err != nil || n != 3 {
+		t.Fatalf("CountVideos(symlinked root) = %d, %v; want 3", n, err)
+	}
+	lib := newTestLibrary(t)
+	if err := lib.AddSource(ctx, link, core.SourceFolder, nil); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+	if got, err := lib.ScanNew(ctx, newRetryQueue()); err != nil || got != n {
+		t.Fatalf("ScanNew(symlinked root) = %d, %v; want the counted %d", got, err, n)
+	}
+}

@@ -328,6 +328,8 @@ func (a *App) checkHelpers(ctx context.Context) error {
 	a.worker.ClearHelpersBlocked()
 	n, err := a.queue.ResumePaused(ingest.JobKind, ingest.MsgHelpersWaiting)
 	if err != nil {
+		// The jobs still wait: keep the signal so the next pass tries again.
+		a.worker.RestoreHelpersBlocked()
 		return fmt.Errorf("resume videos waiting for the helpers: %w", err)
 	}
 	if n > 0 {

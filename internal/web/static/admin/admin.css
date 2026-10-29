@@ -82,6 +82,7 @@ a { color: var(--blue); }
 .msg.ok { background: #14532d; color: #dcfce7; border: 2px solid var(--add); }
 .msg.err { background: #450a0a; color: #fee2e2; border: 2px solid var(--sub); }
 .msgclose { background: transparent; color: inherit; flex: none; }
+.msgaction { flex: none; }
 .statusline { color: var(--muted); font-size: .85rem; margin: 8px 0; }
 /* ── helpers and firewall problems ── */
 .problems { padding: 14px 16px; display: none; }

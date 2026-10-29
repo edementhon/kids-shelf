@@ -8,6 +8,8 @@ let msgTimer = null;
 let logShown = 20;      // watch-log rows on screen; "Show more" adds LOG_STEP
 const LOG_STEP = 20;
 let lockTimer = null;   // the "Try again in N seconds" countdown
+let msgAction = null;   // what the toast's action button does, if it has one
+let locking = false;    // a Lock this page request is on its way
 
 function esc(s) {
   return String(s == null ? '' : s)
@@ -19,16 +21,22 @@ function cls(n) { return n < 0 ? 'neg' : ''; }
 
 /* msg shows a result or an error as a toast fixed to the bottom of the
    screen, so it is seen wherever the control that caused it sits. Errors
-   stay longer; ✕ closes it at once. */
-function msg(text, isErr) {
+   stay longer; ✕ closes it at once. An action ({ label, run }) adds a
+   button, and the toast then stays until it is used or closed. */
+function msg(text, isErr, action) {
   const el = $('msg');
   $('msgtext').textContent = text;
+  msgAction = action ? action.run : null;
+  $('msgaction').textContent = action ? action.label : '';
+  $('msgaction').disabled = false;
+  $('msgaction').classList.toggle('hidden', !action);
   el.className = 'msg ' + (isErr ? 'err' : 'ok');
   clearTimeout(msgTimer);
-  msgTimer = setTimeout(hideMsg, isErr ? 9000 : 5000);
+  if (!action) msgTimer = setTimeout(hideMsg, isErr ? 9000 : 5000);
 }
 function hideMsg() {
   clearTimeout(msgTimer);
+  msgAction = null;
   $('msg').className = 'msg hidden';
 }
 
@@ -520,11 +528,28 @@ async function saveSetup(e) {
 }
 
 /* lockPage ends this browser's session and shows the PIN lock, so a kid
-   who opens the page next cannot change anything. */
+   who opens the page next cannot change anything. The page says it is
+   locked only once kids-shelf confirmed the session ended; if it did not
+   (no connection, an error), the page stays as it was and says so, with
+   Try again, because the session would still open the page. */
 async function lockPage() {
+  if (locking) return;
+  locking = true;
+  $('lock').disabled = true;
+  $('msgaction').disabled = true;
+  let ok = false;
   try {
-    await fetch('/api/admin/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-  } catch (e) { /* the lock below still hides the page */ }
+    const res = await fetch('/api/admin/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    ok = res.ok;
+  } catch (e) { /* no answer: said below */ }
+  locking = false;
+  $('lock').disabled = false;
+  if (!ok) {
+    msg('This page is not locked yet: kids-shelf did not confirm it. Check that this device is connected, then try again.', true,
+      { label: 'Try again', run: lockPage });
+    return;
+  }
+  hideMsg();
   STATE = null;
   showPin('This page is locked.');
 }
@@ -789,6 +814,7 @@ $('quit').addEventListener('click', quitApp);
 $('remove').addEventListener('click', removeApp);
 $('fw-allow').addEventListener('click', letTabletsIn);
 $('msgclose').addEventListener('click', hideMsg);
+$('msgaction').addEventListener('click', () => { if (msgAction) msgAction(); });
 $('stoppedclose').addEventListener('click', () => $('stopped').classList.add('hidden'));
 document.addEventListener('keydown', e => {
   const s = $('stopped');

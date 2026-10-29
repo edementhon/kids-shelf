@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"net/http"
@@ -395,15 +397,51 @@ func serviceError(w http.ResponseWriter, err error) {
 // the "make a parent PIN" form (no PIN yet) or the PIN lock until a session
 // exists; all data is behind requireAdminPIN, never the shell.
 func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
-	b, err := adminFiles.ReadFile("static/admin/index.html")
+	page, err := adminPage()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "The parent page is missing from this copy.")
 		return
 	}
-	page := strings.ReplaceAll(string(b), "__KS_REOPEN__", reopenWhere())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Write([]byte(page))
+	io.WriteString(w, page)
+}
+
+// adminPage is the parent page shell with where to reopen kids-shelf
+// filled in and its asset URLs versioned (see versionAssets).
+var adminPage = sync.OnceValues(func() (string, error) {
+	b, err := adminFiles.ReadFile("static/admin/index.html")
+	if err != nil {
+		return "", err
+	}
+	page := strings.ReplaceAll(string(b), "__KS_REOPEN__", reopenWhere())
+	return versionAssets(page, adminFiles, "static/admin", "/admin/static/")
+})
+
+// versionAssets returns page with every quoted URL prefix+name of a file
+// in dir of files given a content hash in its query, like practiceAsset:
+// the page shells are never cached but their scripts and stylesheets are
+// (handleAdminStatic, handleContentStatic), so without the hash a newly
+// upgraded page could run with the previous build's cached script.
+func versionAssets(page string, files embed.FS, dir, prefix string) (string, error) {
+	entries, err := files.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+	pairs := make([]string, 0, 2*len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		b, err := files.ReadFile(dir + "/" + e.Name())
+		if err != nil {
+			return "", err
+		}
+		sum := sha256.Sum256(b)
+		u := prefix + e.Name()
+		pairs = append(pairs, `"`+u+`"`, `"`+u+"?v="+hex.EncodeToString(sum[:6])+`"`)
+	}
+	return strings.NewReplacer(pairs...).Replace(page), nil
 }
 
 // reopenWhere names where a parent opens kids-shelf again on this computer,
@@ -421,7 +459,8 @@ func reopenWhere() string {
 }
 
 // handleAdminStatic serves the area's embedded files (admin.js, admin.css,
-// test-av.mp4) with no directory listing.
+// test-av.mp4) with no directory listing. The page asks for them with a
+// content hash in the query (see versionAssets), which is ignored here.
 func (s *Server) handleAdminStatic(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/admin/static/")
 	if name == "" || strings.Contains(name, "..") {

@@ -103,7 +103,9 @@ async function start(){
 // stay graded, the rest of the round is just skipped.
 function stopRound(){renderMenu();}
 
-function setBusy(b){busy=b;$('ans').disabled=b;$('gobtn').disabled=b;}
+// setBusy blocks every way to send an answer (the field, Go, and a Try
+// again under a failed answer) while one is on its way.
+function setBusy(b){busy=b;$('ans').disabled=b;$('gobtn').disabled=b;for(const x of $('fb').querySelectorAll('button'))x.disabled=b;}
 
 function next(){
   if(idx>=qs.length)return finish();
@@ -128,6 +130,7 @@ function submit(){
 }
 
 async function send(p){
+  if(busy)return; // one answer on its way at a time: a double tap on Try again sends once
   const token=play;
   setBusy(true);
   const d=await api('/answer',{kid,mode,round,n:p.n,a:p.q.a,b:p.q.b,op:p.q.op,given:p.given,ms:p.ms});

@@ -1,7 +1,11 @@
 package web
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -1340,6 +1344,48 @@ func TestAdminStaticFiles(t *testing.T) {
 	if resp, _ := doReq(t, http.MethodGet, ts.URL+"/admin/static/nope.txt", nil); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("missing static file: status %d, want 404", resp.StatusCode)
 	}
+}
+
+// TestParentPagesVersionAssets: the parent page and the content page load
+// their script and stylesheet by URLs carrying the embedded file's content
+// hash, so a page served after an upgrade never runs with the previous
+// build's script still cached for an hour under the same URL; the
+// versioned URLs serve the files.
+func TestParentPagesVersionAssets(t *testing.T) {
+	check := func(t *testing.T, ts *httptest.Server, page string, files embed.FS, dir, prefix string, names ...string) {
+		t.Helper()
+		resp, err := http.Get(ts.URL + page)
+		if err != nil {
+			t.Fatalf("GET %s: %v", page, err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		html := string(b)
+		for _, name := range names {
+			data, err := files.ReadFile(dir + "/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sum := sha256.Sum256(data)
+			u := prefix + name + "?v=" + hex.EncodeToString(sum[:6])
+			if !strings.Contains(html, `"`+u+`"`) || strings.Contains(html, `"`+prefix+name+`"`) {
+				t.Errorf("GET %s does not load %s as %s", page, name, u)
+			}
+			resp, err := http.Get(ts.URL + u)
+			if err != nil {
+				t.Fatalf("GET %s: %v", u, err)
+			}
+			got, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK || !bytes.Equal(got, data) {
+				t.Errorf("GET %s = %d, %d bytes; want the embedded file", u, resp.StatusCode, len(got))
+			}
+		}
+	}
+	ts, _, _ := newTestAdmin(t)
+	check(t, ts, "/admin", adminFiles, "static/admin", "/admin/static/", "admin.js", "admin.css")
+	cts := contentTestServer(t, Deps{DataDir: t.TempDir()})
+	check(t, cts, "/admin/content", contentFiles, "static/content", "/admin/content/static/", "content.js", "content.css")
 }
 
 func TestAdminServicesDown(t *testing.T) {

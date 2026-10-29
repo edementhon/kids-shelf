@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edementhon/kids-shelf/internal/core"
@@ -93,16 +94,26 @@ func init() {
 // PIN form when its first data call comes back 401 (all data is behind
 // requireAdminPIN, never the shell), or goes to /admin to make a PIN first.
 func (s *Server) handleContentPage(w http.ResponseWriter, r *http.Request) {
-	b, err := contentFiles.ReadFile("static/content/index.html")
+	page, err := contentPage()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "This page is missing from this copy.")
 		return
 	}
-	page := strings.Replace(string(b), "__KS_OS_PATH__", exampleMediaPath(), 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	io.WriteString(w, page)
 }
+
+// contentPage is the page shell with this OS's folder-path example filled
+// in and its asset URLs versioned (see versionAssets).
+var contentPage = sync.OnceValues(func() (string, error) {
+	b, err := contentFiles.ReadFile("static/content/index.html")
+	if err != nil {
+		return "", err
+	}
+	page := strings.Replace(string(b), "__KS_OS_PATH__", exampleMediaPath(), 1)
+	return versionAssets(page, contentFiles, "static/content", "/admin/content/static/")
+})
 
 // exampleMediaPath is the folder-path example the sources form shows in its
 // input placeholder: the path shape of the OS this copy runs on, so a Mac
@@ -119,7 +130,8 @@ func exampleMediaPath() string {
 }
 
 // handleContentStatic serves the area's embedded files (content.js,
-// content.css) with no directory listing.
+// content.css) with no directory listing. The page asks for them with a
+// content hash in the query (see versionAssets), which is ignored here.
 func (s *Server) handleContentStatic(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/admin/content/static/")
 	if name == "" || strings.Contains(name, "..") {

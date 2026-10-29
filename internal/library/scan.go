@@ -400,21 +400,21 @@ func (l *Library) enqueue(ctx context.Context, p *scanPass, absPath string, sour
 // straight in root and every one in its folders, with the scanner's skip
 // rules. The parent page uses it to tell a parent what a folder holds when
 // it is added. Unreadable folders below root are skipped like the scanner
-// skips them; an unreadable root is an error.
+// skips them; an unreadable root is an error. Like the scanner, it reads a
+// root that is a symlink through the link (filepath.WalkDir would not
+// follow it), and treats symlinks below the root as files.
 func CountVideos(ctx context.Context, root string) (int, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return 0, err
+	}
 	n := 0
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	count := func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			if path == root {
-				return err
-			}
-			return nil
+			return nil // unreadable: the scanner skips it too
 		}
 		if err := ctx.Err(); err != nil {
 			return err
-		}
-		if path == root {
-			return nil
 		}
 		if skippedName(d.Name()) {
 			if d.IsDir() {
@@ -426,8 +426,19 @@ func CountVideos(ctx context.Context, root string) (int, error) {
 			n++
 		}
 		return nil
-	})
-	return n, err
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			if err := count("", e, nil); err != nil {
+				return n, err
+			}
+			continue
+		}
+		if err := filepath.WalkDir(filepath.Join(root, e.Name()), count); err != nil {
+			return n, err
+		}
+	}
+	return n, nil
 }
 
 // InPlaceFile is one episode the shelf plays straight from its original

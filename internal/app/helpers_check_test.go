@@ -99,6 +99,63 @@ func TestHelpersCheckResumesBlockedJobs(t *testing.T) {
 	}
 }
 
+// TestHelpersCheckRetriesFailedResume: when putting the waiting jobs back
+// in the queue fails, the helpers check keeps its signal, so its next pass
+// tries the resume again instead of skipping (the jobs would otherwise wait
+// until a restart).
+func TestHelpersCheckRetriesFailedResume(t *testing.T) {
+	helpers := fakeHelpersDir(t)
+	for _, name := range []string{"ffmpeg", "ffprobe"} {
+		if err := os.Chmod(filepath.Join(helpers, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := testConfig(t, t.TempDir())
+	cfg.HelpersDir = helpers
+	a, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { a.Close() })
+	id, err := a.queue.Enqueue(ingest.JobKind, map[string]string{"file": "/videos/a.mkv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.queue.Claim(ingest.JobKind); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.queue.Pause(id, ingest.MsgHelpersWaiting); err != nil {
+		t.Fatal(err)
+	}
+	db := a.store.DB()
+	if _, err := db.Exec(`CREATE TRIGGER refuse_resume BEFORE UPDATE ON jobs WHEN NEW.state = 'queued'
+BEGIN SELECT RAISE(ABORT, 'the disk refused the write'); END`); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	if err := a.checkHelpers(ctx); err == nil {
+		t.Fatal("checkHelpers succeeded while the resume could not be stored")
+	}
+	if !a.worker.HelpersBlocked() {
+		t.Error("the helpers signal is gone after a failed resume")
+	}
+
+	if _, err := db.Exec(`DROP TRIGGER refuse_resume`); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.checkHelpers(ctx); err != nil {
+		t.Fatalf("checkHelpers: %v", err)
+	}
+	j, err := a.queue.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.State != jobs.StateQueued {
+		t.Errorf("waiting job is %s after the next check, want queued", j.State)
+	}
+}
+
 // TestHelpersProblemWords: on Windows, video helpers the system refused to
 // start get the plain Smart App Control words; elsewhere, or for another
 // cause (a missing or crashing helper), the generic words stay. The

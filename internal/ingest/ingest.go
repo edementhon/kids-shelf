@@ -381,7 +381,11 @@ type Worker struct {
 	hw *hwState
 	// helpersBlocked is set when a job paused because a helper could not
 	// start (see HelpersBlocked), so the app knows to re-check the helpers.
+	// It is set only once that pause is stored (see stageErr).
 	helpersBlocked atomic.Bool
+	// helpersBlockedSet, when set (tests only), runs right after
+	// helpersBlocked is set: the first moment the helpers check can see it.
+	helpersBlockedSet func()
 }
 
 // HelpersBlocked reports whether a job paused because a helper program
@@ -395,6 +399,13 @@ func (w *Worker) HelpersBlocked() bool {
 // afterwards sets it anew.
 func (w *Worker) ClearHelpersBlocked() {
 	w.helpersBlocked.Store(false)
+}
+
+// RestoreHelpersBlocked sets the blocked-helpers flag again; internal/app
+// calls it when resuming the paused jobs failed after ClearHelpersBlocked,
+// so its next check tries the resume again instead of skipping.
+func (w *Worker) RestoreHelpersBlocked() {
+	w.helpersBlocked.Store(true)
 }
 
 // WithFixRecorder wires the library's fix-status setter: when an
@@ -633,8 +644,14 @@ func (w *Worker) stageErr(ctx context.Context, jobID string, pl *payload, err er
 	}
 	if bin := w.helperThatCannotStart(ctx); bin != "" {
 		log.Printf("ingest: %s cannot start; job %s waits for it", bin, jobID)
-		w.helpersBlocked.Store(true)
+		// Store the pause before raising the flag: a helpers check that
+		// saw the flag first could clear it and resume nothing, leaving
+		// this job paused with no flag to bring it back.
 		w.q.Pause(jobID, MsgHelpersWaiting)
+		w.helpersBlocked.Store(true)
+		if w.helpersBlockedSet != nil {
+			w.helpersBlockedSet()
+		}
 		return
 	}
 	w.fail(ctx, jobID, pl, err)

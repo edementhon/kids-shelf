@@ -1228,6 +1228,46 @@ func TestHelperCannotStartPausesJob(t *testing.T) {
 	})
 }
 
+// TestHelpersBlockedRaisedAfterPause: the blocked-helpers signal is raised
+// only once the job's pause is stored. The helpers check runs at the first
+// moment it can see the signal (clear it, resume the waiting jobs, as
+// internal/app does once the helpers start): it must find the job paused,
+// so the job never ends up paused with no signal left to resume it.
+func TestHelpersBlockedRaisedAfterPause(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	h := newHarness(t, helpers)
+	h.w.dir = blockedCopy(t, h.w.dir, true, true)
+	file := filepath.Join(t.TempDir(), "a.mp4")
+	if err := os.WriteFile(file, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id := h.enqueue(t, file)
+	if j, err := h.q.Claim(JobKind); err != nil || j == nil || j.ID != id {
+		t.Fatalf("Claim = %v, %v; want job %s", j, err, id)
+	}
+	pl := h.payloadOf(t, id)
+	resumed := -1
+	h.w.helpersBlockedSet = func() {
+		h.w.ClearHelpersBlocked()
+		n, err := h.q.ResumePaused(JobKind, MsgHelpersWaiting)
+		if err != nil {
+			t.Fatalf("ResumePaused: %v", err)
+		}
+		resumed = n
+	}
+	h.w.stageErr(context.Background(), id, &pl, errors.New("probe failed"))
+	if resumed != 1 {
+		t.Errorf("the helpers check resumed %d jobs when it saw the signal, want the paused job", resumed)
+	}
+	j, err := h.q.Get(id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if j.State == jobs.StatePaused && !h.w.HelpersBlocked() {
+		t.Errorf("job is paused with %q and no blocked-helpers signal: nothing would resume it", j.Error)
+	}
+}
+
 // TestRetriedImprovementGoesBackToPending: a shown episode whose
 // improvement failed (fix "failed", playing its original) and whose job the
 // per-version retry requeues with RetryPayload goes through the show phase

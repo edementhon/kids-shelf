@@ -107,7 +107,9 @@ async function startFight(){
   $('jar').textContent=capped?'🎮 Coins are full for today. Win for the trophy!':`🪙 Win = +${rewardCoins} coins`;
   nextQ();
 }
-function setBusy(b){busy=b;$('ans').disabled=b;$('gobtn').disabled=b;}
+// setBusy blocks every way to send an answer (the field, Go, and a Try
+// again under a failed answer) while one is on its way.
+function setBusy(b){busy=b;$('ans').disabled=b;$('gobtn').disabled=b;for(const x of $('fb').querySelectorAll('button'))x.disabled=b;}
 function nextQ(){
   if(idx>=qs.length){return fightDone();}
   const q=qs[idx];
@@ -164,6 +166,7 @@ function submit(){
   send({n:cur.n,q:cur.q,given:parseInt(v,10),timedOut:false});
 }
 async function send(p){
+  if(busy)return; // one answer on its way at a time: a double tap on Try again sends once
   const token=play;
   setBusy(true);
   clearInterval(timerId);
