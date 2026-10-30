@@ -23,7 +23,7 @@
 #      unlinks them).
 #
 # Usage: smoke-install.sh <release.zip>
-# Requirements: bash, unzip, curl, python3 (instance.json), and on macOS
+# Requirements: bash, unzip, curl, and on macOS
 # codesign + spctl. Runs on macOS (arm64 and amd64) and Linux.
 # Exit code is non-zero when any check fails; messages are plain words.
 set -euo pipefail
@@ -44,8 +44,13 @@ fi
 fail() { echo "smoke-install: FAIL: $*" >&2; exit 1; }
 ok() { echo "smoke-install: ok: $*"; }
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/ks-smoke.XXXXXX")"
-HOME_TMP="$(mktemp -d "${TMPDIR:-/tmp}/ks-home.XXXXXX")"
+# macOS's TMPDIR ends in "/"; without trimming it, DATA_DIR held "T//ks-home"
+# while the processes' command lines say "T/ks-home", so the cleanup's
+# pkill matched nothing and a failed run left kids-shelf running.
+TMPBASE="${TMPDIR:-/tmp}"
+TMPBASE="${TMPBASE%/}"
+TMP="$(mktemp -d "$TMPBASE/ks-smoke.XXXXXX")"
+HOME_TMP="$(mktemp -d "$TMPBASE/ks-home.XXXXXX")"
 APP_PID=""
 DATA_DIR=""
 
@@ -134,7 +139,10 @@ PORT=""
 INSTALLER_EXIT=""
 for _ in $(seq 1 120); do
 	if [ -f "$DATA_DIR/instance.json" ]; then
-		PORT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("port", 0))' "$DATA_DIR/instance.json" 2>/dev/null || true)"
+		# instance.json is one line of compact JSON (json.Marshal). No
+		# python3: on a Mac without the Command Line Tools it is a stub that
+		# fails, and the run blamed instance.json instead.
+		PORT="$(grep -o '"port":[0-9]*' "$DATA_DIR/instance.json" 2>/dev/null | head -1 | cut -d: -f2 || true)"
 		if [[ "$PORT" =~ ^[0-9]+$ ]] && [ "$PORT" -gt 0 ]; then
 			break
 		fi
@@ -167,11 +175,15 @@ echo "smoke-install: checking the install layout"
 [ -d "$INSTALL_DIR" ] || fail "install root missing: $INSTALL_DIR"
 [ -x "$INSTALL_DIR/kids-shelf" ] || fail "no root launcher at $INSTALL_DIR/kids-shelf"
 [ -f "$INSTALL_DIR/install.lock" ] || fail "no install.lock in $INSTALL_DIR"
-VERSION_DIRS="$(find "$INSTALL_DIR/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true)"
-[ -n "$VERSION_DIRS" ] || fail "no published version under $INSTALL_DIR/versions"
-for V in $VERSION_DIRS; do
+# Read whole lines: the macOS data dir is under "Application Support", and
+# a plain `for` split the path at the space.
+FOUND_VERSION=""
+while IFS= read -r V; do
+	[ -n "$V" ] || continue
+	FOUND_VERSION=1
 	[ -x "$V/kids-shelf" ] || fail "version build missing its executable: $V/kids-shelf"
-done
+done < <(find "$INSTALL_DIR/versions" -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true)
+[ -n "$FOUND_VERSION" ] || fail "no published version under $INSTALL_DIR/versions"
 [ -f "$DATA_DIR/kids-shelf.db" ] || fail "no database at $DATA_DIR/kids-shelf.db"
 [ -f "$DATA_DIR/instance.json" ] || fail "no instance.json in $DATA_DIR"
 if [ "$OS" = "Darwin" ]; then

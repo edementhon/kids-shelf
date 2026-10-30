@@ -78,11 +78,14 @@ not seen before, and kids-shelf is new to it:
   done. On our test computer that took about 20 minutes and two restarts. Nothing is lost: the
   videos you already added carry on by themselves.
 - Sometimes it stops kids-shelf itself with **"Smart App Control blocked an app that may be
-  unsafe"**, with no button to run it anyway. Restart the computer and open kids-shelf again.
+  unsafe"**, with no button to run it anyway. Windows is still checking kids-shelf. Wait about
+  an hour, then open kids-shelf again. (On our test computer the block lifted after 46
+  minutes; restarting sooner did not help.)
 
-If it stays blocked, the only way past it is to turn Smart App Control off (Windows Security,
-App & browser control, Smart App Control settings). Windows may not let you turn it back on
-without resetting Windows, so decide whether that trade is worth it for your family.
+If it stays blocked after that, the only way past it is to turn Smart App Control off (Windows
+Security, App & browser control, Smart App Control settings). Some versions of Windows do not
+let you turn it back on without resetting Windows, so decide whether that trade is worth it for
+your family.
 
 ## Mac (macOS 15)
 
@@ -110,6 +113,9 @@ for this app, because it is not sold through Apple. Never click Move to Trash.**
 5. kids-shelf installs itself into your **Applications** folder, puts its icon (a little
    bookshelf) in the **Dock** at the bottom of the screen, and opens in Safari. From now on,
    click that icon in the Dock. You can delete the copy in Downloads.
+6. macOS asks **"Allow "kids-shelf" to find devices on local networks?"**. Click **Allow**: it
+   lets tablets find kids-shelf by its name, kids-shelf.local. If you click Don't Allow, the
+   tablets can still use the computer's address (see Connect the tablets).
 
 The Mac firewall is off unless you turned it on. If it is on, macOS may ask whether kids-shelf
 may accept incoming connections; choose Allow. (We have not seen this question ourselves.)
@@ -123,7 +129,7 @@ itself to your applications menu and opens in your browser.
 If the tablets cannot connect, your firewall may be blocking kids-shelf's two ports, 8070 and
 8071. On Ubuntu (ufw): `sudo ufw allow 8070/tcp` and `sudo ufw allow 8071/tcp`. On Fedora
 (firewalld): `sudo firewall-cmd --permanent --add-port=8070/tcp --add-port=8071/tcp`, then
-`sudo firewall-cmd --reload`.
+`sudo firewall-cmd --reload`. For the name kids-shelf.local, also allow `5353/udp` the same way.
 
 ## First things on the parent page
 
@@ -154,7 +160,9 @@ for each tablet:
    then **Add to Home Screen**. On Android (Chrome): the **⋮** menu, then **Add to Home screen**.
 
 To connect another tablet later, click **Connect a tablet** in **Address for other devices**,
-near the top of the parent page. That card also shows the address and the QR code.
+near the top of the parent page. That card also shows the address and the QR code. If a
+tablet's icon stops opening the shelf (for example, the router gave the computer a new number
+address after a restart), connect that tablet again the same way.
 
 ## Add videos and libraries
 

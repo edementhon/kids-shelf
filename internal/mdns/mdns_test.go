@@ -3,6 +3,7 @@ package mdns
 import (
 	"net"
 	"testing"
+	"time"
 
 	"github.com/edementhon/kids-shelf/internal/lanaddr"
 	"golang.org/x/net/dns/dnsmessage"
@@ -282,5 +283,62 @@ func TestProbeMessage(t *testing.T) {
 	auth, err := p.AllAuthorities()
 	if err != nil || len(auth) != 2 {
 		t.Fatalf("authorities %v err %v, want both addresses", auth, err)
+	}
+}
+
+// TestHealth walks the deaf-socket check: a socket that hears packets is
+// left alone; after quietAfter of silence it asks itself; hearing anything
+// after the question means it is fine; hearing nothing by the next check
+// replaces the socket, but not more than once per minReopenGap. The macOS
+// case: a socket opened before the Local Network Allow never hears anything
+// until it is replaced.
+func TestHealth(t *testing.T) {
+	t0 := time.Unix(1_800_000_000, 0)
+	at := func(d time.Duration) time.Time { return t0.Add(d) }
+	var h health
+
+	if got := h.next(at(10*time.Second), t0); got != actNone {
+		t.Fatalf("heard 10 s ago: %v, want nothing", got)
+	}
+	if got := h.next(at(30*time.Second), t0); got != actAsk {
+		t.Fatalf("quiet 30 s: %v, want ask", got)
+	}
+	// It heard its own question: healthy again, no reopen.
+	if got := h.next(at(40*time.Second), at(31*time.Second)); got != actNone {
+		t.Fatalf("heard after asking: %v, want nothing", got)
+	}
+	// Deaf: quiet, ask, still nothing at the next check -> reopen.
+	if got := h.next(at(70*time.Second), at(31*time.Second)); got != actAsk {
+		t.Fatalf("quiet again: %v, want ask", got)
+	}
+	if got := h.next(at(80*time.Second), at(31*time.Second)); got != actReopen {
+		t.Fatalf("no answer to its own question: %v, want reopen", got)
+	}
+	// Still deaf right after the reopen (openSocket resets the heard time,
+	// but say the new socket is deaf too): ask again, then wait out the gap.
+	heard := at(80 * time.Second)
+	if got := h.next(at(110*time.Second), heard); got != actAsk {
+		t.Fatalf("deaf after reopen: %v, want ask", got)
+	}
+	if got := h.next(at(120*time.Second), heard); got != actNone {
+		t.Fatalf("reopen 40 s after the last one: %v, want none (gap)", got)
+	}
+	if got := h.next(at(140*time.Second), heard); got != actReopen {
+		t.Fatalf("reopen 60 s after the last one: %v, want reopen", got)
+	}
+}
+
+// TestSelfQuestionIsNotAnswered: the question the check sends lists this
+// computer's own answer, so the responder hearing it sends nothing; the
+// check costs the network one small packet, not an answer storm.
+func TestSelfQuestionIsNotAnswered(t *testing.T) {
+	r, out := testResponder(t)
+	msg, err := r.selfQuestion(net.ParseIP("192.0.2.10"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.handle(msg, &net.UDPAddr{IP: net.ParseIP("192.0.2.10"), Port: mdnsPort})
+	if len(*out) != 0 {
+		t.Errorf("answered its own check question: %d sends", len(*out))
 	}
 }

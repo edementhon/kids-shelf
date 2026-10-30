@@ -49,6 +49,12 @@ const (
 	// minMulticastGap rate-limits multicast answers on one network
 	// (section 6: at most one per second).
 	minMulticastGap = time.Second
+	// The deaf-socket check (health): look every checkEvery; after
+	// quietAfter without a packet ask itself; replace a deaf socket at most
+	// once per minReopenGap.
+	checkEvery   = 10 * time.Second
+	quietAfter   = 25 * time.Second
+	minReopenGap = time.Minute
 )
 
 var groupAddr = &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: mdnsPort}
@@ -65,8 +71,15 @@ type Responder struct {
 	name dnsmessage.Name
 	logf func(format string, args ...any)
 
-	conn *net.UDPConn
-	pc   *ipv4.PacketConn
+	// sockMu guards the socket, which openSocket may replace while the
+	// responder runs, and serializes writes (the multicast interface is a
+	// socket option, set before each multicast write).
+	sockMu sync.Mutex
+	conn   *net.UDPConn
+	pc     *ipv4.PacketConn
+	joined map[int]bool // interface index -> group joined on this socket
+	// lastHeard is when the socket last received any packet (UnixNano).
+	lastHeard atomic.Int64
 
 	// probing is set while the start-up probe runs: questions are not
 	// answered yet, and answers from other devices are checked for a
@@ -76,13 +89,11 @@ type Responder struct {
 
 	mu       sync.Mutex
 	links    []lanaddr.Addr // the home networks answered on, best first
-	joined   map[int]bool   // interface index -> group joined
 	lastSent map[int]time.Time
 
 	// send is how answers leave: dst nil means multicast on link's
 	// network. Tests replace it.
 	send func(link lanaddr.Addr, msg []byte, dst *net.UDPAddr)
-	wmu  sync.Mutex // the multicast interface option and the write
 
 	done chan struct{}
 	wg   sync.WaitGroup
@@ -99,38 +110,53 @@ func Start(logf func(format string, args ...any)) (*Responder, error) {
 		return nil, errNoNetwork
 	}
 	r := newResponder(logf)
-	// ListenMulticastUDP binds 0.0.0.0:5353 with the address-reuse options
-	// each OS needs to share the port with its own responder, and joins
-	// the group on the best network; the others are joined below.
-	conn, err := net.ListenMulticastUDP("udp4", &links[0].Iface, groupAddr)
-	if err != nil {
+	r.send = r.sendSocket
+	if err := r.openSocket(links); err != nil {
 		return nil, err
 	}
-	r.conn = conn
-	r.pc = ipv4.NewPacketConn(conn)
-	// Loopback on, so this computer's own resolver (and a test from this
-	// computer) hears the answers too; Go turns it off by default.
-	if err := r.pc.SetMulticastLoopback(true); err != nil {
-		r.logf("mdns: multicast loopback: %v", err)
-	}
-	if err := r.pc.SetMulticastTTL(255); err != nil {
-		r.logf("mdns: multicast TTL: %v", err)
-	}
-	r.send = r.sendSocket
-	r.joined[links[0].Iface.Index] = true
-	r.setLinks(links)
-
-	r.wg.Add(1)
-	go r.readLoop()
-
 	if err := r.probe(); err != nil {
 		r.shutdown(false)
 		return nil, err
 	}
 	r.announce(r.currentLinks())
 	r.wg.Add(1)
-	go r.refreshLoop()
+	go r.maintainLoop()
 	return r, nil
+}
+
+// openSocket opens the shared UDP 5353 socket, joins the group on links
+// and starts reading it, replacing (and closing) the previous socket.
+// ListenMulticastUDP binds 0.0.0.0:5353 with the address-reuse options
+// each OS needs to share the port with its own responder, and joins the
+// group on the best network; setLinks joins the others.
+func (r *Responder) openSocket(links []lanaddr.Addr) error {
+	conn, err := net.ListenMulticastUDP("udp4", &links[0].Iface, groupAddr)
+	if err != nil {
+		return err
+	}
+	pc := ipv4.NewPacketConn(conn)
+	// Loopback on, so this computer's own resolver hears the answers and
+	// the responder hears itself (the deaf-socket check in maintainLoop);
+	// Go turns it off by default.
+	if err := pc.SetMulticastLoopback(true); err != nil {
+		r.logf("mdns: multicast loopback: %v", err)
+	}
+	if err := pc.SetMulticastTTL(255); err != nil {
+		r.logf("mdns: multicast TTL: %v", err)
+	}
+	r.sockMu.Lock()
+	old := r.conn
+	r.conn, r.pc = conn, pc
+	r.joined = map[int]bool{links[0].Iface.Index: true}
+	r.sockMu.Unlock()
+	if old != nil {
+		old.Close() // its readLoop ends on net.ErrClosed
+	}
+	r.lastHeard.Store(time.Now().UnixNano())
+	r.setLinks(links)
+	r.wg.Add(1)
+	go r.readLoop(conn)
+	return nil
 }
 
 func newResponder(logf func(format string, args ...any)) *Responder {
@@ -170,7 +196,12 @@ func (r *Responder) shutdown(goodbye bool) {
 		}
 	}
 	close(r.done)
-	r.conn.Close()
+	r.sockMu.Lock()
+	conn := r.conn
+	r.sockMu.Unlock()
+	if conn != nil {
+		conn.Close()
+	}
 	r.wg.Wait()
 }
 
@@ -186,10 +217,9 @@ func multicastLinks(all []lanaddr.Addr) []lanaddr.Addr {
 }
 
 func (r *Responder) setLinks(links []lanaddr.Addr) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.sockMu.Lock()
 	for _, l := range links {
-		if r.joined[l.Iface.Index] || r.pc == nil {
+		if r.pc == nil || r.joined[l.Iface.Index] {
 			continue
 		}
 		if err := r.pc.JoinGroup(&l.Iface, groupAddr); err != nil {
@@ -198,7 +228,10 @@ func (r *Responder) setLinks(links []lanaddr.Addr) {
 		}
 		r.joined[l.Iface.Index] = true
 	}
+	r.sockMu.Unlock()
+	r.mu.Lock()
 	r.links = links
+	r.mu.Unlock()
 }
 
 func (r *Responder) currentLinks() []lanaddr.Addr {
@@ -257,23 +290,101 @@ func (r *Responder) announce(links []lanaddr.Addr) {
 	}()
 }
 
-// refreshLoop follows network changes: a laptop that moves to another
-// Wi-Fi or gets a new address from the router announces the new one.
-func (r *Responder) refreshLoop() {
+// maintainLoop follows network changes every refreshEvery (a laptop that
+// moves to another Wi-Fi, or gets a new address from the router,
+// announces the new one) and checks every checkEvery that the socket still
+// hears anything. A socket opened before macOS's "find devices on local
+// networks" Allow stays deaf until it is reopened (macOS 15 VM,
+// 2026-10-29), so a deaf socket is replaced (see health).
+func (r *Responder) maintainLoop() {
 	defer r.wg.Done()
-	t := time.NewTicker(refreshEvery)
+	t := time.NewTicker(checkEvery)
 	defer t.Stop()
+	var h health
+	lastRefresh := time.Now()
 	for {
 		select {
 		case <-r.done:
 			return
 		case <-t.C:
 		}
-		now := multicastLinks(lanaddr.All())
-		changed := changedLinks(r.currentLinks(), now)
-		r.setLinks(now)
-		if len(changed) > 0 {
-			r.announce(changed)
+		now := time.Now()
+		if now.Sub(lastRefresh) >= refreshEvery {
+			lastRefresh = now
+			r.refreshLinks()
+		}
+		links := r.currentLinks()
+		if len(links) == 0 {
+			continue
+		}
+		switch h.next(now, time.Unix(0, r.lastHeard.Load())) {
+		case actAsk:
+			r.askSelf(links)
+		case actReopen:
+			if err := r.openSocket(links); err != nil {
+				r.logf("mdns: reopening the socket: %v", err)
+				continue
+			}
+			r.logf("mdns: the socket heard nothing, not even itself; opened a new one")
+			r.announce(links)
+		}
+	}
+}
+
+// refreshLinks re-reads the home networks and announces new addresses.
+func (r *Responder) refreshLinks() {
+	now := multicastLinks(lanaddr.All())
+	changed := changedLinks(r.currentLinks(), now)
+	r.setLinks(now)
+	if len(changed) > 0 {
+		r.announce(changed)
+	}
+}
+
+type action int
+
+const (
+	actNone action = iota
+	actAsk
+	actReopen
+)
+
+// health decides when the socket is deaf. Multicast loopback is on, so the
+// responder hears its own packets; on a home network it also hears other
+// devices every few seconds. After quietAfter without a packet it asks
+// itself a question (askSelf); a socket that does not hear even that by
+// the next check is deaf and gets replaced, at most once per
+// minReopenGap.
+type health struct {
+	askedAt    time.Time // when it asked itself; zero when not waiting
+	reopenedAt time.Time
+}
+
+func (h *health) next(now, heard time.Time) action {
+	if now.Sub(heard) < quietAfter || (!h.askedAt.IsZero() && heard.After(h.askedAt)) {
+		h.askedAt = time.Time{}
+		return actNone
+	}
+	if h.askedAt.IsZero() {
+		h.askedAt = now
+		return actAsk
+	}
+	if now.Sub(h.reopenedAt) < minReopenGap {
+		return actNone
+	}
+	h.askedAt = time.Time{}
+	h.reopenedAt = now
+	return actReopen
+}
+
+// askSelf sends, on each network, a question for the name that already
+// lists this computer's answer: the responder (and anyone else) stays
+// silent (known-answer suppression), but the packet itself reaches the
+// socket if it can hear.
+func (r *Responder) askSelf(links []lanaddr.Addr) {
+	for _, l := range links {
+		if msg, err := r.selfQuestion(l.IP); err == nil {
+			r.send(l, msg, nil)
 		}
 	}
 }
@@ -297,11 +408,11 @@ func changedLinks(before, now []lanaddr.Addr) []lanaddr.Addr {
 	return out
 }
 
-func (r *Responder) readLoop() {
+func (r *Responder) readLoop(conn *net.UDPConn) {
 	defer r.wg.Done()
 	buf := make([]byte, 9000)
 	for {
-		n, src, err := r.conn.ReadFromUDP(buf)
+		n, src, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			select {
 			case <-r.done:
@@ -309,13 +420,14 @@ func (r *Responder) readLoop() {
 			default:
 			}
 			if errors.Is(err, net.ErrClosed) {
-				return
+				return // shut down, or replaced by openSocket
 			}
 			// Windows reports an ICMP "port unreachable" for an earlier
 			// unicast answer as a read error; keep reading.
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
+		r.lastHeard.Store(time.Now().UnixNano())
 		r.handle(buf[:n], src)
 	}
 }
@@ -532,17 +644,39 @@ func (r *Responder) probeMessage(links []lanaddr.Addr) ([]byte, error) {
 	return b.Finish()
 }
 
+// selfQuestion is askSelf's question for the name with ip already listed
+// as a known answer at full TTL, so no responder answers it.
+func (r *Responder) selfQuestion(ip net.IP) ([]byte, error) {
+	b := dnsmessage.NewBuilder(make([]byte, 0, 128), dnsmessage.Header{})
+	b.EnableCompression()
+	if err := b.StartQuestions(); err != nil {
+		return nil, err
+	}
+	if err := b.Question(dnsmessage.Question{Name: r.name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET}); err != nil {
+		return nil, err
+	}
+	if err := b.StartAnswers(); err != nil {
+		return nil, err
+	}
+	var a [4]byte
+	copy(a[:], ip.To4())
+	if err := b.AResource(dnsmessage.ResourceHeader{Name: r.name, Class: dnsmessage.ClassINET, TTL: hostTTL}, dnsmessage.AResource{A: a}); err != nil {
+		return nil, err
+	}
+	return b.Finish()
+}
+
 // sendSocket writes msg to dst, or to the multicast group on link's
 // network when dst is nil.
 func (r *Responder) sendSocket(link lanaddr.Addr, msg []byte, dst *net.UDPAddr) {
+	r.sockMu.Lock()
+	defer r.sockMu.Unlock()
 	if dst != nil {
 		if _, err := r.conn.WriteToUDP(msg, dst); err != nil {
 			r.logf("mdns: answering %s: %v", dst, err)
 		}
 		return
 	}
-	r.wmu.Lock()
-	defer r.wmu.Unlock()
 	if err := r.pc.SetMulticastInterface(&link.Iface); err != nil {
 		r.logf("mdns: choosing %s: %v", link.Iface.Name, err)
 		return
