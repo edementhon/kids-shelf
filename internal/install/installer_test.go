@@ -606,3 +606,29 @@ func TestInstallStartsLauncherWhenShortcutsFail(t *testing.T) {
 		t.Errorf("versioned build missing after the install: %v", err)
 	}
 }
+
+// TestOpenThroughApp: macOS starts the installed copy through its app (so
+// macOS can ask the parent about protected folders) only for a normal
+// install; a non-default data dir or a throwaway HOME starts the launcher
+// directly, because LaunchServices would use the real profile instead.
+func TestOpenThroughApp(t *testing.T) {
+	const bundle = "/Applications/kids-shelf.app"
+	for _, tc := range []struct {
+		name              string
+		bundle            string
+		args              []string
+		home, accountHome string
+		want              bool
+	}{
+		{"normal install", bundle, nil, "/Users/parent", "/Users/parent", true},
+		{"trailing slash on HOME", bundle, nil, "/Users/parent/", "/Users/parent", true},
+		{"no app bundle", "", nil, "/Users/parent", "/Users/parent", false},
+		{"explicit data dir", bundle, []string{"--data-dir", "/tmp/x"}, "/Users/parent", "/Users/parent", false},
+		{"throwaway HOME (smoke test)", bundle, nil, "/var/folders/x/T/ks-home.1", "/Users/runner", false},
+		{"account home unknown", bundle, nil, "/Users/parent", "", false},
+	} {
+		if got := openThroughApp(tc.bundle, tc.args, tc.home, tc.accountHome); got != tc.want {
+			t.Errorf("%s: openThroughApp = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

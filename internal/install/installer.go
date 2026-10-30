@@ -255,7 +255,7 @@ func Install(o InstallOptions) error {
 		if err := installLock.Close(); err != nil {
 			return err
 		}
-		return startRootLauncher(installDir, dataDir)
+		return startInstalledApp(installDir, dataDir)
 	}
 	return nil
 }
@@ -435,7 +435,22 @@ func StartInstalled(dataDir string) error {
 	if err != nil {
 		return err
 	}
-	return startRootLauncher(install, dataDir)
+	return startInstalledApp(install, dataDir)
+}
+
+// openThroughApp decides whether macOS starts the installed copy through
+// its app bundle (see startInstalledApp): only when the bundle exists, the
+// data directory is the default one (LaunchServices passes no
+// --data-dir), and this process runs with the account's own home folder.
+// LaunchServices always starts the app with the account's real
+// environment, so a run with another HOME (the smoke test's throwaway
+// home) must start the launcher directly or it would install into the
+// real profile instead.
+func openThroughApp(bundle string, launcherArgs []string, home, accountHome string) bool {
+	if bundle == "" || len(launcherArgs) != 0 || home == "" || accountHome == "" {
+		return false
+	}
+	return filepath.Clean(home) == filepath.Clean(accountHome)
 }
 
 // IsInstalled reports whether exe is the root launcher of a valid
