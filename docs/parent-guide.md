@@ -152,7 +152,9 @@ for each tablet:
 1. Put the tablet on the same Wi-Fi as the computer.
 2. Open the tablet's camera and point it at the QR code on the screen, then tap the link that
    appears. The shelf opens on the tablet, and the parent page says **"A tablet just
-   connected."** No camera? Type the address the page shows into the tablet's browser:
+   connected."** If the name kids-shelf.local works on that tablet, the shelf moves to it by
+   itself a moment later, so the icon you save next keeps working even if the computer's
+   number address changes. No camera? Type the address the page shows into the tablet's browser:
    `kids-shelf.local:8070`. If that does not open, type the number address the page shows
    instead, like `192.168.1.20:8070`. (Some computers cannot announce the name; then the page
    shows only the number address.)

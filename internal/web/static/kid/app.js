@@ -931,17 +931,42 @@ async function runSearch(q) {
   }
 }
 
-// Opened from the parent page's QR code (?connect=1): tell kids-shelf once,
-// so the parent page can say a tablet connected, then drop the marker from
-// the address bar so a home-screen icon saved afterwards has the plain
-// address.
-function connectPing() {
+// Opened from the parent page's QR code (?connect=1): drop the marker from
+// the address bar, tell kids-shelf once (so the parent page can say a
+// tablet connected), then move to the computer's name when it works from
+// this tablet, so a home-screen icon saved afterwards survives the router
+// giving the computer a new address.
+async function connectPing() {
   const q = new URLSearchParams(location.search);
   if (q.get('connect') !== '1') return;
-  fetch('/api/connected', { method: 'POST' }).catch(() => { /* only a nicety for the parent page */ });
   q.delete('connect');
   const rest = q.toString();
   history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+  await fetch('/api/connected', { method: 'POST' }).catch(() => { /* only a nicety for the parent page */ });
+  await moveToName();
+}
+
+// moveToName loads a check image through the announced name (for example
+// kids-shelf.local); only when it comes back from this same kids-shelf
+// (same instance id) does the page reload there. Anything else, a name
+// this tablet cannot resolve, another kids-shelf, a slow network, keeps
+// the address that already works.
+async function moveToName() {
+  try {
+    const r = await fetch('/api/name');
+    if (!r.ok) return;
+    const { name, id } = await r.json();
+    if (!name || !id || location.hostname === name) return;
+    const origin = location.protocol + '//' + name + (location.port ? ':' + location.port : '');
+    const reached = await new Promise((resolve) => {
+      const img = new Image();
+      const timer = setTimeout(() => resolve(false), 3000);
+      img.onload = () => { clearTimeout(timer); resolve(true); };
+      img.onerror = () => { clearTimeout(timer); resolve(false); };
+      img.src = origin + '/api/name-check?id=' + encodeURIComponent(id) + '&t=' + Date.now();
+    });
+    if (reached) location.replace(origin + location.pathname + location.search + location.hash);
+  } catch (e) { /* stay on the address */ }
 }
 
 // ---------------------------------------------------------------------------

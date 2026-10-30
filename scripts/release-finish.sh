@@ -18,9 +18,6 @@
 #                      `gh auth login` on the host)
 #   KS_RELEASE_REPO    owner/name of the repository the draft release is
 #                      created in (default edementhon/kids-shelf)
-#   KS_RELEASE_NAME    optional release name, shown in the title as
-#                      "kids-shelf v0.2.0 (Adventurous Axolotl)"; the names
-#                      run alphabetically (docs/RELEASING.md)
 #
 # Fails (non-zero) without publishing when SHA256SUMS.sig does not verify
 # against the pinned public key, when SHA256SUMS does not name a
@@ -93,9 +90,6 @@ if [ "${KS_PUBLISH:-0}" = "1" ]; then
 	command -v gh >/dev/null 2>&1 || die "KS_PUBLISH=1 needs gh; run 'gh auth login' on this host first"
 	KS_RELEASE_REPO="${KS_RELEASE_REPO:-edementhon/kids-shelf}"
 	TITLE="kids-shelf $VERSION"
-	if [ -n "${KS_RELEASE_NAME:-}" ]; then
-		TITLE="$TITLE ($KS_RELEASE_NAME)"
-	fi
 	log "creating the draft GitHub release \"$TITLE\" in $KS_RELEASE_REPO"
 	# Parents land on the release page from the parent guide, so the notes
 	# say which zip is theirs. Passing --title and --notes also keeps gh

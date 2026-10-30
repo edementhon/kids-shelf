@@ -3,6 +3,12 @@
 // The server keeps only the latest such ping (its time and the client
 // address) in memory, and the parent page's Connect a tablet step polls
 // /api/admin/connect/status to say "a tablet just connected".
+//
+// The same kid page then moves the tablet to the name the computer
+// announces (kids-shelf.local) when the name reaches this same kids-shelf
+// from that tablet: it reads /api/name, then loads /api/name-check?id=
+// through the name as an image. A home-screen icon saved after the move
+// keeps working when the router gives the computer a new address.
 package web
 
 import (
@@ -20,7 +26,33 @@ func init() {
 	register(func(s *Server) {
 		s.mux.HandleFunc("POST /api/connected", s.handleConnected)
 		s.mux.HandleFunc("GET /api/admin/connect/status", s.handleAdminConnectStatus)
+		s.mux.HandleFunc("GET /api/name", s.handleName)
+		s.mux.HandleFunc("GET /api/name-check", s.handleNameCheck)
 	})
+}
+
+// handleName tells the kid page the name tablets can use ("" when the
+// computer announces none) and this instance's id, which /api/name-check
+// compares. Both are public: /healthz reports the id too.
+func (s *Server) handleName(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"name": s.deps.LANName, "id": s.id})
+}
+
+// pixelGIF is a 1x1 transparent GIF.
+var pixelGIF = []byte("GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;")
+
+// handleNameCheck answers an image only when id is this instance's, so a
+// tablet moves to the name only when the name reaches this same kids-shelf
+// (not another one in the house). An image, not JSON, because the page
+// loads it from the other origin without CORS.
+func (s *Server) handleNameCheck(w http.ResponseWriter, r *http.Request) {
+	if s.id == "" || r.URL.Query().Get("id") != s.id {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/gif")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(pixelGIF)
 }
 
 // connectPing is one tablet arriving from the QR code.

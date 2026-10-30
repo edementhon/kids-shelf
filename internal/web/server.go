@@ -145,6 +145,7 @@ func register(r registrar) { registrars = append(registrars, r) }
 type Server struct {
 	mux        *http.ServeMux
 	deps       Deps
+	id         string // the instance id /healthz reports
 	healthJSON []byte
 
 	hostMu  sync.Mutex
@@ -154,7 +155,7 @@ type Server struct {
 
 // New returns a Server with only /healthz, for the launcher and its tests.
 func New(instanceID string) *Server {
-	s := &Server{mux: http.NewServeMux()}
+	s := &Server{mux: http.NewServeMux(), id: instanceID}
 	s.healthJSON, _ = json.Marshal(healthResponse{Status: "ok", ID: instanceID, Version: Version})
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	return s

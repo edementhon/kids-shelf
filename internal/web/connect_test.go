@@ -199,3 +199,35 @@ func TestConnectStatusNeedsPIN(t *testing.T) {
 		t.Errorf("a loopback ping was recorded: %v", out)
 	}
 }
+
+// TestNameCheck: the kid page learns the announced name and the instance
+// id from /api/name, and /api/name-check answers an image only for this
+// instance's id. A tablet whose kids-shelf.local reaches another kids-shelf
+// in the house gets a 404 there and keeps its working address.
+func TestNameCheck(t *testing.T) {
+	for _, name := range []string{"", "kids-shelf.local"} {
+		ts, _, _ := newTestAdmin(t, func(d *Deps) { d.LANName = name })
+		resp, out := doReq(t, http.MethodGet, ts.URL+"/api/name", nil)
+		if resp.StatusCode != http.StatusOK || out["name"] != name || out["id"] != "test" {
+			t.Errorf("LANName %q: /api/name status %d body %v, want the name and id \"test\"", name, resp.StatusCode, out)
+		}
+	}
+
+	ts, _, _ := newTestAdmin(t)
+	for _, tc := range []struct {
+		id   string
+		code int
+	}{{"test", http.StatusOK}, {"another-kids-shelf", http.StatusNotFound}, {"", http.StatusNotFound}} {
+		resp, err := http.Get(ts.URL + "/api/name-check?id=" + tc.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != tc.code {
+			t.Errorf("name-check id %q: status %d, want %d", tc.id, resp.StatusCode, tc.code)
+		}
+		if tc.code == http.StatusOK && resp.Header.Get("Content-Type") != "image/gif" {
+			t.Errorf("name-check content type %q, want image/gif (the page loads it as an image)", resp.Header.Get("Content-Type"))
+		}
+	}
+}
