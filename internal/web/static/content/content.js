@@ -556,7 +556,7 @@ async function loadIngest() {
 // The sentences stay in sync with the kid pages' explanations.
 const FIX_ISSUE = {
   sound: 'No sound in most browsers (Dolby or DTS sound)',
-  picture: 'The picture may not show on some tablets and browsers',
+  picture: 'The picture may not show in some browsers',
   format: 'Will not open on iPads, iPhones or Safari (MKV file)',
 };
 

@@ -26,7 +26,12 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(3)
 		}
-		select {}
+		// Hold until the test kills us. Not `select {}`: with nothing
+		// else able to wake, Go aborts the process ("all goroutines are
+		// asleep"), dropping the lock; suspected on the macos-smoke
+		// runners, where the lock tests failed only there.
+		time.Sleep(time.Hour)
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }

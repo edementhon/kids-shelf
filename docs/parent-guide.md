@@ -9,8 +9,8 @@ the outside internet while they use it.
 - **One computer runs kids-shelf.** A Windows PC, a Mac or a Linux PC. It keeps the videos and
   libraries, so it needs the disk space (see "How much space" below). It must be switched on
   and awake while the kids watch.
-- **Tablets, phones and other computers are the screens.** Any device with a web browser on
-  your home Wi-Fi can open kids-shelf.
+- **Any device with a web browser on your home Wi-Fi is a screen.** A TV with a browser, another
+  computer, a phone or a tablet can open kids-shelf. You do not need to buy anything.
 - **There are two sides.** The kids' side is what the browser shows first: "Who's watching?".
   The **parent page** is where you add kids, minutes and videos. To get there, click
   **Grown-ups** in the top corner of the kids' side (the very first time, the big
@@ -50,7 +50,7 @@ below show every one we saw on Windows 11 and macOS 15.
    by itself do not ask.
 3. Windows Firewall asks **"Do you want to allow public and private networks to access this
    app?"** for **Kids Shelf** (Publisher: Unknown, again expected). Click **Allow**: it lets the
-   tablets and phones on your home Wi-Fi reach kids-shelf.
+   other devices on your home Wi-Fi reach kids-shelf.
 
    ![Windows Firewall asks about Kids Shelf](images/win-firewall-prompt.png)
 
@@ -58,15 +58,15 @@ below show every one we saw on Windows 11 and macOS 15.
    **kids-shelf** icon on the desktop or in the Start menu. You can delete the zip and the
    folder in Downloads.
 
-**If you clicked Cancel at the firewall question, or the tablets stop connecting later,** the
-parent page says **"Tablets and phones can't reach kids-shelf yet"**. (On our test machine,
+**If you clicked Cancel at the firewall question, or the other devices stop connecting later,**
+the parent page says **"Other devices on your Wi-Fi can't reach kids-shelf yet"**. (On our test machine,
 Allow only covered the kind of network the computer was on at the time: after we switched the
 network from Public to Private in Windows settings, Windows blocked kids-shelf again.) Click
-**Let tablets in**. Windows asks **"Do you want to allow this app to make changes to your
+**Let other devices in**. Windows asks **"Do you want to allow this app to make changes to your
 device?"** for **Windows PowerShell** (publisher: Microsoft Windows): that is the part that adds
 the firewall rule, so click **Yes**.
 
-![The parent page offers Let tablets in](images/win-let-tablets-in.png)
+![The parent page offers Let other devices in](images/win-let-tablets-in.png)
 ![Windows asks about Windows PowerShell](images/win-uac-powershell.png)
 
 **Smart App Control.** Some Windows 11 computers have Smart App Control switched on (most
@@ -114,8 +114,8 @@ for this app, because it is not sold through Apple. Never click Move to Trash.**
    bookshelf) in the **Dock** at the bottom of the screen, and opens in Safari. From now on,
    click that icon in the Dock. You can delete the copy in Downloads.
 6. macOS asks **"Allow "kids-shelf" to find devices on local networks?"**. Click **Allow**: it
-   lets tablets find kids-shelf by its name, kids-shelf.local. If you click Don't Allow, the
-   tablets can still use the computer's address (see Connect the tablets).
+   lets other devices find kids-shelf by its name, kids-shelf.local. If you click Don't Allow,
+   they can still use the computer's address (see "Connect other devices").
 
 The Mac firewall is off unless you turned it on. If it is on, macOS may ask whether kids-shelf
 may accept incoming connections; choose Allow. (We have not seen this question ourselves.)
@@ -126,7 +126,7 @@ Unzip the file, open a terminal in that folder and run `./kids-shelf` (some file
 start it on a double-click). It installs itself into `~/.local/share/kids-shelf/app`, adds
 itself to your applications menu and opens in your browser.
 
-If the tablets cannot connect, your firewall may be blocking kids-shelf's two ports, 8070 and
+If other devices cannot connect, your firewall may be blocking kids-shelf's two ports, 8070 and
 8071. On Ubuntu (ufw): `sudo ufw allow 8070/tcp` and `sudo ufw allow 8071/tcp`. On Fedora
 (firewalld): `sudo firewall-cmd --permanent --add-port=8070/tcp --add-port=8071/tcp`, then
 `sudo firewall-cmd --reload`. For the name kids-shelf.local, also allow `5353/udp` the same way.
@@ -136,35 +136,38 @@ If the tablets cannot connect, your firewall may be blocking kids-shelf's two po
 1. **Make a parent PIN.** The first time you open the parent page it asks for one: 4 digits
    only you know. The kids can see the **Grown-ups** link, so the page always needs it. You can
    change it later under Settings. **Forgot it?** Open the parent page on the computer kids-shelf
-   runs on (from its icon there), click **Forgot the PIN?**, then **Reset the parent PIN**. A
-   tablet or phone cannot reset it. Once the PIN is saved, the page walks you through connecting
-   a tablet (see "Connect the tablets" below).
+   runs on (from its icon there), click **Forgot the PIN?**, then **Reset the parent PIN**. Other
+   devices cannot reset it. Once the PIN is saved, the page walks you through opening kids-shelf
+   on another device (see "Connect other devices" below).
 2. **Add your kids**, each with their own PIN, and set their daily minutes.
 3. **Set a grown-up PIN** under Settings. "Watch together" (free watching with a grown-up)
    asks for it; until you set one, it tells the kids to ask you. Watching together ends after two
    hours, or when you press **End watching together**.
 
-## Connect the tablets
+## Connect other devices
 
-Right after you make the parent PIN, the parent page opens **Connect a tablet or phone**. Do this
-for each tablet:
+Right after you make the parent PIN, the parent page opens **Open kids-shelf on another
+device**. Do this for each screen the kids will use:
 
-1. Put the tablet on the same Wi-Fi as the computer.
-2. Open the tablet's camera and point it at the QR code on the screen, then tap the link that
-   appears. The shelf opens on the tablet, and the parent page says **"A tablet just
-   connected."** If the name kids-shelf.local works on that tablet, the shelf moves to it by
-   itself a moment later, so the icon you save next keeps working even if the computer's
-   number address changes. No camera? Type the address the page shows into the tablet's browser:
-   `kids-shelf.local:8070`. If that does not open, type the number address the page shows
-   instead, like `192.168.1.20:8070`. (Some computers cannot announce the name; then the page
-   shows only the number address.)
-3. Add it to the home screen, so the kids can find it. On an iPad or iPhone (Safari): **Share**,
-   then **Add to Home Screen**. On Android (Chrome): the **⋮** menu, then **Add to Home screen**.
+1. Put the device on the same Wi-Fi as the computer.
+2. **On a phone or tablet:** point its camera at the QR code on the screen, then tap the link
+   that appears. The shelf opens, and the parent page says **"A device just connected."** If
+   the name kids-shelf.local works on that device, the shelf moves to it by itself a moment
+   later, so the icon you save next keeps working even if the computer's number address
+   changes.
 
-To connect another tablet later, click **Connect a tablet** in **Address for other devices**,
-near the top of the parent page. That card also shows the address and the QR code. If a
-tablet's icon stops opening the shelf (for example, the router gave the computer a new number
-address after a restart), connect that tablet again the same way.
+   **On a TV, another computer or anything without a camera:** open its web browser and type
+   the address the page shows: `kids-shelf.local:8070`. If that does not open, type the number
+   address the page shows instead, like `192.168.1.20:8070`. (Some computers cannot announce
+   the name; then the page shows only the number address.)
+3. Save it so the kids can find it. On a computer or TV: add a bookmark. On an iPhone or iPad
+   (Safari): **Share**, then **Add to Home Screen**. On Android (Chrome): the **⋮** menu, then
+   **Add to Home screen**.
+
+To add another device later, click **Connect another device** in **Address for other devices**,
+near the top of the parent page. That card also shows the address and the QR code. If a saved
+bookmark or icon stops opening the shelf (for example, the router gave the computer a new
+number address after a restart), connect that device again the same way.
 
 ## Add videos and libraries
 

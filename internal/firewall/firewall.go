@@ -332,7 +332,7 @@ func parseStatus(data []byte) Status {
 	if !anyOn {
 		// The firewall is off for every active profile (or no profile
 		// state was reported), so it is not what keeps devices out.
-		return Status{Blocked: false, Detail: "Windows Firewall is off, so tablets and phones can already reach kids-shelf."}
+		return Status{Blocked: false, Detail: "Windows Firewall is off, so other devices can already reach kids-shelf."}
 	}
 	hasAllow := false
 	for _, r := range ps.Rules {

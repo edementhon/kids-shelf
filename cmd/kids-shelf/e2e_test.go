@@ -98,7 +98,9 @@ func newReleaseServer(t *testing.T, priv ed25519.PrivateKey, tag string, bits []
 	t.Helper()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	w, err := zw.Create(update.EntryName())
+	// The member a real release uses on this OS: inside kids-shelf.app on
+	// darwin (the macos-smoke runners failed with the plain name).
+	w, err := zw.Create(update.ZipEntryName())
 	if err != nil {
 		t.Fatal(err)
 	}

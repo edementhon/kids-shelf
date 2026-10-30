@@ -41,7 +41,10 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(3)
 		}
-		select {}
+		// Hold until the test kills us; see the store package's holder
+		// for why this is not `select {}`.
+		time.Sleep(time.Hour)
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }

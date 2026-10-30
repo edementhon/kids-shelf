@@ -134,7 +134,13 @@ func (e *kidEnv) publishShow(showID, showName, bin, epID, title string, dur int6
 	if err := e.lib.SetShowBin(e.ctx, showName, bin); err != nil {
 		e.t.Fatalf("SetShowBin(%s): %v", showName, err)
 	}
-	dir := e.t.TempDir()
+	// The real path, as ingest records it: serveOriginal refuses a path
+	// that resolves elsewhere, and macOS's temp dir (/var/folders) is a
+	// symlink into /private/var (macos-smoke runners: 404).
+	dir, err := filepath.EvalSymlinks(e.t.TempDir())
+	if err != nil {
+		e.t.Fatal(err)
+	}
 	file, thumb := filepath.Join(dir, epID+".mp4"), filepath.Join(dir, epID+".jpg")
 	if err := os.WriteFile(file, []byte("MP4TESTDATA\n"), 0o644); err != nil {
 		e.t.Fatalf("write media file: %v", err)

@@ -52,7 +52,7 @@ func TestParseStatus(t *testing.T) {
 		{
 			name: "firewall off on the active profile",
 			data: psPayload(activePublic, fwOff, nil),
-			want: Status{Blocked: false, Detail: "Windows Firewall is off, so tablets and phones can already reach kids-shelf."},
+			want: Status{Blocked: false, Detail: "Windows Firewall is off, so other devices can already reach kids-shelf."},
 		},
 		{
 			name: "firewall on for the active profile and off for others",

@@ -23,19 +23,19 @@
     <p class="note" id="helpersadvice">Quit kids-shelf (at the bottom of this page) and open it again from __KS_REOPEN__. If this message comes back, install kids-shelf again.</p>
   </div>
   <div class="firewall" id="firewall">
-    <p class="firewall-note">Tablets and phones can't reach kids-shelf yet.</p>
-    <button class="btn add" id="fw-allow">Let tablets in</button>
+    <p class="firewall-note">Other devices on your Wi-Fi can't reach kids-shelf yet.</p>
+    <button class="btn add" id="fw-allow">Let other devices in</button>
     <p class="note">Windows will ask for the computer's administrator password.</p>
   </div>
 </section>
 <p class="statusline" id="statusline"></p>
 <section class="card" id="sec-address">
-  <h2>📱 Address for other devices</h2>
+  <h2>🔗 Address for other devices</h2>
   <p class="addr" id="addr"></p>
   <p class="addrname hidden" id="addrname">Or type <b id="addrname-text"></b></p>
   <img id="qr" alt="QR code with the address on it" class="qr hidden">
-  <p class="note">Type this address on phones and tablets, or scan the code.</p>
-  <div class="rowbtns"><button type="button" class="btn add" id="connect-open">📱 Connect a tablet</button></div>
+  <p class="note">Type this address in the web browser of a phone, computer or TV on the same Wi-Fi, or scan the code with a phone.</p>
+  <div class="rowbtns"><button type="button" class="btn add" id="connect-open">🔗 Connect another device</button></div>
 </section>
 
 
@@ -156,27 +156,28 @@
   <button type="button" id="msgclose" class="msgclose" aria-label="Close this message">✕</button>
 </div>
 
-<!-- Connect a tablet: opens right after the first parent PIN is made, and
+<!-- Connect another device: opens right after the first parent PIN is made, and
      from the address card. Done, Esc or a tap on the dimmed backdrop close it. -->
 <div class="overlay hidden" id="connectoverlay">
   <div class="overlay-box connect-box" id="connectbox" role="dialog" aria-modal="true" aria-labelledby="connecttitle" tabindex="-1">
-    <h2 id="connecttitle">📱 Connect a tablet or phone</h2>
+    <h2 id="connecttitle">🔗 Open kids-shelf on another device</h2>
     <div class="connect-fw hidden" id="connect-fw">
-      <p class="firewall-note">Tablets can't reach kids-shelf yet.</p>
-      <button type="button" class="btn add" id="connect-fw-allow">Let tablets in</button>
+      <p class="firewall-note">Other devices on your Wi-Fi can't reach kids-shelf yet.</p>
+      <button type="button" class="btn add" id="connect-fw-allow">Let other devices in</button>
       <p class="note">Windows will ask for the computer's administrator password.</p>
     </div>
     <p class="connect-nolan hidden" id="connect-nolan">This computer is not on a home network. Connect it to your Wi-Fi or router, then open this again.</p>
     <ol class="connect-steps" id="connect-steps">
-      <li>Put the tablet on the same Wi-Fi as this computer.</li>
-      <li>Open the tablet's camera and point it at this code. Tap the link that appears.
+      <li>Put the other device on the same Wi-Fi as this computer.</li>
+      <li>On a phone or tablet: point its camera at this code and tap the link that appears.
         <img id="connect-qr" class="connect-qr" alt="QR code with the address on it">
-        <p class="connect-type">No camera? Type this in the tablet's browser:</p>
+        <p class="connect-type">On a computer, a TV or anything without a camera: type this in its web browser:</p>
         <p class="connect-addr" id="connect-addr"></p>
         <p class="note hidden" id="connect-ipline">If that does not open, type <b id="connect-ip"></b></p>
       </li>
-      <li>Add it to the home screen so the kids can find it.
-        <p class="note">iPad and iPhone (Safari): Share, then Add to Home Screen.</p>
+      <li>Save it so the kids can find it.
+        <p class="note">On a computer or TV: add a bookmark.</p>
+        <p class="note">iPhone or iPad (Safari): Share, then Add to Home Screen.</p>
         <p class="note">Android (Chrome): the ⋮ menu, then Add to Home screen.</p>
       </li>
     </ol>

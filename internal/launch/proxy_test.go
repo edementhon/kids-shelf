@@ -274,6 +274,15 @@ func TestPinthrottleThroughProxy(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("dialing from 127.0.0.2/127.0.0.3 is not reliable on Windows")
 	}
+	// macOS has only 127.0.0.1 on its loopback unless an alias is added
+	// (macos-smoke runners: "bind: can't assign requested address").
+	for _, ip := range []string{"127.0.0.2", "127.0.0.3"} {
+		l, err := net.Listen("tcp", ip+":0")
+		if err != nil {
+			t.Skipf("this machine has no %s loopback address: %v", ip, err)
+		}
+		l.Close()
+	}
 	const token = "the-proxy-token"
 	dir := t.TempDir()
 	pinFile := filepath.Join(dir, "dashboard-pin.json")

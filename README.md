@@ -1,7 +1,7 @@
 # kids-shelf
 
 kids-shelf is a small "local internet" for kids. One computer on the
-home Wi-Fi runs it; tablets and phones open it in a browser. There are
+home Wi-Fi runs it; any other device with a web browser opens it. There are
 no accounts, no cloud and no ads. Parents manage everything on a parent
 page (`/admin`); kids get their own pages with their own content.
 

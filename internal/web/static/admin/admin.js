@@ -137,9 +137,9 @@ function renderProblems(problems) {
   showFirewall(!!(fw && fw.blocked && !fw.unknown));
 }
 
-/* showFirewall shows or hides the "Tablets can't reach kids-shelf yet" line
-   with its Let tablets in button, in the problems card and in the Connect a
-   tablet step alike. */
+/* showFirewall shows or hides the "Other devices on your Wi-Fi can't reach
+   kids-shelf yet" line with its Let other devices in button, in the problems
+   card and in the Connect another device step alike. */
 function showFirewall(blocked) {
   $('firewall').classList.toggle('show', blocked);
   $('connect-fw').classList.toggle('hidden', !blocked);
@@ -152,19 +152,19 @@ async function refreshProblems() {
   } catch (e) { /* the PIN overlay (or the page being gone) handles it */ }
 }
 
-async function letTabletsIn() {
+async function letDevicesIn() {
   let out;
   try {
     out = await api('/api/admin/firewall/allow', { method: 'POST', body: '{}' });
   } catch (e) { return; /* message already shown */ }
   const fw = (out && out.firewall) || {};
   if (!fw.blocked && !fw.unknown) {
-    msg('Tablets and phones can reach kids-shelf now.');
+    msg('Other devices on your Wi-Fi can reach kids-shelf now.');
     showFirewall(false);
   } else if (fw.unknown) {
-    msg('kids-shelf could not check whether tablets can get in. Try opening the address on a tablet; if it does not work, press Let tablets in again.', true);
+    msg('kids-shelf could not check whether other devices can get in. Try opening the address on one; if it does not work, press Let other devices in again.', true);
   } else {
-    msg('Windows still keeps tablets out. Press Let tablets in again and choose Yes when Windows asks.', true);
+    msg('Windows still keeps other devices out. Press Let other devices in again and choose Yes when Windows asks.', true);
   }
 }
 
@@ -388,9 +388,9 @@ function qrSrc(svg) {
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
-/* ── connect a tablet ─────────────────────────────────────────────────── */
+/* ── connect another device ─────────────────────────────────────────── */
 /* The step opens right after the first parent PIN is made, and from the
-   address card. While it is open it asks every 2 seconds whether a tablet
+   address card. While it is open it asks every 2 seconds whether a device
    opened the QR code's address, and says so when one did. */
 let connectOpener = null; // where focus goes back to on close
 let connectRun = 0;       // bumps on every open and close; a stale poll stops
@@ -453,7 +453,7 @@ async function pollConnect(run) {
   if (st) {
     const last = st.last || '';
     if (connectBase === null) connectBase = last;
-    else if (last && last !== connectBase) $('connect-ok').textContent = '✓ A tablet just connected.';
+    else if (last && last !== connectBase) $('connect-ok').textContent = '✓ A device just connected.';
   }
   setTimeout(() => { if (run === connectRun) pollConnect(run); }, 2000);
 }
@@ -907,8 +907,8 @@ $('setupform').addEventListener('submit', saveSetup);
 $('lock').addEventListener('click', lockPage);
 $('quit').addEventListener('click', quitApp);
 $('remove').addEventListener('click', removeApp);
-$('fw-allow').addEventListener('click', letTabletsIn);
-$('connect-fw-allow').addEventListener('click', letTabletsIn);
+$('fw-allow').addEventListener('click', letDevicesIn);
+$('connect-fw-allow').addEventListener('click', letDevicesIn);
 $('connect-open').addEventListener('click', e => openConnect(e.currentTarget));
 $('connect-done').addEventListener('click', closeConnect);
 // A tap on the dimmed backdrop closes the step; a press that starts inside
