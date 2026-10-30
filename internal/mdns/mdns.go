@@ -89,7 +89,7 @@ type Responder struct {
 
 	mu       sync.Mutex
 	links    []lanaddr.Addr // the home networks answered on, best first
-	lastSent map[int]time.Time
+	lastSent map[sendKey]time.Time
 
 	// send is how answers leave: dst nil means multicast on link's
 	// network. Tests replace it.
@@ -167,7 +167,7 @@ func newResponder(logf func(format string, args ...any)) *Responder {
 		name:     dnsmessage.MustNewName(Name + "."),
 		logf:     logf,
 		joined:   map[int]bool{},
-		lastSent: map[int]time.Time{},
+		lastSent: map[sendKey]time.Time{},
 		done:     make(chan struct{}),
 	}
 }
@@ -190,7 +190,7 @@ func (r *Responder) shutdown(goodbye bool) {
 	}
 	if goodbye {
 		for _, l := range r.currentLinks() {
-			if msg, err := r.answer(0, nil, l.IP, 0, true); err == nil {
+			if msg, err := r.answer(0, nil, l.IP, 0, true, false); err == nil {
 				r.send(l, msg, nil)
 			}
 		}
@@ -270,7 +270,7 @@ func (r *Responder) probe() error {
 // (section 8.3), so caches holding an old address update at once.
 func (r *Responder) announce(links []lanaddr.Addr) {
 	for _, l := range links {
-		if msg, err := r.answer(0, nil, l.IP, hostTTL, true); err == nil {
+		if msg, err := r.answer(0, nil, l.IP, hostTTL, true, true); err == nil {
 			r.send(l, msg, nil)
 		}
 	}
@@ -283,7 +283,7 @@ func (r *Responder) announce(links []lanaddr.Addr) {
 		case <-time.After(time.Second):
 		}
 		for _, l := range links {
-			if msg, err := r.answer(0, nil, l.IP, hostTTL, true); err == nil {
+			if msg, err := r.answer(0, nil, l.IP, hostTTL, true, true); err == nil {
 				r.send(l, msg, nil)
 			}
 		}
@@ -448,8 +448,8 @@ func (r *Responder) handle(pkt []byte, src *net.UDPAddr) {
 	if h.OpCode != 0 || r.probing.Load() {
 		return
 	}
-	var want []dnsmessage.Question
-	unicast := false
+	var asked []dnsmessage.Question
+	positive, negative, unicast := false, false, false
 	for {
 		q, err := p.Question()
 		if err == dnsmessage.ErrSectionDone {
@@ -465,15 +465,22 @@ func (r *Responder) handle(pkt []byte, src *net.UDPAddr) {
 		if class != dnsmessage.ClassINET && class != dnsmessage.ClassANY {
 			continue
 		}
-		if q.Type != dnsmessage.TypeA && q.Type != dnsmessage.TypeALL {
-			continue
+		switch q.Type {
+		case dnsmessage.TypeA, dnsmessage.TypeALL:
+			positive = true
+		default:
+			// The name has no record of this type (AAAA above all). Say
+			// so at once (section 6.1): otherwise a lookup that asks for
+			// both IPv4 and IPv6 waits for the IPv6 question to time out
+			// (5 s on macOS, VM 2026-10-29).
+			negative = true
 		}
-		want = append(want, q)
+		asked = append(asked, q)
 		if q.Class&classTopBit != 0 {
 			unicast = true
 		}
 	}
-	if len(want) == 0 {
+	if !positive && !negative {
 		return
 	}
 	link, ok := r.linkFor(src.IP)
@@ -482,23 +489,37 @@ func (r *Responder) handle(pkt []byte, src *net.UDPAddr) {
 	}
 	if src.Port != mdnsPort {
 		// A one-shot resolver: answer it directly, with its query id and
-		// question, a short TTL and no cache-flush bit (section 6.7).
-		if msg, err := r.answer(h.ID, want, link.IP, legacyTTL, false); err == nil {
+		// questions, a short TTL and no cache-flush bit (section 6.7). A
+		// question about another type only gets an answer with no
+		// records, which plain DNS clients read as "no such address".
+		var ip net.IP
+		if positive {
+			ip = link.IP
+		}
+		if msg, err := r.answer(h.ID, asked, ip, legacyTTL, false, false); err == nil {
 			r.send(link, msg, src)
 		}
 		return
 	}
-	if r.alreadyKnown(&p, link.IP) {
-		return // the asker listed our answer as known (section 7.1)
+	if positive && r.alreadyKnown(&p, link.IP) {
+		// The asker listed our address as known (section 7.1).
+		positive = false
+		if !negative {
+			return
+		}
 	}
-	msg, err := r.answer(0, nil, link.IP, hostTTL, true)
+	var ip net.IP
+	if positive {
+		ip = link.IP
+	}
+	msg, err := r.answer(0, nil, ip, hostTTL, true, true)
 	if err != nil {
 		return
 	}
 	if unicast {
 		r.send(link, msg, src)
 	}
-	if r.multicastDue(link) {
+	if r.multicastDue(link, ip == nil) {
 		r.send(link, msg, nil)
 	}
 }
@@ -579,22 +600,39 @@ func (r *Responder) alreadyKnown(p *dnsmessage.Parser, ip net.IP) bool {
 }
 
 // multicastDue applies the one-per-second limit for multicast answers on
-// one network.
-func (r *Responder) multicastDue(link lanaddr.Addr) bool {
+// one network, separately for address answers and "no other type"
+// answers: a lookup asks for IPv4 and IPv6 a moment apart, and holding back
+// either answer would make it wait.
+func (r *Responder) multicastDue(link lanaddr.Addr, negative bool) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := time.Now()
-	if last, ok := r.lastSent[link.Iface.Index]; ok && now.Sub(last) < minMulticastGap {
+	k := sendKey{index: link.Iface.Index, negative: negative}
+	if last, ok := r.lastSent[k]; ok && now.Sub(last) < minMulticastGap {
 		return false
 	}
-	r.lastSent[link.Iface.Index] = now
+	r.lastSent[k] = now
 	return true
 }
 
-// answer builds a response holding ip as the name's address. A non-nil
-// questions list is repeated (one-shot answers need it).
-func (r *Responder) answer(id uint16, questions []dnsmessage.Question, ip net.IP, ttl uint32, cacheFlush bool) ([]byte, error) {
-	b := dnsmessage.NewBuilder(make([]byte, 0, 128), dnsmessage.Header{ID: id, Response: true, Authoritative: true})
+// sendKey is what the multicast rate limit counts per: a network and the
+// kind of answer.
+type sendKey struct {
+	index    int
+	negative bool
+}
+
+// typeNSEC is the DNS record type that lists which types a name has.
+const typeNSEC = dnsmessage.Type(47)
+
+// answer builds a response for the name. ip, when set, is its address (an
+// A record in the answer section). nsec adds the record saying the name
+// has no other type (section 6.1): in the additional section beside an
+// address, or as the answer itself without one. A response with neither
+// holds no records (a one-shot "no such address"). A non-nil questions
+// list is repeated (one-shot answers need it).
+func (r *Responder) answer(id uint16, questions []dnsmessage.Question, ip net.IP, ttl uint32, cacheFlush, nsec bool) ([]byte, error) {
+	b := dnsmessage.NewBuilder(make([]byte, 0, 160), dnsmessage.Header{ID: id, Response: true, Authoritative: true})
 	b.EnableCompression()
 	if err := b.StartQuestions(); err != nil {
 		return nil, err
@@ -611,12 +649,41 @@ func (r *Responder) answer(id uint16, questions []dnsmessage.Question, ip net.IP
 	if cacheFlush {
 		class |= classTopBit
 	}
-	var a [4]byte
-	copy(a[:], ip.To4())
-	if err := b.AResource(dnsmessage.ResourceHeader{Name: r.name, Class: class, TTL: ttl}, dnsmessage.AResource{A: a}); err != nil {
-		return nil, err
+	hdr := dnsmessage.ResourceHeader{Name: r.name, Class: class, TTL: ttl}
+	nsecRR := dnsmessage.UnknownResource{Type: typeNSEC, Data: r.nsecData()}
+	if ip != nil {
+		var a [4]byte
+		copy(a[:], ip.To4())
+		if err := b.AResource(hdr, dnsmessage.AResource{A: a}); err != nil {
+			return nil, err
+		}
+		if nsec {
+			if err := b.StartAdditionals(); err != nil {
+				return nil, err
+			}
+			if err := b.UnknownResource(hdr, nsecRR); err != nil {
+				return nil, err
+			}
+		}
+	} else if nsec {
+		if err := b.UnknownResource(hdr, nsecRR); err != nil {
+			return nil, err
+		}
 	}
 	return b.Finish()
+}
+
+// nsecData is the NSEC record's data in the form RFC 6762 section 6.1
+// uses: the next-name field is the name itself, and the type bitmap
+// lists only A (window 0, one bitmap byte, bit 1 set).
+func (r *Responder) nsecData() []byte {
+	var out []byte
+	for _, label := range strings.Split(strings.TrimSuffix(r.name.String(), "."), ".") {
+		out = append(out, byte(len(label)))
+		out = append(out, label...)
+	}
+	out = append(out, 0)
+	return append(out, 0, 1, 0x40)
 }
 
 // probeMessage is the start-up question "who answers to the name?", with

@@ -1277,3 +1277,64 @@ func runFakeSupervisor() error {
 	// supervisor as soon as the child stops, defeating the kill test.
 	select {}
 }
+
+// TestSuperviseTrialThatCannotStartIsBlockedNotFailed: a candidate the
+// operating system refuses to start (Smart App Control holding back a new
+// file) goes to Blocked, not Failed, so the update is kept for a later try
+// instead of being rejected for good; the supervisor then re-resolves and
+// serves the current version.
+func TestSuperviseTrialThatCannotStartIsBlockedNotFailed(t *testing.T) {
+	shortenWindows(t)
+	dir := t.TempDir()
+	app := fakeApp(t)
+	// A file that exists but cannot be executed stands in for a binary
+	// the operating system refuses to start.
+	refused := filepath.Join(dir, "refused-candidate")
+	if err := os.WriteFile(refused, []byte("not a program"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var resolves, failed atomic.Int32
+	var blockedReason atomic.Value
+	done, cancel := startSupervisor(t, dir, Options{
+		Child: app,
+		Resolve: func() (string, error) {
+			if resolves.Add(1) == 1 {
+				return refused, nil
+			}
+			return app, nil
+		},
+		Env: appEnv(),
+		Trials: TrialPolicy{
+			InTrial: func() bool { return resolves.Load() == 1 },
+			Failed: func(error) error {
+				failed.Add(1)
+				return nil
+			},
+			Blocked: func(reason error) error {
+				blockedReason.Store(reason.Error())
+				return nil
+			},
+		},
+	})
+
+	record := waitForInstance(t, dir, 10*time.Second)
+	checkHealthNow(t, record)
+	if failed.Load() != 0 {
+		t.Error("Failed was called for a candidate that could not start; the update would be rejected for good")
+	}
+	if r, _ := blockedReason.Load().(string); !strings.Contains(r, "starting the new version") {
+		t.Errorf("Blocked reason = %q, want the start failure", r)
+	}
+	if n := resolves.Load(); n != 2 {
+		t.Errorf("Resolve called %d times, want 2 (blocked candidate, then the current version)", n)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the supervisor did not stop after cancel")
+	}
+}

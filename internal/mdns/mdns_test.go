@@ -84,9 +84,10 @@ func response(t *testing.T, name string, ip net.IP) []byte {
 }
 
 type parsed struct {
-	h         dnsmessage.Header
-	questions []dnsmessage.Question
-	answers   []dnsmessage.Resource
+	h           dnsmessage.Header
+	questions   []dnsmessage.Question
+	answers     []dnsmessage.Resource
+	additionals []dnsmessage.Resource
 }
 
 func parse(t *testing.T, msg []byte) parsed {
@@ -104,7 +105,25 @@ func parse(t *testing.T, msg []byte) parsed {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return parsed{h: h, questions: qs, answers: as}
+	if err := p.SkipAllAuthorities(); err != nil {
+		t.Fatal(err)
+	}
+	add, err := p.AllAdditionals()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed{h: h, questions: qs, answers: as, additionals: add}
+}
+
+// isNoOtherTypes reports whether rr is the record saying the name has an
+// A record and nothing else (NSEC, RFC 6762 section 6.1).
+func isNoOtherTypes(rr dnsmessage.Resource) bool {
+	body, ok := rr.Body.(*dnsmessage.UnknownResource)
+	if !ok || rr.Header.Type != typeNSEC || rr.Header.Name.String() != Name+"." {
+		return false
+	}
+	d := body.Data
+	return len(d) > 3 && d[len(d)-3] == 0 && d[len(d)-2] == 1 && d[len(d)-1] == 0x40
 }
 
 // answerIP checks that m holds exactly one A answer for the name and
@@ -202,9 +221,6 @@ func TestNotAnswered(t *testing.T) {
 	}{
 		{"another name", func(t *testing.T) []byte {
 			return query(t, 0, "printer.local.", dnsmessage.TypeA, dnsmessage.ClassINET, nil, 0)
-		}, false},
-		{"AAAA", func(t *testing.T) []byte {
-			return query(t, 0, Name+".", dnsmessage.TypeAAAA, dnsmessage.ClassINET, nil, 0)
 		}, false},
 		{"known answer", func(t *testing.T) []byte {
 			return query(t, 0, Name+".", dnsmessage.TypeA, dnsmessage.ClassINET, net.ParseIP("192.0.2.10"), hostTTL)
@@ -340,5 +356,47 @@ func TestSelfQuestionIsNotAnswered(t *testing.T) {
 	r.handle(msg, &net.UDPAddr{IP: net.ParseIP("192.0.2.10"), Port: mdnsPort})
 	if len(*out) != 0 {
 		t.Errorf("answered its own check question: %d sends", len(*out))
+	}
+}
+
+// TestNoIPv6Answer: the shelf has no IPv6 address for the name, and says so
+// at once. Without this a Mac's lookup, which asks for IPv4 and IPv6 a
+// moment apart, waited 5 s for the IPv6 question to time out (VM,
+// 2026-10-29). The address answer also carries the "nothing else" record,
+// and a quick pair of questions gets both answers despite the rate limit.
+func TestNoIPv6Answer(t *testing.T) {
+	src := &net.UDPAddr{IP: net.ParseIP("192.0.2.50"), Port: mdnsPort}
+	r, out := testResponder(t)
+
+	r.handle(query(t, 0, Name+".", dnsmessage.TypeA, dnsmessage.ClassINET, nil, 0), src)
+	r.handle(query(t, 0, Name+".", dnsmessage.TypeAAAA, dnsmessage.ClassINET, nil, 0), src)
+	if len(*out) != 2 || (*out)[0].dst != nil || (*out)[1].dst != nil {
+		t.Fatalf("sent %+v, want two multicast answers (IPv4, then no IPv6)", *out)
+	}
+	a := parse(t, (*out)[0].msg)
+	if ip, _, _ := answerIP(t, a); ip.String() != "192.0.2.10" {
+		t.Errorf("IPv4 answer %s, want 192.0.2.10", ip)
+	}
+	if len(a.additionals) != 1 || !isNoOtherTypes(a.additionals[0]) {
+		t.Errorf("IPv4 answer's additional records %v, want the nothing-else record", a.additionals)
+	}
+	n := parse(t, (*out)[1].msg)
+	if len(n.answers) != 1 || !isNoOtherTypes(n.answers[0]) {
+		t.Fatalf("IPv6 answer %v, want only the nothing-else record", n.answers)
+	}
+	if n.answers[0].Header.Class != dnsmessage.ClassINET|classTopBit || n.answers[0].Header.TTL != hostTTL {
+		t.Errorf("nothing-else record class %#x ttl %d, want IN with cache flush, %d", uint16(n.answers[0].Header.Class), n.answers[0].Header.TTL, hostTTL)
+	}
+
+	// A one-shot IPv6 question gets a direct answer with no records: plain
+	// DNS clients read that as "no such address" at once.
+	oneShot := &net.UDPAddr{IP: net.ParseIP("192.0.2.77"), Port: 40123}
+	r.handle(query(t, 0x4321, Name+".", dnsmessage.TypeAAAA, dnsmessage.ClassINET, nil, 0), oneShot)
+	if len(*out) != 3 || (*out)[2].dst != oneShot {
+		t.Fatalf("sent %+v, want a direct answer to the one-shot question", *out)
+	}
+	o := parse(t, (*out)[2].msg)
+	if o.h.ID != 0x4321 || len(o.questions) != 1 || o.questions[0].Type != dnsmessage.TypeAAAA || len(o.answers) != 0 {
+		t.Errorf("one-shot IPv6 answer: id %#x questions %v answers %v, want the query's id and question and no records", o.h.ID, o.questions, o.answers)
 	}
 }

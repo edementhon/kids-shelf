@@ -82,6 +82,14 @@ type TrialPolicy struct {
 	// restore the previous state; the supervisor then re-resolves and
 	// starts the next version.
 	Failed func(reason error) error
+	// Blocked, when set, is called instead of Failed when the candidate
+	// could not even start: the operating system refused to run it, as
+	// Windows Smart App Control does with a new unsigned file for up to an
+	// hour (VM, 2026-10-29). The version was hash-checked when it was
+	// staged, so the build is not at fault and must not be rejected: the
+	// hook puts it back for a later start, and Resolve must keep running
+	// the current version for a while. The supervisor then re-resolves.
+	Blocked func(reason error) error
 }
 
 // supervise runs the app as a child of this process. It binds and keeps the
@@ -311,10 +319,15 @@ func superviseOne(ctx context.Context, opts Options, state *superviseState, chil
 
 	if serr := cmd.Start(); serr != nil {
 		if trial {
-			// The candidate build cannot even start: roll back
-			// immediately (restore, reject) and run the previous version.
+			// The candidate build cannot even start: run the previous
+			// version now, putting the candidate back for later (Blocked)
+			// or rolling it back for good (Failed).
 			reason := fmt.Errorf("starting the new version: %w", serr)
-			if ferr := opts.Trials.Failed(reason); ferr != nil {
+			hook := opts.Trials.Failed
+			if opts.Trials.Blocked != nil {
+				hook = opts.Trials.Blocked
+			}
+			if ferr := hook(reason); ferr != nil {
 				return outcomeEnd, ferr
 			}
 			return outcomeRestart, nil

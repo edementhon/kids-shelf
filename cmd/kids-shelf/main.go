@@ -286,8 +286,24 @@ func runSupervisor(ctx context.Context, dir, install string, port int, noBrowser
 	entryPath := update.EntryPath(install)
 	dbPath := update.DatabasePath(dir)
 	var curVersion string
+	// blockedUntil: Windows refused to start a new version (Smart App
+	// Control checking a new file); it stays staged, and until then this
+	// launcher runs the current version instead of activating it again,
+	// which would only hit the same block in a loop.
+	var blockedUntil time.Time
 
 	resolve := func() (string, error) {
+		if time.Now().Before(blockedUntil) {
+			st, err := update.ReadState(dir)
+			if err != nil {
+				return "", fmt.Errorf("update: reading the journal: %w", err)
+			}
+			curVersion = st.Current
+			if st.Current == "" {
+				return entryPath, nil
+			}
+			return update.VersionBinary(install, st.Current), nil
+		}
 		// Activate snapshots or restores the database. A restore refuses
 		// with a plain error while any process still has the database open
 		// (the DB ownership lock), so a rollback can never run under a
@@ -333,6 +349,15 @@ func runSupervisor(ctx context.Context, dir, install string, port int, noBrowser
 				log.Printf("kids-shelf: the update to %s failed (%v); switching back", curVersion, reason)
 				return update.Reject(dir, curVersion)
 			},
+			// Not the build's fault (it was hash-checked when staged):
+			// keep it staged and try it again at the next start, or when
+			// the parent page's update button restarts the app after
+			// updateRetryAfter.
+			Blocked: func(reason error) error {
+				log.Printf("kids-shelf: the computer would not start %s yet (%v); staying on the current version and trying again later", curVersion, reason)
+				blockedUntil = time.Now().Add(updateRetryAfter)
+				return update.AbandonTrial(dir)
+			},
 		},
 	})
 	if err != nil {
@@ -340,6 +365,11 @@ func runSupervisor(ctx context.Context, dir, install string, port int, noBrowser
 	}
 	return 0
 }
+
+// updateRetryAfter is how long a supervisor keeps running the current
+// version after Windows refused to start a new one. Smart App Control let
+// a blocked file run 46 minutes after its first block (VM, 2026-10-29).
+const updateRetryAfter = 30 * time.Minute
 
 // envInt parses v as a decimal port; unset or unparsable values read as 0.
 func envInt(name string) int {
