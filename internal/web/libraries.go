@@ -467,6 +467,10 @@ func (s *Server) handleAPILibraries(w http.ResponseWriter, r *http.Request) {
 		// not available, whatever the supervisor last saw.
 		feed, out.Available = s.kiwixFeed(r.Context())
 	}
+	// Two copies of one ZIM (the same UUID) are one book to kiwix-serve, so
+	// the kids see one tile for it, not two that open the same book (VM,
+	// 2026-10-30). The parent page still lists both files.
+	shown := map[string]bool{}
 	for _, in := range installed {
 		b := libraryBook{
 			Name:     in.FileBase(),
@@ -483,6 +487,12 @@ func (s *Server) handleAPILibraries(w http.ResponseWriter, r *http.Request) {
 				b.URL = "/kiwix/viewer#" + sb.URLName()
 				b.Icon = sb.Icon
 			}
+		}
+		if b.URL != "" {
+			if shown[b.URL] {
+				continue
+			}
+			shown[b.URL] = true
 		}
 		out.Books = append(out.Books, b)
 	}

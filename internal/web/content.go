@@ -1371,6 +1371,8 @@ func (s *Server) handleContentKiwixFolderAdd(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "We couldn't find that folder on this computer. Check the path. A drive or NAS has to be connected to this computer first.")
 	case errors.Is(err, kiwix.ErrNotAFolder):
 		writeError(w, http.StatusBadRequest, "That is a file, not a folder. Enter the folder that holds your library files (.zim).")
+	case errors.Is(err, kiwix.ErrFolderNotReadable):
+		writeError(w, http.StatusBadRequest, "kids-shelf can't open that folder. Check that this computer is allowed to read it.")
 	case errors.Is(err, kiwix.ErrLibraryFolder):
 		writeError(w, http.StatusBadRequest, "kids-shelf keeps the libraries it downloads in that folder, so they are on the shelf already. Enter another folder.")
 	case errors.Is(err, kiwix.ErrFolderAdded):

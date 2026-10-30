@@ -572,10 +572,16 @@ EOF
   fi
 
   # --- libmicrohttpd 0.9.76 (autotools; minimal) ----------------------------
+  # darwin: configure's pipe2 check passes against zig's macOS link stubs,
+  # but macOS has no pipe2, so the call went to address 0 and kiwix-serve
+  # crashed in MHD_start_daemon_va on every start (Mac VM, 2026-10-30).
+  # Without it MHD uses pipe() plus fcntl, as on any macOS build.
+  local MHD_EXTRA=()
+  [ "$SYS" = darwin ] && MHD_EXTRA+=(mhd_cv_pipe2_usable=no)
   kz_auto libmicrohttpd.a microhttpd mhd "$S/libmicrohttpd-$LIBMICROHTTPD_VERSION" \
     --disable-doc --disable-examples --disable-tests --disable-benchmark \
     --disable-curl --disable-expat --disable-gnutls --disable-gcrypt \
-    --disable-openssl --disable-nls
+    --disable-openssl --disable-nls "${MHD_EXTRA[@]}"
 
   # --- xapian-core 1.4.23 (autotools; used by libzim's full-text search) ----
   # uuid source per target: win32 API (-lrpcrt4) on mingw, system libSystem on

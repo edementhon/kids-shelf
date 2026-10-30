@@ -564,6 +564,20 @@ func TestAddFolderRefusals(t *testing.T) {
 			t.Errorf("AddFolder(%s) = %v, want %v", tc.name, err, tc.want)
 		}
 	}
+	// A folder kids-shelf may not list (on a Mac: Documents, Desktop or a
+	// share macOS has not allowed) is refused, not added as an empty
+	// folder "out of reach". Permission bits do not stop root or Windows.
+	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
+		locked := filepath.Join(base, "locked")
+		putFile(t, locked, "c.zim", []byte("c"))
+		if err := os.Chmod(locked, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(locked, 0o755) })
+		if _, err := m.AddFolder(ctx, locked); !errors.Is(err, ErrFolderNotReadable) {
+			t.Errorf("AddFolder(a folder that cannot be read) = %v, want ErrFolderNotReadable", err)
+		}
+	}
 	if n, err := m.AddFolder(ctx, dir); err != nil || n != 2 {
 		t.Fatalf("AddFolder(%s) = %d, %v, want 2", dir, n, err)
 	}

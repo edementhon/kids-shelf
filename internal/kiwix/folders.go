@@ -32,7 +32,26 @@ var (
 	ErrFolderAdded    = errors.New("kiwix: folder already added")
 	ErrFolderNested   = errors.New("kiwix: folder inside or around an added folder")
 	ErrNoSuchFolder   = errors.New("kiwix: not a library folder")
+	// ErrFolderNotReadable: the folder exists but kids-shelf may not list
+	// it (permissions, or macOS privacy protection of Documents, Desktop,
+	// Downloads, drives and network shares, which refused a Mac VM's
+	// unsigned build without asking, 2026-10-30).
+	ErrFolderNotReadable = errors.New("kiwix: folder cannot be read")
 )
+
+// canList reports whether path can be listed, reading at most one entry:
+// an empty folder lists fine.
+func canList(path string) error {
+	d, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	if _, err := d.ReadDir(1); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
+}
 
 // folderBookPrefix starts the id of every library folder book; catalog
 // ids are urn:uuid: ids, so the two never collide.
@@ -110,6 +129,9 @@ func (m *Manager) AddFolder(ctx context.Context, path string) (int, error) {
 	}
 	if !st.IsDir() {
 		return 0, ErrNotAFolder
+	}
+	if err := canList(path); err != nil {
+		return 0, fmt.Errorf("%w: %v", ErrFolderNotReadable, err)
 	}
 	if m.inLibraryDir(path) {
 		return 0, ErrLibraryFolder

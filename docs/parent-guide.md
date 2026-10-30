@@ -198,6 +198,10 @@ does it at once. If the folder is on a drive or NAS that is not connected, its l
 missing until it is back. **Stop using this folder** takes its libraries off the shelf. kids-shelf
 never changes, moves or deletes the files themselves.
 
+On Windows, a library file kids-shelf is using cannot be moved, renamed or deleted (Windows says
+**"Folder In Use"**). Click **Stop using this folder** first, or quit kids-shelf, then move the
+files, and add the folder again afterwards.
+
 ## How much space
 
 Videos that browsers play well as they are (most MP4 files) play from where they are, with no

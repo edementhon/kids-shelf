@@ -1061,3 +1061,41 @@ func TestAPILibrariesFolderBookRealKiwixServe(t *testing.T) {
 		}
 	}
 }
+
+// TestAPILibrariesSameZIMTwiceIsOneTile: two copies of one ZIM (same UUID)
+// are a single book to kiwix-serve, so the kids get one tile for it, not
+// two that open the same book.
+func TestAPILibrariesSameZIMTwiceIsOneTile(t *testing.T) {
+	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join("..", "kiwix", "testdata", "served_entries.xml"))
+	}))
+	defer feed.Close()
+	km, _, _ := librariesKiwixManager(t)
+	dir := filepath.Join(t.TempDir(), "Kiwix")
+	for _, name := range []string{"My Wiki (2026).zim", "copy/My Wiki (2026).zim"} {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, testZIM(servedWikiUUID), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := km.AddFolder(t.Context(), dir); err != nil || n != 2 {
+		t.Fatalf("AddFolder = %d, %v, want 2", n, err)
+	}
+	ts := librariesTestServer(t, Deps{Kiwix: km, KiwixServer: stubKiwixBackend{feed.URL}})
+	code, body, _ := librariesTestGet(t, ts, "/api/libraries")
+	if code != http.StatusOK {
+		t.Fatalf("GET /api/libraries = %d: %s", code, body)
+	}
+	var out struct {
+		Books []libraryBook `json:"books"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Books) != 1 || out.Books[0].URL != "/kiwix/viewer#my_wiki_(2026)" {
+		t.Errorf("books = %+v, want one tile opening my_wiki_(2026)", out.Books)
+	}
+}
