@@ -307,6 +307,10 @@ for ZIP in "${ZIPS[@]}"; do
 	SUM="$(sha256sum "$ZIP")"
 	printf '%s  %s\n' "${SUM%% *}" "$(basename "$ZIP")" >> "$OUT/SHA256SUMS"
 done
+# The commit the binaries were built from (Go embeds the same revision as
+# vcs.revision): release-finish.sh tags the release there, not at whatever
+# main points to by the time the release is published.
+git -C "$REPO_ROOT" rev-parse HEAD > "$OUT/SOURCE_COMMIT"
 
 # --- helper sources archive (GPL corresponding sources) ---------------------
 # The bundled helpers (ffmpeg/ffprobe built with --enable-gpl and x264,

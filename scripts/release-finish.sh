@@ -103,10 +103,20 @@ if [ "${KS_PUBLISH:-0}" = "1" ]; then
 - Linux PC: kids-shelf_linux_amd64.zip; Raspberry Pi and other ARM computers: kids-shelf_linux_arm64.zip
 
 Already installed? kids-shelf updates itself."
+	# The tag goes on the commit the binaries were built from (release.sh
+	# writes SOURCE_COMMIT), so a docs commit pushed after the build cannot
+	# move it. The commit must already be pushed.
+	TARGET_ARGS=()
+	if [ -f "$OUT/SOURCE_COMMIT" ]; then
+		COMMIT="$(tr -d '[:space:]' < "$OUT/SOURCE_COMMIT")"
+		[[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "SOURCE_COMMIT in $OUT does not hold a commit hash"
+		TARGET_ARGS=(--target "$COMMIT")
+		log "tagging $VERSION at the source commit $COMMIT"
+	fi
 	# gh runs with --repo and absolute asset paths: $OUT usually lives
 	# outside any repository checkout, where gh cannot resolve the target
 	# repo, so the --repo flag carries it explicitly.
-	gh release create --repo "$KS_RELEASE_REPO" --draft "$VERSION" --title "$TITLE" --notes "$NOTES" \
+	gh release create --repo "$KS_RELEASE_REPO" --draft "$VERSION" "${TARGET_ARGS[@]}" --title "$TITLE" --notes "$NOTES" \
 		"$OUT"/kids-shelf_*.zip "$OUT/SHA256SUMS" "$OUT/SHA256SUMS.sig" "$HELPER_SOURCES"
 	log "draft created: https://github.com/$KS_RELEASE_REPO/releases (review and publish it there)"
 else

@@ -66,13 +66,16 @@ network from Public to Private in Windows settings, Windows blocked kids-shelf a
 device?"** for **Windows PowerShell** (publisher: Microsoft Windows): that is the part that adds
 the firewall rule, so click **Yes**.
 
-![The parent page offers Let other devices in](images/win-let-tablets-in.png)
+![The parent page offers Let other devices in](images/win-let-devices-in.png)
 ![Windows asks about Windows PowerShell](images/win-uac-powershell.png)
 
 **Smart App Control.** Some Windows 11 computers have Smart App Control switched on (most
 computers that were upgraded from Windows 10 do not). Windows then checks new programs it has
 not seen before, and kids-shelf is new to it:
 
+- The first time, nothing may appear for a minute or two after you double-click kids-shelf
+  while Windows checks it (about 90 seconds on our test computer). Wait two minutes before you
+  double-click it again.
 - Usually kids-shelf opens, but Windows holds back its video tools for a while. The parent page
   then says **"Windows is checking kids-shelf's video tools"**, and videos appear once Windows is
   done. On our test computer that took about 20 minutes and two restarts. Nothing is lost: the

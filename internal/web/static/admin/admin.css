@@ -254,8 +254,20 @@ button.textbtn {
 .setupform input { margin: 6px 0 0; }
 /* Connect a tablet: a tall step, so the backdrop scrolls on a short or
    narrow screen instead of cutting the box off. */
-#connectoverlay { overflow-y: auto; padding: 12px 0; }
-.connect-box { margin: auto; max-width: 520px; text-align: left; }
+#connectoverlay { padding: 12px 0; }
+/* The box fits the window: heading, confirmation and Done stay in view and
+   only the steps scroll (a 1280x800 screen hid the confirmation and Done). */
+.connect-box {
+  margin: auto;
+  max-width: 520px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+}
+.connect-scroll { overflow-y: auto; min-height: 0; flex: 1 1 auto; }
+.connect-box > .rowbtns { flex: none; }
 .connect-box h2 { text-align: center; }
 .connect-fw { background: var(--chip); border-radius: 12px; padding: 12px; margin: 0 0 14px; }
 .connect-fw .firewall-note { color: #fca5a5; margin: 0 0 8px; }
@@ -276,7 +288,7 @@ button.textbtn {
 }
 .connect-type { margin: 8px 0 2px; }
 .connect-addr { font-size: 1.6rem; font-weight: 700; margin: 2px 0 6px; overflow-wrap: anywhere; }
-.connect-ok { color: var(--add); font-size: 1.15rem; font-weight: 700; text-align: center; margin: 4px 0 0; }
+.connect-ok { color: var(--add); font-size: 1.15rem; font-weight: 700; text-align: center; margin: 0 0 10px; }
 .connect-ok:empty { margin: 0; }
 .connect-box:focus { outline: none; } /* focused only so Tab starts inside */
 /* A ⋯ menu sits in the page right after its button, under it. */

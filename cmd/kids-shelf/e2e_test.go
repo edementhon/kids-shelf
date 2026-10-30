@@ -31,12 +31,15 @@ import (
 )
 
 // shortWindows shrinks the launcher's health windows for the e2e tests.
+// Not below 5 s: macOS checks a never-seen binary on its first start, which
+// took longer than the 1 s these windows once had (Mac VM, 2026-10-30:
+// "did not become healthy within 1s"). The real trial window is 60 s.
 func shortWindows(t *testing.T) {
 	t.Helper()
 	oldS, oldC, oldT, oldP := launch.StartupTimeout, launch.ConfirmHealthyFor, launch.TrialHealthTimeout, launch.HealthPollInterval
-	launch.StartupTimeout = 2 * time.Second
+	launch.StartupTimeout = 5 * time.Second
 	launch.ConfirmHealthyFor = 400 * time.Millisecond
-	launch.TrialHealthTimeout = 1 * time.Second
+	launch.TrialHealthTimeout = 5 * time.Second
 	launch.HealthPollInterval = 20 * time.Millisecond
 	t.Cleanup(func() {
 		launch.StartupTimeout, launch.ConfirmHealthyFor, launch.TrialHealthTimeout, launch.HealthPollInterval = oldS, oldC, oldT, oldP

@@ -161,27 +161,31 @@
 <div class="overlay hidden" id="connectoverlay">
   <div class="overlay-box connect-box" id="connectbox" role="dialog" aria-modal="true" aria-labelledby="connecttitle" tabindex="-1">
     <h2 id="connecttitle">🔗 Open kids-shelf on another device</h2>
-    <div class="connect-fw hidden" id="connect-fw">
-      <p class="firewall-note">Other devices on your Wi-Fi can't reach kids-shelf yet.</p>
-      <button type="button" class="btn add" id="connect-fw-allow">Let other devices in</button>
-      <p class="note">Windows will ask for the computer's administrator password.</p>
-    </div>
-    <p class="connect-nolan hidden" id="connect-nolan">This computer is not on a home network. Connect it to your Wi-Fi or router, then open this again.</p>
-    <ol class="connect-steps" id="connect-steps">
-      <li>Put the other device on the same Wi-Fi as this computer.</li>
-      <li>On a phone or tablet: point its camera at this code and tap the link that appears.
-        <img id="connect-qr" class="connect-qr" alt="QR code with the address on it">
-        <p class="connect-type">On a computer, a TV or anything without a camera: type this in its web browser:</p>
-        <p class="connect-addr" id="connect-addr"></p>
-        <p class="note hidden" id="connect-ipline">If that does not open, type <b id="connect-ip"></b></p>
-      </li>
-      <li>Save it so the kids can find it.
-        <p class="note">On a computer or TV: add a bookmark.</p>
-        <p class="note">iPhone or iPad (Safari): Share, then Add to Home Screen.</p>
-        <p class="note">Android (Chrome): the ⋮ menu, then Add to Home screen.</p>
-      </li>
-    </ol>
+    <!-- The confirmation and Done stay in view; only the steps scroll on a
+         short screen (1280x800 hid both below the fold, VM 2026-10-30). -->
     <p class="connect-ok" id="connect-ok" role="status" aria-live="polite"></p>
+    <div class="connect-scroll">
+      <div class="connect-fw hidden" id="connect-fw">
+        <p class="firewall-note">Other devices on your Wi-Fi can't reach kids-shelf yet.</p>
+        <button type="button" class="btn add" id="connect-fw-allow">Let other devices in</button>
+        <p class="note">Windows will ask for the computer's administrator password.</p>
+      </div>
+      <p class="connect-nolan hidden" id="connect-nolan">This computer is not on a home network. Connect it to your Wi-Fi or router, then open this again.</p>
+      <ol class="connect-steps" id="connect-steps">
+        <li>Put the other device on the same Wi-Fi as this computer.</li>
+        <li>On a phone or tablet: point its camera at this code and tap the link that appears.
+          <img id="connect-qr" class="connect-qr" alt="QR code with the address on it">
+          <p class="connect-type">On a computer, a TV or anything without a camera: type this in its web browser:</p>
+          <p class="connect-addr" id="connect-addr"></p>
+          <p class="note hidden" id="connect-ipline">If that does not open, type <b id="connect-ip"></b></p>
+        </li>
+        <li>Save it so the kids can find it.
+          <p class="note">On a computer or TV: add a bookmark.</p>
+          <p class="note">iPhone or iPad (Safari): Share, then Add to Home Screen.</p>
+          <p class="note">Android (Chrome): the ⋮ menu, then Add to Home screen.</p>
+        </li>
+      </ol>
+    </div>
     <div class="rowbtns center gap"><button type="button" id="connect-done" class="btn add">Done</button></div>
   </div>
 </div>
