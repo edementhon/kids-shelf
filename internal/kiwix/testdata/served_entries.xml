@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- GET /kiwix/catalog/v2/entries?count=-1 from kiwix-serve 3.8.2 (libkiwix 14.2.1), started on
+     "My Wiki (2026).zim" (vikidia_scn_all_maxi_2026-09.zim) and "Élève été+plus #1.zim" (the same
+     ZIM with its header UUID set to 00010203-0405-0607-0809-0a0b0c0d0e0f). -->
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:dc="http://purl.org/dc/terms/"
+      xmlns:opds="https://specs.opds.io/opds-1.2"
+      xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+  <id>d82b210e-fe24-48b3-74ce-0eb2569fe091</id>
+
+  <link rel="self"
+        href="/kiwix/catalog/v2/entries?count=-1"
+        type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+  <link rel="start"
+        href="/kiwix/catalog/v2/root.xml"
+        type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  <link rel="up"
+        href="/kiwix/catalog/v2/root.xml"
+        type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+
+  <title>Filtered Entries (count=-1)</title>
+  <updated>2026-10-30T20:42:42Z</updated>
+  <totalResults>2</totalResults>
+  <startIndex>0</startIndex>
+  <itemsPerPage>2</itemsPerPage>
+  <entry>
+    <id>urn:uuid:00010203-0405-0607-0809-0a0b0c0d0e0f</id>
+    <title>Vikidia</title>
+    <updated>2026-09-11T00:00:00Z</updated>
+    <summary>Di Vikidia</summary>
+    <language>scn</language>
+    <name>vikidia_scn_all</name>
+    <flavour>maxi</flavour>
+    <category>vikidia</category>
+    <tags>vikidia;_category:vikidia;_pictures:yes;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>520</articleCount>
+    <mediaCount>426</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/kiwix/catalog/v2/illustration/00010203-0405-0607-0809-0a0b0c0d0e0f/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="/kiwix/content/eleve_eteplusplus_%231" />
+    <author>
+      <name>Vikidia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-09-11T00:00:00Z</dc:issued>
+
+  </entry>
+  <entry>
+    <id>urn:uuid:975eb51a-1c3d-5383-8f3f-2db8f9cb8798</id>
+    <title>Vikidia</title>
+    <updated>2026-09-11T00:00:00Z</updated>
+    <summary>Di Vikidia</summary>
+    <language>scn</language>
+    <name>vikidia_scn_all</name>
+    <flavour>maxi</flavour>
+    <category>vikidia</category>
+    <tags>vikidia;_category:vikidia;_pictures:yes;_videos:no;_details:yes;_ftindex:yes</tags>
+    <articleCount>520</articleCount>
+    <mediaCount>426</mediaCount>
+    <link rel="http://opds-spec.org/image/thumbnail"
+          href="/kiwix/catalog/v2/illustration/975eb51a-1c3d-5383-8f3f-2db8f9cb8798/?size=48"
+          type="image/png;width=48;height=48;scale=1"/>
+    <link type="text/html" href="/kiwix/content/my_wiki_(2026)" />
+    <author>
+      <name>Vikidia</name>
+    </author>
+    <publisher>
+      <name>openZIM</name>
+    </publisher>
+    <dc:issued>2026-09-11T00:00:00Z</dc:issued>
+
+  </entry>
+</feed>

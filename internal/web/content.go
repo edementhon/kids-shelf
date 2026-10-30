@@ -85,6 +85,10 @@ func init() {
 		m.HandleFunc("GET /api/admin/content/kiwix", s.handleContentKiwixState)
 		m.HandleFunc("POST /api/admin/content/kiwix/download", s.handleContentKiwixDownload)
 		m.HandleFunc("POST /api/admin/content/kiwix/remove", s.handleContentKiwixRemove)
+		m.HandleFunc("GET /api/admin/content/kiwix/folders", s.handleContentKiwixFolders)
+		m.HandleFunc("POST /api/admin/content/kiwix/folders", s.handleContentKiwixFolderAdd)
+		m.HandleFunc("POST /api/admin/content/kiwix/folders/remove", s.handleContentKiwixFolderRemove)
+		m.HandleFunc("POST /api/admin/content/kiwix/folders/rescan", s.handleContentKiwixFolderRescan)
 	})
 }
 
@@ -104,7 +108,7 @@ func (s *Server) handleContentPage(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, page)
 }
 
-// contentPage is the page shell with this OS's folder-path example filled
+// contentPage is the page shell with this OS's folder-path examples filled
 // in and its asset URLs versioned (see versionAssets).
 var contentPage = sync.OnceValues(func() (string, error) {
 	b, err := contentFiles.ReadFile("static/content/index.html")
@@ -112,6 +116,7 @@ var contentPage = sync.OnceValues(func() (string, error) {
 		return "", err
 	}
 	page := strings.Replace(string(b), "__KS_OS_PATH__", exampleMediaPath(), 1)
+	page = strings.Replace(page, "__KS_OS_LIBRARY_PATH__", exampleLibraryPath(), 1)
 	return versionAssets(page, contentFiles, "static/content", "/admin/content/static/")
 })
 
@@ -126,6 +131,19 @@ func exampleMediaPath() string {
 		return "/Users/you/Movies/Kids"
 	default:
 		return "/home/you/Videos/Kids"
+	}
+}
+
+// exampleLibraryPath is the same kind of example for the library folder
+// form: a folder of library files (.zim) on this OS.
+func exampleLibraryPath() string {
+	switch runtime.GOOS {
+	case "windows":
+		return `D:\Kiwix`
+	case "darwin":
+		return "/Users/you/Documents/Kiwix"
+	default:
+		return "/home/you/Kiwix"
 	}
 }
 
@@ -956,10 +974,14 @@ type contentZIMInstalled struct {
 	File        string    `json:"file"`
 	Size        int64     `json:"size"`
 	InstalledAt time.Time `json:"installed_at"`
-	// Missing is set when the library's file is gone from the library
-	// folder (a drive that is not plugged in, a file moved by hand): kids
+	// Missing is set when the library's file cannot be found (a drive that
+	// is not plugged in, a NAS that is off, a file moved by hand): kids
 	// cannot open it until it is back.
 	Missing bool `json:"missing,omitempty"`
+	// Folder is the library folder the library's file is in, for a library
+	// kids-shelf uses where it is; "" for a download. Such a library has no
+	// Remove: it leaves the shelf with its folder.
+	Folder string `json:"folder,omitempty"`
 }
 
 type contentKiwixState struct {
@@ -969,14 +991,11 @@ type contentKiwixState struct {
 }
 
 // contentInstalledFlavour recovers an installed library's edition from its
-// file name, which kiwix stores as <name>_<flavour>_<YYYY-MM>.zim; "" when
+// file name, which kiwix stores as <name>_<flavour>_<YYYY-MM>.zim (the Kiwix
+// downloads in a library folder are usually named the same way); "" when
 // the name does not have that shape.
 func contentInstalledFlavour(in kiwix.Installed) string {
-	f, ok := strings.CutSuffix(in.File, ".zim")
-	if !ok {
-		return ""
-	}
-	f, ok = strings.CutPrefix(f, in.Name+"_")
+	f, ok := strings.CutPrefix(in.FileBase(), in.Name+"_")
 	if !ok {
 		return ""
 	}
@@ -1170,7 +1189,7 @@ func (s *Server) handleContentKiwixState(w http.ResponseWriter, r *http.Request)
 		out.Installed = append(out.Installed, contentZIMInstalled{
 			ID: in.ID, Name: in.Name, Title: in.Title, Flavour: contentInstalledFlavour(in),
 			Language: in.Language, File: in.File, Size: in.Size, InstalledAt: in.InstalledAt,
-			Missing: !s.deps.Kiwix.OnDisk(in),
+			Missing: !s.deps.Kiwix.OnDisk(in), Folder: in.Folder,
 		})
 	}
 	// A finished download stays listed for a day, and only while its
@@ -1263,14 +1282,163 @@ func (s *Server) handleContentKiwixRemove(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := s.deps.Kiwix.Remove(req.ID); err != nil {
-		if errors.Is(err, kiwix.ErrNotInstalled) {
+		switch {
+		case errors.Is(err, kiwix.ErrNotInstalled):
 			writeError(w, http.StatusNotFound, "That library is not installed.")
+		case errors.Is(err, kiwix.ErrFolderBook):
+			writeError(w, http.StatusBadRequest, `This library is a file in a folder on this computer, and kids-shelf never deletes those files. To take it off the shelf, press "Stop using this folder" under "Library files on this computer".`)
+		default:
+			writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// ─── library folders (library files already on this computer) ───────────────
+
+// contentKiwixFolder is one library folder as the page lists it.
+type contentKiwixFolder struct {
+	Path      string `json:"path"`
+	Libraries int    `json:"libraries"` // libraries on the shelf from it
+	Size      int64  `json:"size"`      // their total size in bytes
+	// Reachable is false while kids-shelf cannot read the folder (a drive
+	// that is not plugged in, a NAS that is off); its libraries then show
+	// as missing.
+	Reachable bool `json:"reachable"`
+}
+
+type contentKiwixFolderRequest struct {
+	Path string `json:"path"`
+}
+
+// handleContentKiwixFolders lists the library folders, each with how many
+// libraries it has on the shelf, their total size and whether kids-shelf
+// can reach it right now.
+func (s *Server) handleContentKiwixFolders(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPIN(w, r) {
+		return
+	}
+	if s.deps.Kiwix == nil {
+		writeError(w, http.StatusServiceUnavailable, msgContentKiwixDown)
+		return
+	}
+	folders, err := s.deps.Kiwix.Folders()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
+		return
+	}
+	out := make([]contentKiwixFolder, 0, len(folders))
+	for _, f := range folders {
+		out = append(out, contentKiwixFolder{
+			Path: f.Path, Libraries: f.Books, Size: f.Size, Reachable: f.Reachable(),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"folders": out})
+}
+
+// handleContentKiwixFolderAdd starts using a folder of library files where
+// it is (kiwix.Manager.AddFolder): its .zim files join the shelf at once,
+// and the answer says how many there are. The path is tidied like a video
+// folder's; a typo, a file, kids-shelf's own library folder, a folder
+// already on the list or one inside or around a folder on it is refused in
+// plain words.
+func (s *Server) handleContentKiwixFolderAdd(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPIN(w, r) {
+		return
+	}
+	if s.deps.Kiwix == nil {
+		writeError(w, http.StatusServiceUnavailable, msgContentKiwixDown)
+		return
+	}
+	var req contentKiwixFolderRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, msgContentBadBody)
+		return
+	}
+	path := contentCleanSourcePath(req.Path)
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "Enter the path to the folder first.")
+		return
+	}
+	if !filepath.IsAbs(path) {
+		writeError(w, http.StatusBadRequest, "Enter the whole path to the folder, like "+exampleLibraryPath()+".")
+		return
+	}
+	n, err := s.deps.Kiwix.AddFolder(r.Context(), path)
+	switch {
+	case errors.Is(err, kiwix.ErrFolderNotFound):
+		writeError(w, http.StatusBadRequest, "We couldn't find that folder on this computer. Check the path. A drive or NAS has to be connected to this computer first.")
+	case errors.Is(err, kiwix.ErrNotAFolder):
+		writeError(w, http.StatusBadRequest, "That is a file, not a folder. Enter the folder that holds your library files (.zim).")
+	case errors.Is(err, kiwix.ErrLibraryFolder):
+		writeError(w, http.StatusBadRequest, "kids-shelf keeps the libraries it downloads in that folder, so they are on the shelf already. Enter another folder.")
+	case errors.Is(err, kiwix.ErrFolderAdded):
+		writeError(w, http.StatusBadRequest, "That folder is already on the list.")
+	case errors.Is(err, kiwix.ErrFolderNested):
+		writeError(w, http.StatusBadRequest, "That folder is inside a folder on the list, or holds one. kids-shelf looks in every folder inside a folder on the list, so keep just one of the two.")
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": path, "libraries": n})
+	}
+}
+
+// handleContentKiwixFolderRemove stops using a library folder: its
+// libraries leave the shelf, and its files stay where they are, untouched.
+func (s *Server) handleContentKiwixFolderRemove(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPIN(w, r) {
+		return
+	}
+	if s.deps.Kiwix == nil {
+		writeError(w, http.StatusServiceUnavailable, msgContentKiwixDown)
+		return
+	}
+	var req contentKiwixFolderRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, msgContentBadBody)
+		return
+	}
+	if err := s.deps.Kiwix.RemoveFolder(req.Path); err != nil {
+		if errors.Is(err, kiwix.ErrNoSuchFolder) {
+			writeError(w, http.StatusNotFound, "That folder is not on the list.")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleContentKiwixFolderRescan looks through one library folder again
+// ("Look again"): new files join the shelf, files gone from it leave, and
+// a folder kids-shelf cannot reach keeps its libraries. The answer says
+// which of these happened.
+func (s *Server) handleContentKiwixFolderRescan(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPIN(w, r) {
+		return
+	}
+	if s.deps.Kiwix == nil {
+		writeError(w, http.StatusServiceUnavailable, msgContentKiwixDown)
+		return
+	}
+	var req contentKiwixFolderRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, msgContentBadBody)
+		return
+	}
+	res, err := s.deps.Kiwix.ScanFolder(r.Context(), req.Path)
+	if err != nil {
+		if errors.Is(err, kiwix.ErrNoSuchFolder) {
+			writeError(w, http.StatusNotFound, "That folder is not on the list.")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "Looking through the folder couldn't finish. Try again.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "reachable": res.Reachable, "added": res.Added, "dropped": res.Dropped, "libraries": res.Books,
+	})
 }
 
 // contentSizeLabel prints a byte count the way parents read it: whole GB

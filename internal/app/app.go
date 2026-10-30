@@ -456,29 +456,43 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	// The kiwix-serve supervisor serves the installed ZIMs under /kiwix/.
 	// It is wired only when the helper binary is present; otherwise (or
 	// with no ZIMs yet) Backend stays empty and the /kiwix/ routes answer
-	// 503 until a library change wakes it. Installed.File is the name
-	// inside the library directory; kiwix-serve needs on-disk paths, so
-	// the books closure resolves them.
+	// 503 until a library change wakes it. kiwix-serve needs on-disk
+	// paths, so the books closure resolves every row through FilePath (a
+	// download's name inside the library directory, a library folder's
+	// ZIM where it is); a row that does not resolve is left out.
 	var kiwixSrv *kiwix.Server
 	if helpers != nil {
 		if _, err := os.Stat(helpers.KiwixServe); err == nil {
-			libDir := filepath.Join(mediaDir, "libraries")
 			kiwixSrv = kiwix.NewServer(helpers.KiwixServe, func() ([]kiwix.Installed, error) {
-				books, err := kiwixMgr.Installed()
+				rows, err := kiwixMgr.Installed()
 				if err != nil {
 					return nil, err
 				}
-				for i := range books {
-					books[i].File = filepath.Join(libDir, books[i].File)
+				books := rows[:0]
+				for _, in := range rows {
+					p, err := kiwixMgr.FilePath(in)
+					if err != nil {
+						continue
+					}
+					in.File = p
+					books = append(books, in)
 				}
 				return books, nil
 			})
-			// Every publish or removal restarts the server with the new
-			// library (Sync is non-blocking and coalesces bursts).
+			// Every publish or removal, and every library folder change,
+			// restarts the server with the new library (Sync is
+			// non-blocking and coalesces bursts).
 			kiwixMgr.OnChange = kiwixSrv.Sync
 			// Removing a ZIM stops the server first (Pause) so the file is
 			// not held open while it is deleted; Remove resumes it after.
 			kiwixMgr.Quiesce = kiwixSrv.Pause
+			// Each start reports what the ZIMs say about themselves, which
+			// library folder books keep as their title and language.
+			kiwixSrv.OnServed = func(books map[string]kiwix.ServedBook) {
+				if err := kiwixMgr.RecordServed(books); err != nil {
+					log.Printf("app: kiwix: %v", err)
+				}
+			}
 		}
 	}
 

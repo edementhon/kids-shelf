@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,18 +40,27 @@ const (
 	// again) is served, and a running set that no longer matches the disk
 	// is restarted, without waiting for an install or a removal.
 	fileRecheck = 20 * time.Second
+	// servedFeedTimeout bounds the one read of a fresh process's own feed
+	// for OnServed.
+	servedFeedTimeout = 10 * time.Second
 )
 
 // Server supervises one kiwix-serve process for the installed ZIMs. bin is
 // the path to the kiwix-serve binary; books returns the installed set, and
 // the File field of each book must be an absolute path to the ZIM on disk
-// (the app's wiring resolves the relative stored names against the library
-// directory).
+// (the app's wiring resolves each row through Manager.FilePath).
 type Server struct {
 	bin   string
 	books func() ([]Installed, error)
 	// recheck is the fileRecheck pacing; tests shorten it before Run.
 	recheck time.Duration
+
+	// OnServed, when set, is called each time a kiwix-serve process is up
+	// with what its own OPDS feed reports about the books it serves - the
+	// ZIM's own name, title and language - keyed by installed row id (see
+	// FetchServedFeed and Manager.RecordServed). It runs on a goroutine of
+	// the supervisor that Run waits for; set it before Run.
+	OnServed func(map[string]ServedBook)
 
 	mu      sync.Mutex
 	started bool
@@ -267,7 +278,10 @@ func (s *Server) Run(ctx context.Context) {
 
 		s.setBackend(kp.base)
 		healthySince = time.Now()
-		switch s.waitServing(ctx, kp, books) {
+		stopLearning := s.learn(ctx, kp.base, books)
+		ended := s.waitServing(ctx, kp, books)
+		stopLearning()
+		switch ended {
 		case servingDone:
 			// exec.CommandContext kills the process with ctx; wait for the
 			// exit so Run only returns once the process is gone.
@@ -300,6 +314,51 @@ func (s *Server) Run(ctx context.Context) {
 		}
 	}
 }
+
+// learn reads, beside the freshly started process, what kiwix-serve's own
+// feed reports about books (by the UUID in each file's header, see
+// served.go) and hands it to OnServed; without OnServed it does nothing.
+// The returned stop cancels the read if it is still going and waits for
+// it, so a report never outlives the process it describes.
+func (s *Server) learn(ctx context.Context, base string, books []Installed) (stop func()) {
+	if s.OnServed == nil {
+		return func() {}
+	}
+	ctx, cancel := context.WithTimeout(ctx, servedFeedTimeout)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		feed, err := FetchServedFeed(ctx, servedFeedClient, base)
+		if err != nil {
+			if ctx.Err() == nil {
+				log.Printf("kiwix-serve: reading the served books: %v", err)
+			}
+			return
+		}
+		served := make(map[string]ServedBook, len(books))
+		for _, b := range books {
+			if b.ID == "" {
+				continue
+			}
+			if uuid, err := zimUUID(b.File); err == nil {
+				if sb, ok := feed[uuid]; ok {
+					served[b.ID] = sb
+				}
+			}
+		}
+		if len(served) > 0 && ctx.Err() == nil {
+			s.OnServed(served)
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+// servedFeedClient reads the loopback kiwix-serve's own feed; each read is
+// bounded by its context.
+var servedFeedClient = &http.Client{}
 
 // What ended a waitServing wait.
 const (
@@ -334,7 +393,8 @@ func (s *Server) waitServing(ctx context.Context, kp *kiwixProc, books []Install
 }
 
 // sameFiles reports whether a and b name the same ZIM files in the same
-// order (list keeps the installed order, so a reorder is a real change).
+// order (list sorts them by path, so only a file that came or went is a
+// change; new titles for the same files are not).
 func sameFiles(a, b []Installed) bool {
 	if len(a) != len(b) {
 		return false
@@ -347,10 +407,12 @@ func sameFiles(a, b []Installed) bool {
 	return true
 }
 
-// list returns the installed ZIMs whose files exist on disk, or ok=false
-// when nothing can run: no kiwix-serve binary, the installed-set lookup
-// failed, or no installed ZIM file exists. Every pass re-checks all of it,
-// so a Sync after the binary or the books appear brings the server up.
+// list returns the installed ZIMs whose files exist on disk, sorted by
+// path, or ok=false when nothing can run: no kiwix-serve binary, the
+// installed-set lookup failed, or no installed ZIM file exists. Every pass
+// re-checks all of it, so a Sync after the binary or the books appear
+// brings the server up. The path order is also the command line order:
+// of two files holding one ZIM, kiwix-serve serves the last one.
 func (s *Server) list() (books []Installed, ok bool) {
 	if st, err := os.Stat(s.bin); err != nil || st.IsDir() {
 		return nil, false
@@ -371,6 +433,7 @@ func (s *Server) list() (books []Installed, ok bool) {
 	if len(books) == 0 {
 		return nil, false
 	}
+	slices.SortFunc(books, func(a, b Installed) int { return strings.Compare(a.File, b.File) })
 	return books, true
 }
 

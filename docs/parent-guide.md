@@ -187,6 +187,17 @@ On the parent page, click **Add videos & libraries**:
 - **Offline libraries**: search for a library (Wikipedia, Vikidia, PhET science simulations and
   others) and click **Download**.
 
+### Library files you already have
+
+If you already have library files (`.zim`, for example from the Kiwix app), kids-shelf can use
+them where they are, without copying them. Under **Offline libraries**, in **Library files on this
+computer**, type the path to the folder that holds them and click **Use this folder**. Every
+`.zim` file in that folder and in the folders inside it goes on the shelf. kids-shelf looks in
+the folder again every 10 minutes, so files you add later appear by themselves; **Look again**
+does it at once. If the folder is on a drive or NAS that is not connected, its libraries show as
+missing until it is back. **Stop using this folder** takes its libraries off the shelf. kids-shelf
+never changes, moves or deletes the files themselves.
+
 ## How much space
 
 Videos that browsers play well as they are (most MP4 files) play from where they are, with no

@@ -969,6 +969,7 @@ func TestContentServiceDown503(t *testing.T) {
 		"/api/admin/content/ingest",
 		"/api/admin/content/kiwix",
 		"/api/admin/content/kiwix/catalog",
+		"/api/admin/content/kiwix/folders",
 	} {
 		code, body := contentTestGet(t, ts, path)
 		if code != http.StatusServiceUnavailable {
@@ -1408,5 +1409,247 @@ func TestContentSourcesMissingOriginals(t *testing.T) {
 	}
 	if g := got[gone]; g[0] != "2" || !strings.Contains(g[1], "2 videos from it can't play") || !strings.Contains(g[1], "NAS") {
 		t.Errorf("NAS share that is gone = %v, want 2 missing with the NAS warning", g)
+	}
+}
+
+// contentKiwixManager is a real kiwix.Manager over the test store, with its
+// library folder under a temp dir; it returns the library folder too.
+func contentKiwixManager(t *testing.T) (*kiwix.Manager, string) {
+	t.Helper()
+	s := contentTestStore(t)
+	q, err := jobs.New(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib := filepath.Join(t.TempDir(), "libraries")
+	km, err := kiwix.NewManager(s, q, disk.NewReservations(q), lib)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return km, lib
+}
+
+// contentPutZIM writes a small ZIM-like file at path, making its folders.
+func contentPutZIM(t *testing.T, path, uuid string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, testZIM(uuid), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type contentTestFolder struct {
+	Path      string `json:"path"`
+	Libraries int    `json:"libraries"`
+	Size      int64  `json:"size"`
+	Reachable bool   `json:"reachable"`
+}
+
+func contentTestFolders(t *testing.T, ts *httptest.Server) []contentTestFolder {
+	t.Helper()
+	code, body := contentTestGet(t, ts, "/api/admin/content/kiwix/folders")
+	if code != http.StatusOK {
+		t.Fatalf("GET folders = %d: %s", code, body)
+	}
+	var out struct {
+		Folders []contentTestFolder `json:"folders"`
+	}
+	contentTestDecode(t, body, &out)
+	return out.Folders
+}
+
+type contentTestInstalled struct {
+	ID      string `json:"id"`
+	File    string `json:"file"`
+	Folder  string `json:"folder"`
+	Missing bool   `json:"missing"`
+}
+
+func contentTestInstalledList(t *testing.T, ts *httptest.Server) []contentTestInstalled {
+	t.Helper()
+	code, body := contentTestGet(t, ts, "/api/admin/content/kiwix")
+	if code != http.StatusOK {
+		t.Fatalf("GET kiwix state = %d: %s", code, body)
+	}
+	var out struct {
+		Installed []contentTestInstalled `json:"installed"`
+	}
+	contentTestDecode(t, body, &out)
+	return out.Installed
+}
+
+// TestContentKiwixFolders drives the library folder endpoints the way the
+// page does: a folder of .zim files joins the shelf where it is, the list
+// counts its libraries and their size, a library from it cannot be removed
+// on its own, "Look again" follows the folder, a folder out of reach keeps
+// its libraries as missing, and stopping the folder leaves every file.
+func TestContentKiwixFolders(t *testing.T) {
+	km, _ := contentKiwixManager(t)
+	ts := contentTestServer(t, Deps{Kiwix: km, DataDir: t.TempDir()})
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "Kiwix files")
+	wiki := filepath.Join(dir, "wikipedia_en_100_maxi_2026-09.zim")
+	mine := filepath.Join(dir, "more", "My Wiki (2026).zim")
+	contentPutZIM(t, wiki, "")
+	contentPutZIM(t, mine, "")
+	size := int64(len(testZIM("")))
+
+	// The path is tidied like a pasted video folder's.
+	code, body := contentTestPost(t, ts, "/api/admin/content/kiwix/folders", map[string]any{"path": ` "` + dir + `" `})
+	if code != http.StatusOK {
+		t.Fatalf("add folder = %d: %s", code, body)
+	}
+	var added struct {
+		OK        bool   `json:"ok"`
+		Path      string `json:"path"`
+		Libraries int    `json:"libraries"`
+	}
+	contentTestDecode(t, body, &added)
+	if !added.OK || added.Path != dir || added.Libraries != 2 {
+		t.Errorf("add folder = %+v, want ok, %s and 2 libraries", added, dir)
+	}
+	if got := contentTestFolders(t, ts); len(got) != 1 || got[0] != (contentTestFolder{Path: dir, Libraries: 2, Size: 2 * size, Reachable: true}) {
+		t.Errorf("folders = %+v, want %s with 2 libraries of %d bytes, reachable", got, dir, 2*size)
+	}
+	installed := contentTestInstalledList(t, ts)
+	byFile := map[string]contentTestInstalled{}
+	for _, in := range installed {
+		byFile[in.File] = in
+	}
+	for _, f := range []string{wiki, mine} {
+		if in, ok := byFile[f]; !ok || in.Folder != dir || in.Missing {
+			t.Errorf("installed %s = %+v (listed %v), want it from %s, not missing", f, in, ok, dir)
+		}
+	}
+
+	// A library from the folder is never removed (and deleted) on its own.
+	code, body = contentTestPost(t, ts, "/api/admin/content/kiwix/remove", map[string]any{"id": byFile[wiki].ID})
+	if code != http.StatusBadRequest || contentTestError(t, body) == "" {
+		t.Errorf("remove a folder library = %d %s, want 400 with plain words", code, body)
+	}
+	if _, err := os.Stat(wiki); err != nil {
+		t.Errorf("the folder's file after the refused remove: %v", err)
+	}
+
+	// Look again: the file deleted by hand leaves the shelf.
+	if err := os.Remove(wiki); err != nil {
+		t.Fatal(err)
+	}
+	type rescan struct {
+		Reachable bool `json:"reachable"`
+		Added     int  `json:"added"`
+		Dropped   int  `json:"dropped"`
+		Libraries int  `json:"libraries"`
+	}
+	code, body = contentTestPost(t, ts, "/api/admin/content/kiwix/folders/rescan", map[string]any{"path": dir})
+	var res rescan
+	contentTestDecode(t, body, &res)
+	if code != http.StatusOK || res != (rescan{Reachable: true, Dropped: 1, Libraries: 1}) {
+		t.Errorf("look again = %d %+v, want 200, reachable, 1 dropped, 1 library", code, res)
+	}
+	if code, _ := contentTestPost(t, ts, "/api/admin/content/kiwix/folders/rescan", map[string]any{"path": parent}); code != http.StatusNotFound {
+		t.Errorf("look again in a folder not on the list = %d, want 404", code)
+	}
+
+	// The drive is unplugged: the folder and its library stay, as missing.
+	away := filepath.Join(parent, "away")
+	if err := os.Rename(dir, away); err != nil {
+		t.Fatal(err)
+	}
+	if got := contentTestFolders(t, ts); len(got) != 1 || got[0].Reachable || got[0].Libraries != 1 {
+		t.Errorf("folders with the drive away = %+v, want it listed, not reachable, 1 library", got)
+	}
+	code, body = contentTestPost(t, ts, "/api/admin/content/kiwix/folders/rescan", map[string]any{"path": dir})
+	res = rescan{}
+	contentTestDecode(t, body, &res)
+	if code != http.StatusOK || res != (rescan{Libraries: 1}) {
+		t.Errorf("look again with the drive away = %d %+v, want 200, not reachable, the library kept", code, res)
+	}
+	if got := contentTestInstalledList(t, ts); len(got) != 1 || got[0].File != mine || !got[0].Missing || got[0].Folder != dir {
+		t.Errorf("installed with the drive away = %+v, want %s from %s, missing", got, mine, dir)
+	}
+	if err := os.Rename(away, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stop using the folder: its library leaves the shelf, its file stays.
+	if code, body := contentTestPost(t, ts, "/api/admin/content/kiwix/folders/remove", map[string]any{"path": dir}); code != http.StatusOK {
+		t.Fatalf("stop using the folder = %d: %s", code, body)
+	}
+	if got := contentTestFolders(t, ts); len(got) != 0 {
+		t.Errorf("folders after stopping = %+v, want none", got)
+	}
+	if got := contentTestInstalledList(t, ts); len(got) != 0 {
+		t.Errorf("installed after stopping the folder = %+v, want none", got)
+	}
+	if _, err := os.Stat(mine); err != nil {
+		t.Errorf("the folder's file after stopping the folder: %v", err)
+	}
+	if code, _ := contentTestPost(t, ts, "/api/admin/content/kiwix/folders/remove", map[string]any{"path": dir}); code != http.StatusNotFound {
+		t.Errorf("stop using a folder not on the list = %d, want 404", code)
+	}
+}
+
+// TestContentKiwixFolderAddRefusals: a folder that cannot be used is
+// refused with a plain message and nothing is added: no path, a relative
+// path, a folder that is not there, a file, kids-shelf's own library
+// folder, a folder already on the list, and one inside or around it.
+func TestContentKiwixFolderAddRefusals(t *testing.T) {
+	km, lib := contentKiwixManager(t)
+	ts := contentTestServer(t, Deps{Kiwix: km, DataDir: t.TempDir()})
+	base := t.TempDir()
+	dir := filepath.Join(base, "kiwix")
+	contentPutZIM(t, filepath.Join(dir, "inner", "a.zim"), "")
+	file := filepath.Join(base, "file.zim")
+	contentPutZIM(t, file, "")
+
+	refuse := func(name, path string) {
+		t.Helper()
+		code, body := contentTestPost(t, ts, "/api/admin/content/kiwix/folders", map[string]any{"path": path})
+		if code != http.StatusBadRequest || contentTestError(t, body) == "" {
+			t.Errorf("add %s (%q) = %d %s, want 400 with plain words", name, path, code, body)
+		}
+	}
+	refuse("no path", "   ")
+	refuse("a relative path", filepath.Join("relative", "kiwix"))
+	refuse("a folder that is not there", filepath.Join(base, "nope"))
+	refuse("a file", file)
+	refuse("the library folder", lib)
+	if code, body := contentTestPost(t, ts, "/api/admin/content/kiwix/folders", map[string]any{"path": dir}); code != http.StatusOK {
+		t.Fatalf("add %s = %d: %s", dir, code, body)
+	}
+	refuse("the same folder again", dir)
+	refuse("a folder inside it", filepath.Join(dir, "inner"))
+	refuse("the folder around it", base)
+	if got := contentTestFolders(t, ts); len(got) != 1 || got[0].Path != dir {
+		t.Errorf("folders = %+v, want only %s", got, dir)
+	}
+}
+
+// TestContentKiwixFoldersNeedPIN: every library folder route is behind the
+// parent PIN, and a refused call changes nothing.
+func TestContentKiwixFoldersNeedPIN(t *testing.T) {
+	km, _ := contentKiwixManager(t)
+	ts := contentTestServer(t, Deps{Kiwix: km, DataDir: t.TempDir()})
+	dir := t.TempDir()
+	contentPutZIM(t, filepath.Join(dir, "a.zim"), "")
+	for _, c := range []struct{ method, path string }{
+		{http.MethodGet, "/api/admin/content/kiwix/folders"},
+		{http.MethodPost, "/api/admin/content/kiwix/folders"},
+		{http.MethodPost, "/api/admin/content/kiwix/folders/rescan"},
+		{http.MethodPost, "/api/admin/content/kiwix/folders/remove"},
+	} {
+		var body any
+		if c.method == http.MethodPost {
+			body = map[string]any{"path": dir}
+		}
+		if resp, _ := visitorReq(t, c.method, ts.URL+c.path, body); resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s %s without the PIN = %d, want 401", c.method, c.path, resp.StatusCode)
+		}
+	}
+	if folders, err := km.Folders(); err != nil || len(folders) != 0 {
+		t.Errorf("folders after the refused calls = %+v, %v, want none", folders, err)
 	}
 }

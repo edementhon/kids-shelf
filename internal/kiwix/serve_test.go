@@ -5,7 +5,8 @@ package kiwix
 // KS_SERVE_TEST_FAKE=1 with t.Setenv, and the child the Server spawns -
 // the same binary, no shell wrapper, so it works on Windows - turns into a
 // minimal kiwix-serve lookalike that records its argv to a file, serves 200
-// on /kiwix/ and exits on GET /__shutdown to simulate a crash.
+// on /kiwix/ (and a recorded OPDS feed when told to) and exits on GET
+// /__shutdown to simulate a crash.
 
 import (
 	"context"
@@ -39,7 +40,8 @@ func init() {
 
 // runFakeKiwixServe is the fake kiwix-serve: it records its full argv to
 // the file KS_SERVE_TEST_ARGV points at, then serves 200 on every path
-// except /__shutdown, which exits the process (a simulated crash).
+// except /__shutdown, which exits the process (a simulated crash). With
+// KS_SERVE_TEST_FEED set, its entries feed is that file.
 func runFakeKiwixServe() {
 	if argvFile := os.Getenv("KS_SERVE_TEST_ARGV"); argvFile != "" {
 		os.WriteFile(argvFile, []byte(strings.Join(os.Args[1:], "\n")), 0o644)
@@ -55,9 +57,14 @@ func runFakeKiwixServe() {
 			}
 		}
 	}
+	feed := os.Getenv("KS_SERVE_TEST_FEED")
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/__shutdown" {
 			os.Exit(0)
+		}
+		if feed != "" && r.URL.Path == "/kiwix/catalog/v2/entries" {
+			http.ServeFile(w, r, feed)
+			return
 		}
 		w.WriteHeader(http.StatusOK)
 		io.WriteString(w, "fake kiwix-serve\n")

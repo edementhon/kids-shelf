@@ -6,7 +6,7 @@ const $ = id => document.getElementById(id);
 
 let store = {
   ytJobs: [], ingestJobs: [], sources: [],
-  installed: [], kDownloads: [], freeBytes: -1,
+  installed: [], kDownloads: [], freeBytes: -1, zimFolders: [],
   catalog: { total: 0, start: 0, entries: [] },
   languages: [], categories: [],
   catQ: '', catLang: '', catCat: ''
@@ -248,7 +248,7 @@ for (const el of document.querySelectorAll('.overlay')) {
 
 // ── pin overlay ─────────────────────────────────────────────────────────────
 
-// Several calls can come back 401 at once (the page loads six lists in
+// Several calls can come back 401 at once (the page loads seven lists in
 // parallel, and the poll keeps going): the form opens once and keeps what
 // the parent has typed. Polling pauses while it is open.
 let pinOpen = false;
@@ -732,6 +732,18 @@ $('confirmok').addEventListener('click', async () => {
 });
 
 const MISSING_MSG = 'The file for this library is missing, so kids can’t open it. If it was on a drive, plug the drive in. Otherwise remove it and download it again.';
+const FOLDER_MISSING_MSG = 'kids-shelf can’t reach the folder this library is in, so kids can’t open it. If it is on a drive or NAS, connect it.';
+
+// missingWhy says in a few words why libraries can't be opened: a library
+// from a folder on this computer is out of reach with its folder, a
+// downloaded one has lost its file.
+function missingWhy(list) {
+  const fromFolders = list.filter(z => z.folder).length;
+  const one = list.length === 1;
+  if (fromFolders === list.length) return one ? 'its folder can’t be reached' : 'their folders can’t be reached';
+  if (!fromFolders) return one ? 'its file is missing' : 'their files are missing';
+  return 'their files can’t be found';
+}
 
 function renderInstalled() {
   const wrap = $('installed');
@@ -740,8 +752,8 @@ function renderInstalled() {
   const warn = $('libwarn');
   if (missing.length) {
     warn.textContent = missing.length === 1
-      ? `${zimName(missing[0])} can’t be opened: its file is missing. See "On this shelf" below.`
-      : `${missing.length} libraries can’t be opened: their files are missing. See "On this shelf" below.`;
+      ? `${zimName(missing[0])} can’t be opened: ${missingWhy(missing)}. See "On this shelf" below.`
+      : `${missing.length} libraries can’t be opened: ${missingWhy(missing)}. See "On this shelf" below.`;
     warn.classList.remove('hidden');
   } else {
     warn.classList.add('hidden');
@@ -750,14 +762,19 @@ function renderInstalled() {
     wrap.innerHTML = '<div class="empty">Nothing installed yet. Pick a library above.</div>';
     return;
   }
+  // A library from a folder on this computer leaves the shelf only with
+  // its folder, so it names the folder instead of offering Remove, and its
+  // file name, so two copies of one library can be told apart.
   wrap.innerHTML = list.map(z => `
     <div class="cat">
       <div class="catmeta">
         <div class="title">${zimTitleHTML(z)}</div>
-        <div class="meta">${esc(bytes(z.size))}${z.language ? ' · ' + esc(langName(z.language)) : ''}</div>
-        ${z.missing ? `<div class="jobmsg">${esc(MISSING_MSG)}</div>` : ''}
+        <div class="meta">${esc(bytes(z.size))}${z.language ? ' · ' + esc(langName(z.language)) : ''}${z.folder ? ' · ' + esc(String(z.file).split(/[\\/]/).pop()) : ''}</div>
+        ${z.missing ? `<div class="jobmsg">${esc(z.folder ? FOLDER_MISSING_MSG : MISSING_MSG)}</div>` : ''}
       </div>
-      <button class="btn sub" data-rm="${esc(z.id)}">Remove</button>
+      ${z.folder
+        ? `<span class="fromfolder">From ${esc(z.folder)}</span>`
+        : `<button class="btn sub" data-rm="${esc(z.id)}">Remove</button>`}
     </div>`).join('');
 }
 
@@ -835,12 +852,136 @@ async function loadKiwix() {
     // A download that just finished turns its catalog row into "On your
     // shelf"; refresh the rows already shown when the installed set changes.
     const key = store.installed.map(z => z.id).join(',');
-    if (kiwixInstalledKey !== null && key !== kiwixInstalledKey && store.catalog.entries.length) {
-      searchCatalog(0, store.catalog.entries.length);
+    if (kiwixInstalledKey !== null && key !== kiwixInstalledKey) {
+      if (store.catalog.entries.length) searchCatalog(0, store.catalog.entries.length);
+      // A look through the library folders changed the shelf: their
+      // counts and sizes change with it.
+      loadZimFolders();
     }
     kiwixInstalledKey = key;
   } catch (e) {
     loadFailed($('kdownloads'), e);
+  }
+}
+
+// ── library files on this computer (library folders) ────────────────────────
+
+const FOLDER_AWAY_MSG = 'kids-shelf can’t reach this folder right now, so kids can’t open its libraries. If it is on a drive or NAS, connect it.';
+
+$('zimform').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const path = $('zimpath').value.trim();
+  if (!path) {
+    toast('Enter the path to the folder first.', 'err');
+    $('zimpath').focus();
+    return;
+  }
+  const done = busy($('zimadd'), 'Looking…');
+  let found;
+  try {
+    const d = await post('/api/admin/content/kiwix/folders', { path });
+    $('zimpath').value = '';
+    found = d.libraries;
+  } catch (e) {
+    done();
+    if (!e.pin) toast(e.message, 'err');
+    return;
+  }
+  toast(found
+    ? `Folder added. ${plural(found, 'library from it is', 'libraries from it are')} on the shelf now.`
+    : 'Folder added. It has no library files (.zim) yet. kids-shelf looks in it again every 10 minutes.', 'ok');
+  done();
+  await Promise.all([loadZimFolders(), loadKiwix()]);
+});
+
+function renderZimFolders() {
+  const wrap = $('zimfolders');
+  const list = store.zimFolders;
+  if (!list.length) {
+    wrap.innerHTML = '<div class="empty">No folders yet.</div>';
+    return;
+  }
+  wrap.innerHTML = list.map(f => `
+    <div class="source">
+      <span class="sourcepath">${esc(f.path)}</span>
+      <span class="tag">${esc(plural(f.libraries, 'library', 'libraries'))}${f.libraries ? ' · ' + esc(bytes(f.size)) : ''}</span>
+      <button class="btn mini amber" data-zimrescan="${esc(f.path)}">Look again</button>
+      <button class="btn mini sub" data-zimstop="${esc(f.path)}">Stop using this folder</button>
+      ${f.reachable ? '' : `<div class="jobmsg wide">${esc(FOLDER_AWAY_MSG)}</div>`}
+    </div>`).join('');
+}
+
+// zimRescanResult says what a "Look again" found.
+function zimRescanResult(d) {
+  if (!d.reachable) return FOLDER_AWAY_MSG;
+  const parts = [];
+  if (d.added) parts.push(`${plural(d.added, 'new library is', 'new libraries are')} on the shelf now.`);
+  if (d.dropped) {
+    parts.push(d.dropped === 1
+      ? '1 library left the shelf: its file is no longer in the folder.'
+      : `${d.dropped} libraries left the shelf: their files are no longer in the folder.`);
+  }
+  if (!parts.length) parts.push('Nothing new in this folder.');
+  return 'Looked again. ' + parts.join(' ');
+}
+
+async function rescanZimFolder(btn) {
+  const done = busy(btn, 'Looking…');
+  try {
+    const d = await post('/api/admin/content/kiwix/folders/rescan', { path: btn.dataset.zimrescan });
+    toast(zimRescanResult(d), d.reachable ? 'ok' : 'err');
+    await Promise.all([loadZimFolders(), loadKiwix()]);
+  } catch (e) {
+    if (!e.pin) toast(e.message, 'err');
+  }
+  done();
+}
+
+let pendingZimStop = null;
+
+function cancelZimStop() {
+  pendingZimStop = null;
+  closeDialog();
+}
+
+$('zimfolders').addEventListener('click', ev => {
+  const again = ev.target.closest('[data-zimrescan]');
+  if (again) {
+    rescanZimFolder(again);
+    return;
+  }
+  const b = ev.target.closest('[data-zimstop]');
+  if (!b) return;
+  pendingZimStop = b.dataset.zimstop;
+  $('zimstoptext').innerHTML =
+    `kids-shelf stops using <b>${esc(pendingZimStop)}</b>, and its libraries leave the shelf. ` +
+    'The files stay where they are: nothing in the folder is changed or deleted.';
+  openDialog('zimstopconfirm', cancelZimStop, 'zimstopno', $('zimpath'));
+});
+
+$('zimstopno').addEventListener('click', cancelZimStop);
+
+$('zimstopok').addEventListener('click', async () => {
+  const path = pendingZimStop;
+  pendingZimStop = null;
+  closeDialog();
+  if (!path) return;
+  try {
+    await post('/api/admin/content/kiwix/folders/remove', { path });
+    toast('kids-shelf stopped using the folder. The files in it are still there.', 'ok');
+    await Promise.all([loadZimFolders(), loadKiwix()]);
+  } catch (e) {
+    if (!e.pin) toast(e.message, 'err');
+  }
+});
+
+async function loadZimFolders() {
+  try {
+    const d = await api('/api/admin/content/kiwix/folders');
+    store.zimFolders = d.folders || [];
+    renderZimFolders();
+  } catch (e) {
+    loadFailed($('zimfolders'), e);
   }
 }
 
@@ -952,7 +1093,7 @@ async function loadAll() {
   const catalog = loadCatalogMeta().then(() => {
     if (!pinOpen) return searchCatalog(0);
   });
-  await Promise.all([loadYouTube(), loadSources(), loadIngest(), loadFixes(), loadKiwix(), catalog]);
+  await Promise.all([loadYouTube(), loadSources(), loadIngest(), loadFixes(), loadKiwix(), loadZimFolders(), catalog]);
 }
 
 function poll() {

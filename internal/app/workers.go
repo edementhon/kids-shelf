@@ -2,7 +2,8 @@
 // goroutine with panic recovery, and restarts after a backoff when it
 // returns or crashes. The queue-draining workers (ingest, youtube, kiwix)
 // return when the queue is empty, so they restart quickly and poll; the
-// library scan and the daily yt-dlp check run on their own schedules.
+// library scan, the library folders look and the daily yt-dlp check run on
+// their own schedules.
 package app
 
 import (
@@ -19,6 +20,10 @@ const (
 	maxBackoff    = time.Minute
 	scanInterval  = 5 * time.Minute
 	dailyInterval = 24 * time.Hour
+	// folderInterval paces the look through the library folders for .zim
+	// files that were added or went away (the parent page says "every 10
+	// minutes").
+	folderInterval = 10 * time.Minute
 )
 
 // worker is one named background loop: run executes one pass, restart is
@@ -29,11 +34,12 @@ type worker struct {
 	run     func(context.Context) error
 }
 
-// workersOf lists every background loop of the app. The scan, the yt-dlp
-// check and the helpers check run their first pass immediately, then on
-// their interval. An ImportOnly app runs the ingest worker and the helpers
-// check alone: a one-off import waits on the conversions it queued itself,
-// and the scanner would queue the whole library ahead of them.
+// workersOf lists every background loop of the app. The scan, the library
+// folders look, the yt-dlp check and the helpers check run their first pass
+// immediately, then on their interval. An ImportOnly app runs the ingest
+// worker and the helpers check alone: a one-off import waits on the
+// conversions it queued itself, and the scanner would queue the whole
+// library ahead of them.
 func workersOf(a *App) []worker {
 	ingest := worker{name: "ingest", restart: minRestart, run: a.worker.Run}
 	helpers := worker{name: "helpers check", restart: helpersCheckInterval, run: a.checkHelpers}
@@ -46,6 +52,7 @@ func workersOf(a *App) []worker {
 		{name: "youtube", restart: minRestart, run: a.youtube.Run},
 		{name: "kiwix", restart: minRestart, run: a.kiwix.Work},
 		{name: "library scan", restart: scanInterval, run: a.scan},
+		{name: "library folders", restart: folderInterval, run: a.kiwix.ScanFolders},
 		{name: "yt-dlp update", restart: dailyInterval, run: a.updateYtDlp},
 	}
 }

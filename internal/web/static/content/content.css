@@ -240,6 +240,15 @@ button:disabled { opacity: .6; cursor: progress; }
   vertical-align: 2px;
 }
 .cat .summ { color: var(--muted); font-size: .9rem; margin: 4px 0; }
+/* "From <folder>" in place of Remove, for a library kids-shelf uses where
+   it is: the folder path wraps anywhere rather than pushing the row wide. */
+.fromfolder {
+  color: var(--muted);
+  font-size: .85rem;
+  font-weight: 600;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 
 .overlay {
   position: fixed;

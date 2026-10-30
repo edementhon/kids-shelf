@@ -63,6 +63,15 @@
   <h2>Offline libraries</h2>
   <p class="note">Once downloaded, libraries work with no internet (great for trips). Think about space before you download: <b>all of English Wikipedia needs about 120 GB. Wikipedia's top 100 articles: 318 MB.</b> The kids' encyclopedia Vikidia is 74 MB.</p>
   <p class="warnline hidden" id="libwarn" role="status"></p>
+  <h3 class="subhead">Library files on this computer</h3>
+  <p class="note">Already have library files (.zim)? kids-shelf can use them where they are, without copying them.</p>
+  <form id="zimform" class="inlineform">
+    <input type="text" id="zimpath" placeholder="Path to the folder, e.g. __KS_OS_LIBRARY_PATH__" autocomplete="off" spellcheck="false" aria-label="Path to the folder with library files">
+    <button class="btn add" type="submit" id="zimadd">Use this folder</button>
+  </form>
+  <div id="zimfolders" class="sourcelist"></div>
+
+  <h3 class="subhead">Download a library</h3>
   <div class="picks" id="catpicks">
     <span class="pickslabel">Good for kids:</span>
     <button class="btn chip" type="button" data-pick-cat="vikidia">Kids' encyclopedia</button>
@@ -116,6 +125,17 @@
     <div class="rowbtns center">
       <button class="btn sub" id="srcremoveok" type="button">Remove from the list</button>
       <button class="btn" id="srcremoveno" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="zimstopconfirm">
+  <div class="overlay-box" role="dialog" aria-modal="true" aria-labelledby="zimstoptitle">
+    <h2 id="zimstoptitle">Stop using this folder?</h2>
+    <p id="zimstoptext" class="note"></p>
+    <div class="rowbtns center">
+      <button class="btn sub" id="zimstopok" type="button">Stop using this folder</button>
+      <button class="btn" id="zimstopno" type="button">Cancel</button>
     </div>
   </div>
 </div>

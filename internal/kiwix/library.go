@@ -36,10 +36,14 @@ const (
 var (
 	ErrAlreadyInstalled = errors.New("kiwix: already installed")
 	ErrNotInstalled     = errors.New("kiwix: not installed")
+	// ErrFolderBook refuses to remove a library that comes from a library
+	// folder: its file is the family's own, so it leaves the shelf only
+	// with its folder (RemoveFolder) and is never deleted.
+	ErrFolderBook = errors.New("kiwix: library is in a library folder")
 )
 
-// Migrations registers the installed table with the store. Table ownership:
-// this table belongs to the kiwix package alone.
+// Migrations registers the installed and library_folders tables with the
+// store. Table ownership: these tables belong to the kiwix package alone.
 var Migrations = []store.Migration{{
 	Owner:   "kiwix",
 	Version: 1,
@@ -53,10 +57,26 @@ CREATE TABLE installed (
 	size         INTEGER NOT NULL,
 	installed_at TEXT    NOT NULL
 )`,
+}, {
+	// Library folders (folders.go): folders whose .zim files are served
+	// where they are. An installed row from one has folder set to the
+	// folder's path and file holding the ZIM's absolute path; folder ''
+	// is a download, whose file is a name inside the library directory.
+	Owner:   "kiwix",
+	Version: 2,
+	SQL: `
+CREATE TABLE library_folders (
+	path     TEXT PRIMARY KEY,
+	added_at TEXT NOT NULL
+);
+ALTER TABLE installed ADD COLUMN folder TEXT NOT NULL DEFAULT '';`,
 }}
 
-// Installed is one row of the installed table: a ZIM that has been
-// downloaded, verified and published into the library directory.
+// Installed is one row of the installed table: a ZIM on the shelf. A
+// downloaded one was verified and published into the library directory,
+// and File is its name there. One from a library folder (Folder set) is
+// served where it is, and File is its absolute path. FilePath resolves
+// both.
 type Installed struct {
 	ID          string
 	Name        string
@@ -65,6 +85,17 @@ type Installed struct {
 	File        string
 	Size        int64
 	InstalledAt time.Time
+	Folder      string // the library folder the ZIM is in; "" for a download
+}
+
+// FileBase is the ZIM's file name without its folder and its .zim
+// extension (in any case): the label of last resort for a book.
+func (in Installed) FileBase() string {
+	base := filepath.Base(in.File)
+	if ext := filepath.Ext(base); strings.EqualFold(ext, ".zim") {
+		base = base[:len(base)-len(ext)]
+	}
+	return base
 }
 
 // jobPayload is the JSON payload of a kiwix job. The entry never changes;
@@ -98,15 +129,22 @@ type Manager struct {
 	httpOnce      sync.Once
 	httpClient    *http.Client
 
+	// folderMu serializes adding library folders and looking through them
+	// (folders.go), so two looks through one folder never race. Stopping a
+	// folder does not take it (see RemoveFolder).
+	folderMu sync.Mutex
+
 	// partWriter, when set, stands in for f on the partial file's data
 	// writes; tests use it to fail a write with ENOSPC mid-download.
 	partWriter func(*os.File) io.Writer
 
 	// OnChange is called after the installed set changes - a ZIM is
-	// published or removed - so the kiwix-serve supervisor (internal/kiwix
-	// server) can restart with the new library. It is invoked with the
-	// statement that changed the set fully done and no lock held, so a
-	// callback may query Installed. Nil means nobody is listening.
+	// published or removed, a library folder is added or dropped, or a look
+	// through the folders found new or vanished files (once per look) - so
+	// the kiwix-serve supervisor (internal/kiwix server) can restart with
+	// the new library. It is invoked with the statement that changed the
+	// set fully done and no lock held, so a callback may query Installed.
+	// Nil means nobody is listening.
 	OnChange func()
 
 	// Quiesce, when set, is called before Remove deletes a ZIM file, so the
@@ -119,10 +157,10 @@ type Manager struct {
 	Quiesce func(ctx context.Context) (resume func(), err error)
 }
 
-// NewManager returns a Manager on s (for the installed table), q (the job
-// queue, kind "kiwix") and res (disk reservations). lib is created if
-// missing; the migrations for the installed table are applied if pending, so
-// a Manager is self-sufficient for both tests and the app.
+// NewManager returns a Manager on s (for the installed and library_folders
+// tables), q (the job queue, kind "kiwix") and res (disk reservations). lib
+// is created if missing; the migrations for the tables are applied if
+// pending, so a Manager is self-sufficient for both tests and the app.
 func NewManager(s *store.Store, q *jobs.Queue, res *disk.Reservations, lib string) (*Manager, error) {
 	if err := s.Migrate(Migrations...); err != nil {
 		return nil, err
@@ -404,10 +442,11 @@ func (m *Manager) isInstalled(id string) (bool, error) {
 	return true, nil
 }
 
-// Installed returns every installed ZIM, ordered by name.
+// Installed returns every installed ZIM, ordered by name (then file, so
+// two copies of one ZIM keep a stable order).
 func (m *Manager) Installed() ([]Installed, error) {
 	rows, err := m.store.DB().Query(
-		`SELECT id, name, title, language, file, size, installed_at FROM installed ORDER BY name`)
+		`SELECT id, name, title, language, file, size, installed_at, folder FROM installed ORDER BY name, file`)
 	if err != nil {
 		return nil, fmt.Errorf("kiwix: installed list: %w", err)
 	}
@@ -416,7 +455,7 @@ func (m *Manager) Installed() ([]Installed, error) {
 	for rows.Next() {
 		var in Installed
 		var at string
-		if err := rows.Scan(&in.ID, &in.Name, &in.Title, &in.Language, &in.File, &in.Size, &at); err != nil {
+		if err := rows.Scan(&in.ID, &in.Name, &in.Title, &in.Language, &in.File, &in.Size, &at, &in.Folder); err != nil {
 			return nil, err
 		}
 		in.InstalledAt, _ = time.Parse(time.RFC3339Nano, at)
@@ -425,16 +464,32 @@ func (m *Manager) Installed() ([]Installed, error) {
 	return out, rows.Err()
 }
 
-// OnDisk reports whether the installed ZIM's file is present in the library
-// directory as a regular file. An installed row can outlive its file (a
-// drive that is not plugged in, a file moved away by hand); kiwix-serve then
+// FilePath returns the absolute path of an installed ZIM's file. A
+// download's stored name is resolved inside the library directory, and one
+// that would escape it is refused (libPath); a library folder's ZIM is the
+// absolute path its row stores. Every caller that turns an installed row
+// into a path goes through here, so no other code joins the library
+// directory with a stored name.
+func (m *Manager) FilePath(in Installed) (string, error) {
+	if in.File == "" {
+		return "", fmt.Errorf("kiwix: installed %s has no file", in.ID)
+	}
+	if in.Folder == "" {
+		return m.libPath(in.File)
+	}
+	if !filepath.IsAbs(in.File) {
+		return "", fmt.Errorf("kiwix: %q from library folder %q is not an absolute path", in.File, in.Folder)
+	}
+	return filepath.Clean(in.File), nil
+}
+
+// OnDisk reports whether the installed ZIM's file is present as a regular
+// file. An installed row can outlive its file (a drive that is not plugged
+// in, a NAS that is off, a file moved away by hand); kiwix-serve then
 // leaves the book out, so callers use this to show the book as missing
 // rather than as a link that cannot open.
 func (m *Manager) OnDisk(in Installed) bool {
-	if in.File == "" {
-		return false
-	}
-	p, err := m.libPath(in.File)
+	p, err := m.FilePath(in)
 	if err != nil {
 		return false
 	}
@@ -442,25 +497,30 @@ func (m *Manager) OnDisk(in Installed) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
-// Remove deletes an installed ZIM: the file in the library directory and the
-// partial download, then the installed row. Removing an entry that is not
-// installed returns ErrNotInstalled. The stored file name is resolved
-// inside the library directory; a name that would escape it is refused and
-// nothing is deleted. When Quiesce is set it runs before the file is
-// deleted - it stops the kiwix-serve process that holds the file open (see
-// Quiesce) - and its resume runs when Remove is done, whether the removal
-// succeeded or not.
+// Remove deletes a downloaded ZIM: the file in the library directory and
+// the partial download, then the installed row. Removing an entry that is
+// not installed returns ErrNotInstalled, and a library from a library
+// folder is refused with ErrFolderBook (it leaves with its folder, and its
+// file is never deleted). The stored file name is resolved inside the
+// library directory; a name that would escape it is refused and nothing is
+// deleted. When Quiesce is set it runs before the file is deleted - it
+// stops the kiwix-serve process that holds the file open (see Quiesce) -
+// and its resume runs when Remove is done, whether the removal succeeded
+// or not.
 func (m *Manager) Remove(id string) error {
-	var file string
-	err := m.store.DB().QueryRow(`SELECT file FROM installed WHERE id = ?`, id).Scan(&file)
+	var file, folder string
+	err := m.store.DB().QueryRow(`SELECT file, folder FROM installed WHERE id = ?`, id).Scan(&file, &folder)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotInstalled
 	}
 	if err != nil {
 		return fmt.Errorf("kiwix: remove %s: %w", id, err)
 	}
+	if folder != "" {
+		return ErrFolderBook
+	}
 	if file != "" {
-		final, err := m.libPath(file)
+		final, err := m.FilePath(Installed{ID: id, File: file})
 		if err != nil {
 			return err
 		}

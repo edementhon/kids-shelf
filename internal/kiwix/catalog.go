@@ -1,7 +1,8 @@
 // Package kiwix is the Kiwix side of the library: a client for the library
 // catalog OPDS feeds, downloads of ZIM files through their .meta4 Metalink
-// files over the shared job queue, and the table of installed ZIMs. Serving
-// ZIM content is not here; the storage backend is still being decided (D4).
+// files over the shared job queue, library folders whose ZIM files are
+// served where they are, the table of installed ZIMs, and the kiwix-serve
+// supervisor that serves them.
 package kiwix
 
 import (

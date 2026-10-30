@@ -14,7 +14,6 @@ package web
 import (
 	"bytes"
 	"context"
-	"encoding/xml"
 	"html"
 	"html/template"
 	"io"
@@ -24,10 +23,11 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edementhon/kids-shelf/internal/kiwix"
 )
 
 // Plain-words library messages; internal details go to the log, never to a
@@ -73,19 +73,15 @@ func newKiwixTransport(headerTimeout time.Duration) *http.Transport {
 // reader's pages are) passes through unchanged.
 const kiwixPageMax = 8 << 20
 
-// kiwixIconTimeout bounds the OPDS icon lookup. The icon is a nice-to-have
-// on the library tiles, so a slow feed costs at most a few seconds of one
-// /api/libraries call and never blocks anything else.
-const kiwixIconTimeout = 3 * time.Second
+// kiwixFeedTimeout bounds the read of the backend's own book feed (see
+// kiwixFeed), so a slow or frozen backend costs at most a few seconds of
+// one /api/libraries call and never blocks anything else.
+const kiwixFeedTimeout = 3 * time.Second
 
-// kiwixIconFeedMax caps the OPDS entries feed body (the feed and its
-// truncation point; a longer body just fails the parse and costs the icons).
-const kiwixIconFeedMax = 8 << 20
-
-// kiwixIconClient talks to the loopback kiwix-serve, so it is a plain
+// kiwixFeedClient talks to the loopback kiwix-serve, so it is a plain
 // client: internal/kiwix's Catalog forbids private destinations and is
 // wired for the download catalog, not for this back-and-forth.
-var kiwixIconClient = &http.Client{Timeout: kiwixIconTimeout}
+var kiwixFeedClient = &http.Client{Timeout: kiwixFeedTimeout}
 
 func init() {
 	register(func(s *Server) { librariesRoutes(s) })
@@ -432,12 +428,13 @@ func openTagEnd(page []byte, open string) int {
 	return i + end + 1
 }
 
-// libraryBook is one installed library as the kid page reads it. URL and
-// Icon are filled only while the backend is up and the book's file is on
-// disk; otherwise the tile still renders (title and language), just without
-// anything to open. Missing says the file itself is gone (a drive that is
-// not plugged in, say), which no waiting fixes: the page asks for a
-// grown-up.
+// libraryBook is one installed library as the kid page reads it, a
+// download and a library folder book alike. Name is the file name without
+// .zim, a label of last resort. URL and Icon are filled only while the
+// backend is up and serves the book's file; otherwise the tile still
+// renders (title and language), just without anything to open. Missing
+// says the file itself is gone (a drive that is not plugged in, a NAS that
+// is off), which no waiting fixes: the page asks for a grown-up.
 type libraryBook struct {
 	Name     string `json:"name"`
 	Title    string `json:"title"`
@@ -464,28 +461,27 @@ func (s *Server) handleAPILibraries(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, msgLibrariesNotRead)
 		return
 	}
-	var icons map[string]string
+	var feed map[string]kiwix.ServedBook
 	if out.Available {
 		// A backend that does not answer its own feed (frozen, say) is
 		// not available, whatever the supervisor last saw.
-		icons, out.Available = s.kiwixIcons(r.Context())
+		feed, out.Available = s.kiwixFeed(r.Context())
 	}
 	for _, in := range installed {
 		b := libraryBook{
-			Name:     kiwixBookName(in.File),
+			Name:     in.FileBase(),
 			Title:    in.Title,
 			Language: in.Language,
 			Missing:  !s.deps.Kiwix.OnDisk(in),
 		}
 		if out.Available && !b.Missing {
-			b.URL = "/kiwix/viewer#" + b.Name
-			// The feed names books by their ZIM metadata name, which is the
-			// catalog name we recorded at download time; some ZIMs carry
-			// the dated file base instead, so that name matches too.
-			if icon, ok := icons[in.Name]; ok {
-				b.Icon = icon
-			} else {
-				b.Icon = icons[b.Name]
+			// The book kiwix-serve serves for this file, found by the
+			// UUID in the file's header: its name is exactly the one
+			// kiwix-serve gave the file (lower case, no accents, spaces
+			// as underscores), escaped like kiwix-serve's own links.
+			if sb, ok := s.deps.Kiwix.ServedAs(in, feed); ok {
+				b.URL = "/kiwix/viewer#" + sb.URLName()
+				b.Icon = sb.Icon
 			}
 		}
 		out.Books = append(out.Books, b)
@@ -513,71 +509,17 @@ func (s *Server) kiwixUp() bool {
 	return s.deps.KiwixServer != nil && s.deps.KiwixServer.Backend() != ""
 }
 
-// kiwixBookName is the book identifier the backend addresses a ZIM by: the
-// stored file name without the .zim extension (the "book name" of the
-// kiwix-serve start command contract). Stored file names are sanitized to
-// [A-Za-z0-9._-], so the name is safe to splice into the /viewer# fragment
-// and the /content/ path unescaped.
-func kiwixBookName(file string) string {
-	return strings.TrimSuffix(filepath.Base(file), ".zim")
-}
-
-// kiwixIcons maps each installed book's catalog name to its illustration URL
-// by reading the backend's own OPDS entries feed (GET /kiwix/catalog/v2/
-// entries?count=-1 returns every book in one feed; count=-1 is honored by
-// kiwix-serve 3.8, which uses it as "all"). The lookup is best-effort: a
-// slow, broken or oversized feed costs the icons, never the library list.
-// answered is false only when the backend gave no answer at all (it is
-// frozen or gone), which the caller reports as "not available".
-func (s *Server) kiwixIcons(ctx context.Context) (icons map[string]string, answered bool) {
-	backend, err := url.Parse(s.deps.KiwixServer.Backend())
-	if err != nil || backend.Host == "" {
-		return nil, false
-	}
-	feedURL := backend.String() + "/kiwix/catalog/v2/entries?count=-1"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
+// kiwixFeed reads the books the backend serves from its own OPDS feed (see
+// kiwix.FetchServedFeed). ok is false when it gave no usable answer
+// (frozen, gone, or a feed that does not read): with no feed no book can
+// be linked, so the caller reports the libraries as not available.
+func (s *Server) kiwixFeed(ctx context.Context) (feed map[string]kiwix.ServedBook, ok bool) {
+	feed, err := kiwix.FetchServedFeed(ctx, kiwixFeedClient, s.deps.KiwixServer.Backend())
 	if err != nil {
+		log.Printf("libraries: %v", err)
 		return nil, false
 	}
-	resp, err := kiwixIconClient.Do(req)
-	if err != nil {
-		log.Printf("libraries: icon feed: %v", err)
-		return nil, false
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("libraries: icon feed: HTTP %s", resp.Status)
-		return nil, true
-	}
-	var feed kiwixOPDSFeed
-	if err := xml.NewDecoder(io.LimitReader(resp.Body, kiwixIconFeedMax)).Decode(&feed); err != nil {
-		log.Printf("libraries: icon feed: %v", err)
-		return nil, true
-	}
-	icons = make(map[string]string, len(feed.Entries))
-	for _, e := range feed.Entries {
-		uuid := strings.TrimPrefix(e.ID, "urn:uuid:")
-		if uuid == "" || uuid == e.ID {
-			continue
-		}
-		icons[e.Name] = "/kiwix/catalog/v2/illustration/" + uuid + "/?size=48"
-	}
-	return icons, true
-}
-
-// kiwixOPDSFeed is the minimal shape of the backend's /catalog/v2/entries
-// feed: only the id (urn:uuid:<book-id>, the same id the illustration
-// endpoint takes) and the name (the ZIM metadata name, which is what the
-// app recorded at download time) are needed for the lookup. Unqualified
-// tags match through the Atom default namespace, exactly as
-// internal/kiwix's own OPDS parsing relies on.
-type kiwixOPDSFeed struct {
-	Entries []kiwixOPDSEntry `xml:"entry"`
-}
-
-type kiwixOPDSEntry struct {
-	ID   string `xml:"id"`
-	Name string `xml:"name"`
+	return feed, true
 }
 
 // handleLibrariesPage serves the kid page that lists the installed

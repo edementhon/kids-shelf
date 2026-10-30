@@ -1,19 +1,24 @@
 // Handler tests for the /kiwix/ proxy (on the separate libraries origin),
 // the /api/libraries list and the /libraries page (both on the app origin).
-// The proxy and the icon lookup run against httptest backends; the
+// The proxy and the book feed run against httptest backends; the
 // installed table is read through a real kiwix.Manager over a temp store,
 // seeded exactly like the download pipeline would seed it.
 package web
 
 import (
 	"bytes"
+	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -70,7 +75,9 @@ func librariesKiwixManager(t *testing.T) (*kiwix.Manager, *store.Store, string) 
 
 // seedInstalledRow inserts one installed row, the same shape install()
 // writes (see internal/kiwix/library.go), and puts its file in lib. An
-// empty lib leaves the file missing (a drive that is not plugged in).
+// empty lib leaves the file missing (a drive that is not plugged in). The
+// file starts like a real ZIM whose header carries the UUID of a
+// "urn:uuid:<uuid>" id, which is how the backend's feed finds the book.
 func seedInstalledRow(t *testing.T, s *store.Store, lib, id, name, title, language, file string) {
 	t.Helper()
 	if _, err := s.DB().Exec(`INSERT INTO installed (id, name, title, language, file, size, installed_at)
@@ -78,10 +85,24 @@ func seedInstalledRow(t *testing.T, s *store.Store, lib, id, name, title, langua
 		t.Fatalf("seed installed row: %v", err)
 	}
 	if lib != "" {
-		if err := os.WriteFile(filepath.Join(lib, file), []byte("zim"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(lib, file), testZIM(strings.TrimPrefix(id, "urn:uuid:")), 0o644); err != nil {
 			t.Fatalf("seed installed file: %v", err)
 		}
 	}
+}
+
+// testZIM returns the start of a ZIM file whose header carries uuid (in
+// the 8-4-4-4-12 hex form the backend's feed writes book ids in); a uuid
+// that does not parse leaves the header's UUID zero, a book no feed lists.
+func testZIM(uuid string) []byte {
+	b := make([]byte, 80)
+	binary.LittleEndian.PutUint32(b, 0x044D495A)
+	binary.LittleEndian.PutUint16(b[4:], 6)
+	binary.LittleEndian.PutUint16(b[6:], 3)
+	if raw, err := hex.DecodeString(strings.ReplaceAll(uuid, "-", "")); err == nil && len(raw) == 16 {
+		copy(b[8:24], raw)
+	}
+	return b
 }
 
 func librariesTestGet(t *testing.T, ts *httptest.Server, path string) (int, []byte, http.Header) {
@@ -313,10 +334,10 @@ func TestAPILibrariesAddsLibrariesURL(t *testing.T) {
 	}
 
 	// Book URLs stay relative to the libraries origin; the page prefixes
-	// them with libraries_url.
-	seedInstalledRow(t, store, lib, "urn:uuid:book", "book_en", "Book", "eng", "book_en.zim")
+	// them with libraries_url. The book is one the backend's feed lists.
+	seedInstalledRow(t, store, lib, "urn:uuid:600c47c6-a792-0f78-8fcc-9c05cf1c556b", "php.net_en_all", "Book", "eng", "php.net_en_all_2024-08.zim")
 	_, urls := read()
-	if len(urls) != 1 || urls[0] != "/kiwix/viewer#book_en" {
+	if len(urls) != 1 || urls[0] != "/kiwix/viewer#php.net_en_all_2024-08" {
 		t.Errorf("books = %v, want one relative viewer URL", urls)
 	}
 }
@@ -414,8 +435,11 @@ func TestAPILibrariesBooksWithIcons(t *testing.T) {
 	if first.Icon != wantIcon {
 		t.Errorf("books[0].icon = %q, want %q (uuid from the OPDS feed)", first.Icon, wantIcon)
 	}
-	if second := out.Books[1]; second.Icon != "" || second.URL == "" {
-		t.Errorf("unmatched book = %+v, want icon omitted and url filled", second)
+	// A book the backend does not serve (its file's UUID is not in the
+	// feed: kiwix-serve was not started with it yet, or could not open it)
+	// gets neither: a link would open nothing.
+	if second := out.Books[1]; second.Icon != "" || second.URL != "" {
+		t.Errorf("book the backend does not serve = %+v, want no icon and no url", second)
 	}
 }
 
@@ -787,7 +811,7 @@ func TestAPILibrariesMarksMissingFile(t *testing.T) {
 	}))
 	defer feed.Close()
 	km, s, lib := librariesKiwixManager(t)
-	seedInstalledRow(t, s, lib, "urn:uuid:here", "a_here", "Here", "eng", "a_here.zim")
+	seedInstalledRow(t, s, lib, "urn:uuid:600c47c6-a792-0f78-8fcc-9c05cf1c556b", "a_here", "Here", "eng", "a_here.zim")
 	seedInstalledRow(t, s, "", "urn:uuid:gone", "b_gone", "Gone", "eng", "b_gone.zim")
 	ts := librariesTestServer(t, Deps{Kiwix: km, KiwixServer: stubKiwixBackend{feed.URL}})
 
@@ -829,5 +853,211 @@ func TestAPILibrariesUnansweringBackendUnavailable(t *testing.T) {
 	}
 	if out.Available || len(out.Books) != 1 || out.Books[0].URL != "" {
 		t.Errorf("got %s, want available false and the book listed without a URL", body)
+	}
+}
+
+// The two books of internal/kiwix/testdata/served_entries.xml, the feed
+// kiwix-serve 3.8.2 answered for "My Wiki (2026).zim" and "Élève
+// été+plus #1.zim" (the second a copy of the test ZIM with another UUID).
+const (
+	servedWikiUUID  = "975eb51a-1c3d-5383-8f3f-2db8f9cb8798"
+	servedEleveUUID = "00010203-0405-0607-0809-0a0b0c0d0e0f"
+)
+
+// TestAPILibrariesFolderBooks: books from a library folder are listed
+// like downloads, with links under the names kiwix-serve gave their
+// awkwardly named files (found by the UUID in each file's header, escaped
+// like kiwix-serve's own links) and their icons; when the folder is out of
+// reach they stay listed, as missing, with nothing to open.
+func TestAPILibrariesFolderBooks(t *testing.T) {
+	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join("..", "kiwix", "testdata", "served_entries.xml"))
+	}))
+	defer feed.Close()
+	km, _, _ := librariesKiwixManager(t)
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "Kiwix")
+	for name, uuid := range map[string]string{
+		"My Wiki (2026).zim":             servedWikiUUID,
+		"Élève été+plus #1.zim":          servedEleveUUID,
+		"sub/not-served-yet_2026-10.zim": "11111111-2222-3333-4444-555555555555",
+	} {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, testZIM(uuid), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := km.AddFolder(t.Context(), dir); err != nil || n != 3 {
+		t.Fatalf("AddFolder = %d, %v, want 3", n, err)
+	}
+	ts := librariesTestServer(t, Deps{Kiwix: km, KiwixServer: stubKiwixBackend{feed.URL}})
+	read := func() (bool, map[string]libraryBook) {
+		t.Helper()
+		code, body, _ := librariesTestGet(t, ts, "/api/libraries")
+		if code != http.StatusOK {
+			t.Fatalf("GET /api/libraries = %d: %s", code, body)
+		}
+		var out struct {
+			Available bool          `json:"available"`
+			Books     []libraryBook `json:"books"`
+		}
+		if err := json.Unmarshal(body, &out); err != nil {
+			t.Fatalf("decoding %q: %v", body, err)
+		}
+		byTitle := map[string]libraryBook{}
+		for _, b := range out.Books {
+			byTitle[b.Title] = b
+		}
+		return out.Available, byTitle
+	}
+
+	available, books := read()
+	want := map[string]libraryBook{
+		"My Wiki (2026)": {
+			Name: "My Wiki (2026)", Title: "My Wiki (2026)",
+			URL:  "/kiwix/viewer#my_wiki_(2026)",
+			Icon: "/kiwix/catalog/v2/illustration/" + servedWikiUUID + "/?size=48",
+		},
+		"Élève été+plus #1": {
+			Name: "Élève été+plus #1", Title: "Élève été+plus #1",
+			URL:  "/kiwix/viewer#eleve_eteplusplus_%231",
+			Icon: "/kiwix/catalog/v2/illustration/" + servedEleveUUID + "/?size=48",
+		},
+		// kiwix-serve has not been restarted with this one yet: listed,
+		// nothing to open.
+		"not-served-yet 2026-10": {Name: "not-served-yet_2026-10", Title: "not-served-yet 2026-10"},
+	}
+	if !available || len(books) != len(want) {
+		t.Fatalf("available %v, books %+v, want available and %d books", available, books, len(want))
+	}
+	for title, w := range want {
+		if got := books[title]; got != w {
+			t.Errorf("book %q = %+v, want %+v", title, got, w)
+		}
+	}
+
+	if err := os.Rename(dir, filepath.Join(parent, "away")); err != nil {
+		t.Fatal(err)
+	}
+	available, books = read()
+	if !available || len(books) != len(want) {
+		t.Fatalf("with the folder away: available %v, books %+v, want available and %d books", available, books, len(want))
+	}
+	for title := range want {
+		if b := books[title]; !b.Missing || b.URL != "" || b.Icon != "" {
+			t.Errorf("book %q with its folder away = %+v, want missing with nothing to open", title, b)
+		}
+	}
+}
+
+// TestAPILibrariesFolderBookRealKiwixServe: with the real kiwix-serve
+// serving a library folder whose file has an awkward name, the kid API's
+// link opens the book through the libraries origin, and the title the
+// ZIM gives itself replaces the file name. It needs the built helper
+// (KS_HELPERS_DIR) and a ZIM to copy (KS_TEST_ZIM) and skips otherwise.
+func TestAPILibrariesFolderBookRealKiwixServe(t *testing.T) {
+	helperDir := os.Getenv("KS_HELPERS_DIR")
+	zim := os.Getenv("KS_TEST_ZIM")
+	if helperDir == "" || zim == "" {
+		t.Skip("KS_HELPERS_DIR or KS_TEST_ZIM unset (real kiwix-serve test)")
+	}
+	bin := filepath.Join(helperDir, "kiwix-serve")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	if _, err := os.Stat(bin); err != nil {
+		t.Skipf("%s not built: %v", bin, err)
+	}
+	data, err := os.ReadFile(zim)
+	if err != nil {
+		t.Fatalf("KS_TEST_ZIM: %v", err)
+	}
+	km, _, _ := librariesKiwixManager(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "My Wiki (2026).zim"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := km.AddFolder(t.Context(), dir); err != nil || n != 1 {
+		t.Fatalf("AddFolder = %d, %v, want 1", n, err)
+	}
+	// Wired like the app: rows resolved through FilePath, what kiwix-serve
+	// reports kept in the rows.
+	srv := kiwix.NewServer(bin, func() ([]kiwix.Installed, error) {
+		rows, err := km.Installed()
+		if err != nil {
+			return nil, err
+		}
+		var books []kiwix.Installed
+		for _, in := range rows {
+			if p, err := km.FilePath(in); err == nil {
+				in.File = p
+				books = append(books, in)
+			}
+		}
+		return books, nil
+	})
+	srv.OnServed = func(b map[string]kiwix.ServedBook) {
+		if err := km.RecordServed(b); err != nil {
+			t.Errorf("RecordServed: %v", err)
+		}
+	}
+	km.OnChange = srv.Sync
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	deps := Deps{Kiwix: km, KiwixServer: srv}
+	ts := librariesTestServer(t, deps)
+	origin := librariesOriginTestServer(t, deps)
+	var book libraryBook
+	for deadline := time.Now().Add(30 * time.Second); ; {
+		_, body, _ := librariesTestGet(t, ts, "/api/libraries")
+		var out struct {
+			Available bool          `json:"available"`
+			Books     []libraryBook `json:"books"`
+		}
+		if err := json.Unmarshal(body, &out); err != nil {
+			t.Fatalf("decoding %q: %v", body, err)
+		}
+		if out.Available && len(out.Books) == 1 && out.Books[0].URL != "" && out.Books[0].Title != "My Wiki (2026)" {
+			book = out.Books[0]
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no openable book with the ZIM's own title from the real kiwix-serve: %s", body)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if book.URL != "/kiwix/viewer#my_wiki_(2026)" || book.Missing {
+		t.Errorf("book = %+v, want the viewer link kiwix-serve's name my_wiki_(2026)", book)
+	}
+	// The reader opens /kiwix/content/<the part after #>/ (which leads on
+	// to the book's main page) and asks for /kiwix/raw/<it>/meta/Title:
+	// both answer through the libraries origin.
+	name := strings.TrimPrefix(book.URL, "/kiwix/viewer#")
+	client := &http.Client{Timeout: 60 * time.Second}
+	for _, path := range []string{"/kiwix/viewer", "/kiwix/content/" + name + "/", "/kiwix/raw/" + name + "/meta/Title"} {
+		resp, err := client.Get(origin.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("GET %s on the libraries origin = %d: %.200s", path, resp.StatusCode, body)
+		}
+		if strings.HasSuffix(path, "/Title") && string(body) != book.Title {
+			t.Errorf("GET %s = %q, want the listed title %q", path, body, book.Title)
+		}
 	}
 }
