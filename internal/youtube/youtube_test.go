@@ -333,14 +333,14 @@ func TestDownloadFailureRunsUpdaterThenRetries(t *testing.T) {
 	if !strings.Contains(second, newTag) {
 		t.Errorf("retry ran %q, want the %s binary", second, newTag)
 	}
-	// The pointer now names the new version, and the old one is kept.
+	// The pointer now names the new version, and the old one is gone.
 	cur := readPointer(t, dataDir)
 	if !strings.Contains(cur, newTag) {
 		t.Errorf("pointer = %q, want it to name %s", cur, newTag)
 	}
 	oldDir := filepath.Join(dataDir, "helpers", "yt-dlp", oldTag)
-	if _, err := os.Stat(oldDir); err != nil {
-		t.Errorf("previous version dir removed: %v", err)
+	if _, err := os.Stat(oldDir); err == nil {
+		t.Error("previous version dir kept after the pointer moved past it")
 	}
 }
 

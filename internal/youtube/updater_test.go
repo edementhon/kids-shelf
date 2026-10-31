@@ -175,9 +175,9 @@ func TestUpdaterInstallsNewVersion(t *testing.T) {
 			t.Errorf("installed file missing: %v", err)
 		}
 	}
-	// The previous version directory is kept.
-	if _, err := os.Stat(filepath.Join(dataDir, "helpers", "yt-dlp", "2026.09.01")); err != nil {
-		t.Errorf("previous version removed: %v", err)
+	// The previous version directory goes once the pointer has moved.
+	if _, err := os.Stat(filepath.Join(dataDir, "helpers", "yt-dlp", "2026.09.01")); err == nil {
+		t.Error("previous version kept after the pointer moved to the new one")
 	}
 	// The daily stamp reflects the check date.
 	b, err := os.ReadFile(filepath.Join(dataDir, "helpers", "yt-dlp", "lastcheck"))
@@ -452,5 +452,36 @@ func TestUpdaterConcurrentChecksBothSucceed(t *testing.T) {
 	}
 	if cur := retiredPointer(dataDir); !strings.Contains(cur, "2026.10.21") {
 		t.Errorf("pointer = %q, want the new version", cur)
+	}
+}
+
+// TestUpdaterUpToDateRemovesOnlyOlderCopies: a check that finds yt-dlp up
+// to date removes the version directories older than the current one, and
+// leaves the current one, a newer leftover, names that are not yt-dlp tags
+// and the pointer alone.
+func TestUpdaterUpToDateRemovesOnlyOlderCopies(t *testing.T) {
+	t.Setenv("KS_FAKE_YTDLP", "single")
+	dataDir := t.TempDir()
+	installFakeYtDlp(t, dataDir, "2026.10.21")
+	dir := filepath.Join(dataDir, "helpers", "yt-dlp")
+	for _, d := range []string{"2026.09.01", "2026.10.01.2", "2026.11.02", "notes", "2026-09-01"} {
+		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts := releaseServer(t, "2026.10.21", nil, false, false)
+	u := NewUpdater(dataDir, ts.URL+"/releases/latest")
+	if ok, err := u.EnsureLatest(context.Background(), true); err != nil || ok {
+		t.Fatalf("EnsureLatest = %v, %v; want up to date", ok, err)
+	}
+	for _, gone := range []string{"2026.09.01", "2026.10.01.2"} {
+		if _, err := os.Stat(filepath.Join(dir, gone)); err == nil {
+			t.Errorf("%s kept, want removed (older than current)", gone)
+		}
+	}
+	for _, kept := range []string{"2026.10.21", "2026.11.02", "notes", "2026-09-01", "current"} {
+		if _, err := os.Stat(filepath.Join(dir, kept)); err != nil {
+			t.Errorf("%s removed, want kept", kept)
+		}
 	}
 }

@@ -57,32 +57,32 @@ func TestVerifySumsSignature(t *testing.T) {
 func TestFindSum(t *testing.T) {
 	zipSum := strings.Repeat("b", 64)
 	sums := []byte("# comment\n" +
-		zipSum + "  " + zipAssetName() + "\n" +
+		zipSum + "  " + ZipAssetName() + "\n" +
 		strings.Repeat("a", 64) + "  some-other-asset.txt\n")
-	got, err := findSum(sums, zipAssetName())
+	got, err := findSum(sums, ZipAssetName())
 	if err != nil || got != zipSum {
 		t.Fatalf("findSum = %q, %v", got, err)
 	}
 	if _, err := findSum(sums, "missing"); err == nil {
 		t.Fatal("findSum for a missing name succeeded")
 	}
-	if _, err := findSum([]byte("nothex  "+zipAssetName()+"\n"), zipAssetName()); err == nil {
+	if _, err := findSum([]byte("nothex  "+ZipAssetName()+"\n"), ZipAssetName()); err == nil {
 		t.Fatal("findSum accepted a non-hex checksum")
 	}
 }
 func TestSignedVersion(t *testing.T) {
 	zipSum := strings.Repeat("b", 64)
-	good := []byte("version: v1.2.3\n" + zipSum + "  " + zipAssetName() + "\n")
+	good := []byte("version: v1.2.3\n" + zipSum + "  " + ZipAssetName() + "\n")
 	if v, err := signedVersion(good); err != nil || v != "v1.2.3" {
 		t.Fatalf("signedVersion = %q, %v; want v1.2.3", v, err)
 	}
 	// CRLF line endings are tolerated.
-	if v, err := signedVersion([]byte("version: v1.2.3\r\n" + zipSum + "  " + zipAssetName() + "\r\n")); err != nil || v != "v1.2.3" {
+	if v, err := signedVersion([]byte("version: v1.2.3\r\n" + zipSum + "  " + ZipAssetName() + "\r\n")); err != nil || v != "v1.2.3" {
 		t.Fatalf("signedVersion with CRLF = %q, %v", v, err)
 	}
 	for _, bad := range [][]byte{
 		nil,
-		[]byte(zipSum + "  " + zipAssetName() + "\n"),      // no version line
+		[]byte(zipSum + "  " + ZipAssetName() + "\n"),      // no version line
 		[]byte("version: not-a-version\n" + zipSum + "\n"), // not canonical
 		[]byte("version: v02.0.0\n" + zipSum + "\n"),       // leading zero
 	} {
@@ -306,5 +306,23 @@ func TestDownloadCap(t *testing.T) {
 	}
 	if _, err := downloadBytes(context.Background(), client, srv.URL+"/asset", 1024); !errors.Is(err, errTooMuchData) {
 		t.Fatalf("downloadBytes over cap = %v, want errTooMuchData", err)
+	}
+}
+
+// TestZipAssetNameMatchesTheRelease: the zip an install updates from must
+// be one scripts/release.sh publishes. Macs of both kinds take the one
+// universal zip (there are no single-chip Mac zips); every other computer
+// takes its own goos_goarch zip.
+func TestZipAssetNameMatchesTheRelease(t *testing.T) {
+	for _, tc := range []struct{ goos, goarch, want string }{
+		{"darwin", "arm64", "kids-shelf_darwin_universal.zip"},
+		{"darwin", "amd64", "kids-shelf_darwin_universal.zip"},
+		{"windows", "amd64", "kids-shelf_windows_amd64.zip"},
+		{"linux", "amd64", "kids-shelf_linux_amd64.zip"},
+		{"linux", "arm64", "kids-shelf_linux_arm64.zip"},
+	} {
+		if got := zipAssetNameFor(tc.goos, tc.goarch); got != tc.want {
+			t.Errorf("zipAssetNameFor(%s, %s) = %q, want %q", tc.goos, tc.goarch, got, tc.want)
+		}
 	}
 }

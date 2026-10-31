@@ -163,6 +163,7 @@ func runServing(ctx context.Context, dir string, port int, listenAddr, libraries
 			// app's jobs and survive the restart into the launcher, which
 			// re-checks and releases them at activation.
 			updater.Reservations = a.Reservations()
+			updater.Tidy = a.PruneHelpers
 		}
 		deps := a.Deps()
 		deps.Quit = cancel

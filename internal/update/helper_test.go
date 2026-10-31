@@ -137,7 +137,7 @@ func makeReleaseZip(t *testing.T) (zipBytes []byte, zipSHA string) {
 // first line declares the version the file was signed for, then one line
 // per asset, "<64 hex>  <name>".
 func makeSums(tag, zipSHA string) []byte {
-	return []byte(fmt.Sprintf("version: %s\n%s  %s\n", tag, zipSHA, zipAssetName()))
+	return []byte(fmt.Sprintf("version: %s\n%s  %s\n", tag, zipSHA, ZipAssetName()))
 }
 
 // fakeReleaseServer serves the releases/latest metadata plus the signed
@@ -183,7 +183,7 @@ func newFakeServer(t *testing.T, priv ed25519.PrivateKey, tag string, zipBytes, 
 		if size == 0 {
 			size = int64(len(fs.zip))
 		}
-		zipName := zipAssetName()
+		zipName := ZipAssetName()
 		meta := ghRelease{TagName: fs.tag, Assets: []ghAsset{
 			{Name: zipName, URL: fs.URL + "/assets/" + zipName, Size: size},
 			{Name: "SHA256SUMS", URL: fs.URL + "/assets/SHA256SUMS"},

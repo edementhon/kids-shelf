@@ -101,7 +101,7 @@ func TestBadSignatureLeavesEverythingUnchanged(t *testing.T) {
 	if got := m.Status().Message; got != "the release is not signed with the expected key" {
 		t.Errorf("status message = %q", got)
 	}
-	if n := srv.hitsFor("/assets/" + zipAssetName()); n != 0 {
+	if n := srv.hitsFor("/assets/" + ZipAssetName()); n != 0 {
 		t.Errorf("the zip asset was downloaded %d times despite the bad signature", n)
 	}
 	if _, serr := os.Stat(VersionDir(install, testTag)); !isNotExist(serr) {
@@ -225,7 +225,7 @@ func TestOversizedAssetRefused(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "larger") {
 		t.Fatalf("Update = %v, want an oversized error", err)
 	}
-	if n := srv.hitsFor("/assets/" + zipAssetName()); n != 0 {
+	if n := srv.hitsFor("/assets/" + ZipAssetName()); n != 0 {
 		t.Errorf("the zip asset was downloaded %d times despite the size", n)
 	}
 	st, _ := ReadState(dataDir)
@@ -407,7 +407,7 @@ func TestRelabelledReleaseRefused(t *testing.T) {
 	if !strings.Contains(err.Error(), "signed version") {
 		t.Fatalf("Update = %v, want a signed-version mismatch error", err)
 	}
-	if n := srv.hitsFor("/assets/" + zipAssetName()); n != 0 {
+	if n := srv.hitsFor("/assets/" + ZipAssetName()); n != 0 {
 		t.Errorf("the zip asset was downloaded %d times despite the relabel", n)
 	}
 	if msg := m.Status().Message; msg != "the release's signed version does not match its tag" {
@@ -427,7 +427,7 @@ func TestVersionLineMissingRefused(t *testing.T) {
 	dataDir := t.TempDir()
 	zipB, zipSHA := makeReleaseZip(t)
 	// The old format: checksum lines only, no version line.
-	legacy := []byte(fmt.Sprintf("%s  %s\n", zipSHA, zipAssetName()))
+	legacy := []byte(fmt.Sprintf("%s  %s\n", zipSHA, ZipAssetName()))
 	srv := newFakeServer(t, priv, testTag, zipB, legacy)
 	m := newTestManager(t, dataDir, install, srv.metaURL())
 
@@ -512,7 +512,7 @@ func TestStageRefusesSignedVersionNotAboveHighWater(t *testing.T) {
 	m := newTestManager(t, dataDir, install, srv.metaURL())
 	rel := &Release{
 		Tag:     testOldTag,
-		ZipURL:  srv.URL + "/assets/" + zipAssetName(),
+		ZipURL:  srv.URL + "/assets/" + ZipAssetName(),
 		ZipSize: int64(len(zipB)),
 		SumURL:  srv.URL + "/assets/SHA256SUMS",
 		SigURL:  srv.URL + "/assets/SHA256SUMS.sig",

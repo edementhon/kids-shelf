@@ -84,12 +84,16 @@ type App struct {
 	ingestQ      *ingest.Queue
 	worker       *ingest.Worker
 	helpers      *tools.Dir
-	ytdlp        *youtube.Updater
-	youtube      *youtube.Manager
-	catalog      *kiwix.Catalog
-	kiwix        *kiwix.Manager
-	kiwixSrv     *kiwix.Server
-	prac         *practice.Service
+	// helperSet is the manifest Version of the helpers extracted from this
+	// build's bundle ("" when they come from a configured folder): the one
+	// set under <data>/helpers that PruneHelpers keeps.
+	helperSet string
+	ytdlp     *youtube.Updater
+	youtube   *youtube.Manager
+	catalog   *kiwix.Catalog
+	kiwix     *kiwix.Manager
+	kiwixSrv  *kiwix.Server
+	prac      *practice.Service
 
 	dataDir  string
 	mediaDir string
@@ -164,9 +168,26 @@ func (a *App) setupHelpers(ctx context.Context, dataDir string, reservations *di
 		a.setHelpersProblem("Video conversion is unavailable: the helper programs could not be set up.")
 		return nil
 	}
+	if extract {
+		a.helperSet = m.Version
+	}
 	// The binaries are in place; the helpers check worker (checkHelpers)
 	// probes each once at Start, and again while any of them cannot start.
 	return helpers
+}
+
+// PruneHelpers removes the helper sets earlier builds extracted under
+// <data>/helpers, keeping this build's. The update manager calls it once
+// this build is the confirmed version (update.Manager.Tidy), so a rollback
+// never finds its set gone (and would re-extract it if it did).
+func (a *App) PruneHelpers() {
+	n, freed, err := tools.PruneOtherSets(a.dataDir, a.helperSet)
+	if n > 0 {
+		logf("helpers: removed %d helper set(s) earlier versions used (%.0f MB)", n, float64(freed)/1e6)
+	}
+	if err != nil {
+		logf("helpers: some helper sets of earlier versions could not be removed yet: %v", err)
+	}
 }
 
 // helpersToWrite sums the bundle bytes extraction will actually write into

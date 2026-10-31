@@ -101,7 +101,7 @@ if [ "${KS_PUBLISH:-0}" = "1" ]; then
 - Mac (Apple chip or Intel): kids-shelf_darwin_universal.zip
 - Linux PC: kids-shelf_linux_amd64.zip; Raspberry Pi and other ARM computers: kids-shelf_linux_arm64.zip
 
-Already installed? kids-shelf updates itself. (kids-shelf_darwin_arm64.zip and kids-shelf_darwin_amd64.zip hold the same app for one kind of Mac each; installed copies update from them.)"
+Already installed? kids-shelf updates itself."
 	# The tag goes on the commit the binaries were built from (release.sh
 	# writes SOURCE_COMMIT), so a docs commit pushed after the build cannot
 	# move it. The commit must already be pushed.

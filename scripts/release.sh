@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # release.sh builds and packages one kids-shelf release into the
-# files internal/update consumes: five per-target zips
-# (kids-shelf_<goos>_<goarch>.zip, PLAN.md 1a "Updates"), a SHA256SUMS
-# listing them and its ed25519 signature (DECISIONS.md "Updates stay
-# signed"), plus the helper sources archive (THIRD_PARTY_NOTICES.md).
-# A sixth zip, kids-shelf_darwin_universal.zip, holds one app for every
-# Mac (both darwin launchers joined by build/lipo): the one parents
-# download. Installed copies update from their own single-chip zip.
+# files internal/update consumes: four zips, kids-shelf_windows_amd64,
+# kids-shelf_linux_amd64, kids-shelf_linux_arm64 and
+# kids-shelf_darwin_universal (one app for every Mac: the two darwin
+# launchers joined by build/lipo; PLAN.md 1a "Updates", DECISIONS.md "One
+# universal Mac download"), a SHA256SUMS listing them and its ed25519
+# signature (DECISIONS.md "Updates stay signed"), plus the helper sources
+# archive (THIRD_PARTY_NOTICES.md).
 #
 # The signing key never enters the build machine: the private key lives
 # only on the maintainer's own machine (~/.config/kids-shelf/release.key;
@@ -286,25 +286,17 @@ for TARGET in "${TARGETS[@]}"; do
 	CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" "$GO" build -tags bundle -trimpath \
 		-ldflags "$LD_FLAGS" -o "$BIN" ./cmd/kids-shelf
 
-	# Darwin bundles are signed after staging and before zipping, so
-	# rcodesign sees the finished .app (every nested Mach-O, including the
-	# launcher, gets a signature).
-	if [ "$GOOS" = "darwin" ]; then
-		"$GO" run ./build/pack -target "$TARGET" -bin "$BIN" -version "$VERSION" -out "$OUT" -stage
-		log "  ad-hoc signing $OUT/staged/$KEY/kids-shelf.app"
-		"$RCODESIGN" sign "$OUT/staged/$KEY/kids-shelf.app" >/dev/null
-		"$GO" run ./build/pack -target "$TARGET" -out "$OUT" -zip
-	else
+	# The two darwin launchers ship only inside the universal app below.
+	if [ "$GOOS" != "darwin" ]; then
 		"$GO" run ./build/pack -target "$TARGET" -bin "$BIN" -version "$VERSION" -out "$OUT"
 	fi
 done
 
 # --- universal macOS app ----------------------------------------------------
-# One download for every Mac: the two darwin launchers, each with its own
-# helpers inside, joined into one universal binary, then staged and
-# ad-hoc signed like the single-chip apps (rcodesign signs every slice).
-# Updates keep using the single-chip zips: they are half the size, and
-# they are the names installed copies already look for.
+# The one Mac download, and the zip Macs update from: the two darwin
+# launchers, each with its own helpers inside, joined into one universal
+# binary. The .app is signed after staging and before zipping, so rcodesign
+# sees the finished bundle and signs every slice of the launcher.
 log "== darwin/universal =="
 UNIVERSAL_BIN="$OUT/build/darwin_universal/kids-shelf"
 mkdir -p "$(dirname "$UNIVERSAL_BIN")"
@@ -317,8 +309,8 @@ log "  ad-hoc signing $OUT/staged/darwin_universal/kids-shelf.app"
 # --- checksums --------------------------------------------------------------
 log "writing SHA256SUMS"
 mapfile -t ZIPS < <(find "$OUT" -maxdepth 1 -type f -name 'kids-shelf_*.zip' -print | sort)
-if [ "${#ZIPS[@]}" -ne 6 ]; then
-	die "expected six release zips in $OUT (five targets and the universal Mac app), found ${#ZIPS[@]}"
+if [ "${#ZIPS[@]}" -ne 4 ]; then
+	die "expected four release zips in $OUT (Windows, two Linux, the universal Mac app), found ${#ZIPS[@]}"
 fi
 printf 'version: %s\n' "$VERSION" > "$OUT/SHA256SUMS"
 for ZIP in "${ZIPS[@]}"; do

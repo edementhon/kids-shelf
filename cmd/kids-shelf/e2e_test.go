@@ -20,7 +20,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -114,7 +113,7 @@ func newReleaseServer(t *testing.T, priv ed25519.PrivateKey, tag string, bits []
 		t.Fatal(err)
 	}
 	zipBytes := buf.Bytes()
-	zipName := fmt.Sprintf("kids-shelf_%s_%s.zip", runtime.GOOS, runtime.GOARCH)
+	zipName := update.ZipAssetName()
 	sum := sha256.Sum256(zipBytes)
 	// The manifest names the version it was signed for as its first line;
 	// the signature covers the whole file, so a relabelled release is

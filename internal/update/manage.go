@@ -120,6 +120,13 @@ type Manager struct {
 	// floor as the app's jobs; when nil, a single-process fallback that
 	// obeys the same Free and Floor is used.
 	Reservations *disk.Reservations
+	// Tidy, when set, runs after Prune whenever the running build is the
+	// confirmed current version: the app removes the helper sets this
+	// build does not use.
+	Tidy func()
+	// SettleEvery is how often Run looks for the running build's trial to
+	// end before tidying; 0 means 15 s.
+	SettleEvery time.Duration
 
 	mu     sync.Mutex
 	status Status
@@ -172,12 +179,15 @@ func (m *Manager) free(path string) (uint64, error) {
 
 // Run checks at once and then every CheckEvery (24 h by default) until ctx
 // is done. A failed check is logged and retried on the next tick; the
-// server keeps running either way.
+// server keeps running either way. Once the running build is the confirmed
+// version (its trial, if any, has ended) it tidies up after earlier
+// updates, and again before every later check.
 func (m *Manager) Run(ctx context.Context) {
 	every := m.CheckEvery
 	if every == 0 {
 		every = 24 * time.Hour
 	}
+	go m.tidyWhenSettled(ctx)
 	m.Update(ctx)
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -186,9 +196,53 @@ func (m *Manager) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			m.tidy()
 			m.Update(ctx)
 		}
 	}
+}
+
+// tidyWhenSettled tidies as soon as the running build is confirmed: a
+// fresh update is confirmed about half a minute after it starts. It gives
+// up after 60 looks (15 minutes by default); the daily check tries again.
+func (m *Manager) tidyWhenSettled(ctx context.Context) {
+	wait := m.SettleEvery
+	if wait == 0 {
+		wait = 15 * time.Second
+	}
+	for range 60 {
+		if m.tidy() {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+	}
+}
+
+// tidy removes what earlier updates left behind (Prune), then runs Tidy.
+// It acts only when no trial is open and the running build is the
+// confirmed current version, so nothing a rollback could need is touched;
+// it reports whether it acted.
+func (m *Manager) tidy() bool {
+	st, err := ReadState(m.DataDir)
+	if err != nil || st.Trying != nil || !validVersion(st.Current) || st.Current != BuildVersion {
+		return false
+	}
+	p, err := Prune(m.install(), m.DataDir)
+	if p.Versions+p.Snapshots > 0 {
+		m.logf("update: removed %d old version(s) and %d database snapshot(s) left by earlier updates (%.0f MB)",
+			p.Versions, p.Snapshots, float64(p.Bytes)/1e6)
+	}
+	if err != nil {
+		m.logf("update: some leftovers of earlier updates could not be removed yet: %v", err)
+	}
+	if m.Tidy != nil {
+		m.Tidy()
+	}
+	return true
 }
 
 // Update runs one check-and-stage cycle. It never returns an error that
@@ -269,7 +323,7 @@ func (m *Manager) Update(ctx context.Context) error {
 // releases/latest endpoint.
 type Release struct {
 	Tag     string // version; also the versions/<v> directory name
-	ZipURL  string // kids-shelf_<goos>_<goarch>.zip
+	ZipURL  string // ZipAssetName(): kids-shelf_<goos>_<goarch>.zip, or the universal Mac zip
 	ZipSize int64  // asset size in bytes, as announced by the endpoint
 	SumURL  string // SHA256SUMS
 	SigURL  string // SHA256SUMS.sig
@@ -286,8 +340,17 @@ type ghRelease struct {
 	Assets  []ghAsset `json:"assets"`
 }
 
-func zipAssetName() string {
-	return fmt.Sprintf("kids-shelf_%s_%s.zip", runtime.GOOS, runtime.GOARCH)
+// ZipAssetName is the release zip this computer installs and updates
+// from: kids-shelf_<goos>_<goarch>.zip, except on a Mac, where one
+// universal app (Apple chip and Intel) is the only Mac download
+// (DECISIONS "One universal Mac download").
+func ZipAssetName() string { return zipAssetNameFor(runtime.GOOS, runtime.GOARCH) }
+
+func zipAssetNameFor(goos, goarch string) string {
+	if goos == "darwin" {
+		goarch = "universal"
+	}
+	return fmt.Sprintf("kids-shelf_%s_%s.zip", goos, goarch)
 }
 
 // Check fetches the release metadata and returns the newest candidate
@@ -317,7 +380,7 @@ func (m *Manager) Check(ctx context.Context) (*Release, error) {
 		return nil, fmt.Errorf("update: release %q is not a usable version", gh.TagName)
 	}
 	rel := &Release{Tag: gh.TagName}
-	zipName := zipAssetName()
+	zipName := ZipAssetName()
 	for _, a := range gh.Assets {
 		switch a.Name {
 		case zipName:
@@ -454,7 +517,7 @@ func (m *Manager) Stage(ctx context.Context, rel *Release) error {
 	if !versionAbove(signedV, st.HighWater) {
 		return fmt.Errorf("update: %s is not newer than the highest version ever run (%s); refusing to downgrade", signedV, st.HighWater)
 	}
-	zipSHA, err := findSum(sums, zipAssetName())
+	zipSHA, err := findSum(sums, ZipAssetName())
 	if err != nil {
 		return err
 	}

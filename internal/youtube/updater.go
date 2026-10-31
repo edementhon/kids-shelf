@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -26,7 +27,8 @@ import (
 const DefaultBaseURL = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
 
 // The helper layout under the data dir. relHelperDir holds one directory
-// per installed version (never deleted) plus the "current" pointer file;
+// per installed version plus the "current" pointer file (versions older
+// than the current one are removed after each check, pruneOlder);
 // PointerHelpers resolves the binary through it.
 const (
 	relHelperDir  = "helpers/yt-dlp"
@@ -38,9 +40,10 @@ const (
 // Updater installs new yt-dlp releases under <data>/helpers/yt-dlp/<tag>/
 // and switches the "current" pointer file to the new binary only after the
 // download has been verified against the release's SHA2-256SUMS and passed
-// a self-test (--version must print the release tag). Version directories
-// are never deleted, and a failure at any step leaves the current pointer
-// untouched, so the working version always stays in place.
+// a self-test (--version must print the release tag). A failure at any
+// step leaves the current pointer untouched, so the working version always
+// stays in place; older versions go only after the pointer has moved past
+// them.
 type Updater struct {
 	DataDir string
 	// BaseURL is the release-check endpoint; Empty means DefaultBaseURL.
@@ -124,6 +127,7 @@ func (u *Updater) EnsureLatest(ctx context.Context, force bool) (bool, error) {
 		if compareTags(tag, curTag) <= 0 {
 			// Confirmed up to date: the check counts as done for today.
 			u.stampCheck(today)
+			u.pruneOlder()
 			return false, nil
 		}
 	}
@@ -131,7 +135,41 @@ func (u *Updater) EnsureLatest(ctx context.Context, force bool) (bool, error) {
 		return false, err
 	}
 	u.stampCheck(today)
+	u.pruneOlder()
 	return true, nil
+}
+
+// ytdlpTag matches the version directories install creates: yt-dlp's
+// release tags, YYYY.MM.DD with an optional .N for a same-day release.
+var ytdlpTag = regexp.MustCompile(`^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$`)
+
+// pruneOlder removes the version directories older than the one the
+// "current" pointer names: nothing uses them once the pointer has moved.
+// Only directories named like a yt-dlp tag and older than current are
+// touched; the current one, anything newer, the pointer and the daily
+// stamp stay. Best effort: a yt-dlp still running from an old directory
+// (Windows) keeps it until a later check. Callers hold u.mu.
+func (u *Updater) pruneOlder() {
+	cur, err := u.currentBinaryPath()
+	if err != nil || cur == "" {
+		return
+	}
+	curTag := filepath.Base(filepath.Dir(cur))
+	entries, err := os.ReadDir(u.dir())
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !e.IsDir() || !ytdlpTag.MatchString(name) || compareTags(name, curTag) >= 0 {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(u.dir(), name)); err != nil {
+			u.logf("youtube: removing the old yt-dlp %s: %v", name, err)
+			continue
+		}
+		u.logf("youtube: removed the old yt-dlp %s", name)
+	}
 }
 
 // stampCheck records that the release check ran today (UTC date).
@@ -194,8 +232,8 @@ func (u *Updater) fetchLatest(ctx context.Context) (*releaseInfo, error) {
 
 // install downloads the platform's binary and the release's SHA2-256SUMS
 // into a fresh version dir, verifies, self-tests, and only then renames
-// them into place and flips the "current" pointer. Nothing is deleted, so a
-// failure at any step leaves the previous version fully in place.
+// them into place and flips the "current" pointer. Nothing is deleted
+// here, so a failure at any step leaves the previous version fully in place.
 func (u *Updater) install(ctx context.Context, tag string, rel *releaseInfo, asset string) error {
 	dir := filepath.Join(u.dir(), tag)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
