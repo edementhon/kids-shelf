@@ -33,8 +33,11 @@ Cutting a signed release is documented in
 
 ## Licence
 
-GPL-3.0-or-later ([LICENSE](LICENSE)). The bundled helper programs are
-GPL too; [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists every
-bundled component with its version, licence and upstream URL, and the
-exact pinned sources ship with each release as
+MIT ([LICENSE](LICENSE)), from v0.3.1 on (v0.2.0 was released under
+GPL-3.0-or-later). The helper programs bundled inside each release
+(ffmpeg, ffprobe, kiwix-serve and qjs) keep their own licences, several
+of them GPL; kids-shelf runs them as separate programs.
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists every bundled
+component with its version, licence and upstream URL, and the exact
+pinned sources ship with each release as
 `kids-shelf-helper-sources-<version>.tar.gz`.

@@ -1,9 +1,11 @@
 # Third Party Notices
 
-kids-shelf itself is licensed under GPL-3.0-or-later (see LICENSE). It
-also bundles third-party programs and libraries; this file lists every
-bundled component with its version, licence and upstream URL, so nothing
-ships without its provenance.
+kids-shelf itself is licensed under the MIT licence (see LICENSE). It
+also bundles third-party programs and libraries, which keep their own
+licences; this file lists every bundled component with its version,
+licence and upstream URL, so nothing ships without its provenance. The
+helper programs are separate programs that kids-shelf extracts and runs;
+they are not linked into kids-shelf's own code.
 
 The exact pinned sources of the bundled helpers ship with every release
 as a separate asset, `kids-shelf-helper-sources-<version>.tar.gz` (built
