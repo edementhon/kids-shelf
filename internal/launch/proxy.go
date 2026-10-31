@@ -27,11 +27,11 @@ const startingRefreshSeconds = 2
 
 // startingPage is the plain 503 the public app port answers while no child
 // answers health: the browser retries on its own through the short refresh.
-var startingPage = fmt.Sprintf("<!doctype html><html><head><meta charset=\"utf-8\"><title>Kids Shelf</title><meta http-equiv=\"refresh\" content=\"%d\"></head><body>kids-shelf is starting, one moment</body></html>\n", startingRefreshSeconds)
+var startingPage = fmt.Sprintf("<!doctype html><html><head><meta charset=\"utf-8\"><title>Kids Shelf</title><meta http-equiv=\"refresh\" content=\"%d\"></head><body>Kids Shelf is starting, one moment</body></html>\n", startingRefreshSeconds)
 
 // startingNotice is the plain one-line 503 the libraries port answers while
 // no child is up: no refresh, nothing for a ZIM script to hook.
-const startingNotice = "kids-shelf is starting, one moment\n"
+const startingNotice = "Kids Shelf is starting, one moment\n"
 
 // childProxy is one side of the supervisor's public listener: it forwards
 // to the child's matching private loopback port while the child is up and

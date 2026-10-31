@@ -38,7 +38,7 @@ const (
 
 var (
 	errLockBusy   = errors.New("the instance lock is held by another process")
-	errNotStarted = errors.New("kids-shelf seems to be starting or stuck")
+	errNotStarted = errors.New("Kids Shelf seems to be starting or stuck")
 	// joinTimeout bounds how long a second launch waits for the lock
 	// holder to publish instance.json and pass /healthz before reporting
 	// the app as starting or stuck. It is a variable so tests can shorten
@@ -314,7 +314,7 @@ func joinRunning(ctx context.Context, opts Options) error {
 			lastErr = rerr
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%w: the instance lock is held but the running instance did not confirm it is healthy within %s (last problem: %v). Wait a few seconds and start kids-shelf again; if it stays like this, close the running kids-shelf process and start it again", errNotStarted, joinTimeout, lastErr)
+			return fmt.Errorf("%w: the instance lock is held but the running instance did not confirm it is healthy within %s (last problem: %v). Wait a few seconds and start Kids Shelf again; if it stays like this, close the running Kids Shelf process and start it again", errNotStarted, joinTimeout, lastErr)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -345,7 +345,7 @@ func OpenRunning(dataDir string) error {
 			}
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("kids-shelf did not finish starting within %s: %w", openRunningWait, err)
+			return fmt.Errorf("Kids Shelf did not finish starting within %s: %w", openRunningWait, err)
 		}
 		time.Sleep(250 * time.Millisecond)
 	}

@@ -770,7 +770,7 @@ func TestAdminPINReset(t *testing.T) {
 		if w.Code != http.StatusForbidden {
 			t.Errorf("%s: reset status %d, want 403", c.name, w.Code)
 		}
-		if msg, _ := out["error"].(string); msg != "Reset the PIN on the computer kids-shelf runs on." {
+		if msg, _ := out["error"].(string); msg != msgResetOnComputer {
 			t.Errorf("%s: reset error %q", c.name, msg)
 		}
 	}
@@ -1262,22 +1262,22 @@ func TestAdminUpdateMessagesPlain(t *testing.T) {
 		st   update.Status
 		want string
 	}{
-		{update.Status{State: update.StateChecking, Message: "checking for updates"}, "Looking for a new version of kids-shelf."},
-		{update.Status{State: update.StateIdle, Message: "no update available"}, "kids-shelf is up to date."},
+		{update.Status{State: update.StateChecking, Message: "checking for updates"}, "Looking for a new version of Kids Shelf."},
+		{update.Status{State: update.StateIdle, Message: "no update available"}, "Kids Shelf is up to date."},
 		{update.Status{State: update.StateStaged, Staged: "v1.2.3", Message: "version v1.2.3 is staged and ready; restart to apply it"},
-			"A new version (v1.2.3) is ready. Press Restart to update to start using it. Videos stop for a moment while kids-shelf restarts."},
+			"A new version (v1.2.3) is ready. Press Restart to update to start using it. Videos stop for a moment while Kids Shelf restarts."},
 		{update.Status{State: update.StateStaged, Staged: "v1.2.3", Message: "an update is being applied; the app will restart on its own"},
-			"A new version is being set up. kids-shelf restarts on its own, and this page comes back when it is ready."},
+			"A new version is being set up. Kids Shelf restarts on its own, and this page comes back when it is ready."},
 		{update.Status{State: update.StateFailed, Message: "the download did not match its checksum"},
-			"The new version that was downloaded was damaged, so it was not used. Nothing changed; kids-shelf tries again tomorrow."},
+			"The new version that was downloaded was damaged, so it was not used. Nothing changed; Kids Shelf tries again tomorrow."},
 		{update.Status{State: update.StateFailed, Message: "the release is not signed with the expected key"},
-			"The new version that was downloaded was damaged, so it was not used. Nothing changed; kids-shelf tries again tomorrow."},
+			"The new version that was downloaded was damaged, so it was not used. Nothing changed; Kids Shelf tries again tomorrow."},
 		{update.Status{State: update.StateFailed, Message: "there is not enough free disk space"},
-			"The update needs more free space on this computer. Remove some videos; kids-shelf tries again tomorrow."},
+			"The update needs more free space on this computer. Remove some videos; Kids Shelf tries again tomorrow."},
 		{update.Status{State: update.StateFailed, Message: "could not check for or install the update"},
-			"kids-shelf could not reach the update server. Check that this computer is on the internet; it tries again tomorrow."},
+			"Kids Shelf could not reach the update server. Check that this computer is on the internet; it tries again tomorrow."},
 		{update.Status{State: update.StateFailed, Message: "the update to v1.2.3 did not start properly, so kids-shelf went back to v1.2.2"},
-			"The new version did not start properly, so kids-shelf went back to the one it had before. Nothing else changed."},
+			"The new version did not start properly, so Kids Shelf went back to the one it had before. Nothing else changed."},
 	}
 	for _, c := range cases {
 		ctrl := &fakeUpdateControl{status: c.st}
@@ -1300,7 +1300,7 @@ func TestAdminStaticFiles(t *testing.T) {
 	}
 	b, _ := io.ReadAll(resp.Body)
 	html := string(b)
-	if !strings.Contains(html, "kids-shelf · parent page") || !strings.Contains(html, "/admin/static/admin.js") {
+	if !strings.Contains(html, "parent page</h1>") || !strings.Contains(html, "/admin/static/admin.js") {
 		t.Errorf("GET /admin did not serve the dashboard shell")
 	}
 	// Where to open kids-shelf again is this OS's own place (the Dock on a
@@ -1705,7 +1705,7 @@ func TestAdminQuitAndRemoveDuringTrial(t *testing.T) {
 		d.Remove = func(deleteData bool) error { removes.Add(1); return nil }
 	})
 
-	msg := "One moment: kids-shelf is finishing an update."
+	msg := msgFinishingUpdate
 	if resp, out := post(t, ts.URL+"/api/admin/quit", nil); resp.StatusCode != http.StatusConflict {
 		t.Errorf("quit during trial: status %d, want 409", resp.StatusCode)
 	} else if err, _ := out["error"].(string); err != msg {

@@ -151,11 +151,11 @@ func runServing(ctx context.Context, dir string, port int, listenAddr, libraries
 	openApp := func(ctx context.Context, updater *update.Manager, onRemove func(deleteData bool, mediaDir string) error) (http.Handler, http.Handler, func(), error) {
 		a, err := app.Open(ctx, app.Config{DataDir: dir, Version: version})
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("opening the kids-shelf data: %w", err)
+			return nil, nil, nil, fmt.Errorf("opening the Kids Shelf data: %w", err)
 		}
 		if err := a.Start(ctx); err != nil {
 			a.Close()
-			return nil, nil, nil, fmt.Errorf("starting kids-shelf: %w", err)
+			return nil, nil, nil, fmt.Errorf("starting Kids Shelf: %w", err)
 		}
 		if updater != nil {
 			// The updater reserves against the same persisted book as the
@@ -404,7 +404,7 @@ func newUpdater(dataDir string) *update.Manager {
 // stays visible without a console (Windows GUI subsystem builds).
 func fail(err error, dir string, noBrowser bool, errOut io.Writer) int {
 	fmt.Fprintf(errOut, "kids-shelf: %v\n", err)
-	msg := fmt.Sprintf("kids-shelf could not start.\n\n%v\n\nStart kids-shelf again. If the problem keeps happening, ask for help and include the text above.\n", err)
+	msg := fmt.Sprintf("Kids Shelf could not start.\n\n%v\n\nStart Kids Shelf again. If the problem keeps happening, ask for help and include the text above.\n", err)
 	if dir == "" {
 		showErrorDialog(noBrowser, msg, errOut)
 		return 1
@@ -432,7 +432,7 @@ func showErrorDialog(noBrowser bool, msg string, errOut io.Writer) {
 	if noBrowser {
 		return
 	}
-	if derr := launch.ShowError("kids-shelf", msg); derr != nil {
+	if derr := launch.ShowError("Kids Shelf", msg); derr != nil {
 		fmt.Fprintf(errOut, "kids-shelf: could not show the error dialog: %v\n", derr)
 	}
 }
@@ -503,7 +503,7 @@ func installerFailure(err error, dir string, noBrowser bool, errOut io.Writer) i
 // msgNotStarted follows a "quit it from the parent page" dialog when that
 // page could not be opened: the running kids-shelf had not finished
 // starting within launch.OpenRunning's wait.
-const msgNotStarted = "kids-shelf has not finished starting yet. In a minute, open it from the kids-shelf icon and use Quit on the parent page."
+const msgNotStarted = "Kids Shelf has not finished starting yet. In a minute, open it from the kids-shelf icon and use Quit on the parent page."
 
 // isEntryBundle reports whether exe is the executable inside an installed
 // macOS entry bundle: /Applications/kids-shelf.app or
@@ -545,7 +545,7 @@ func runRemove(installDir, dataDir string, deleteData bool, errOut io.Writer) in
 		if errors.Is(lerr, launch.ErrBusy) {
 			// Dialog first, then the page (the browser covered the
 			// dialog when it opened first).
-			showErrorDialog(false, "kids-shelf is still running. Quit it from the parent page, then remove it again.", errOut)
+			showErrorDialog(false, "Kids Shelf is still running. Quit it from the parent page, then remove it again.", errOut)
 			if oerr := launch.OpenRunning(dataDir); oerr != nil {
 				fmt.Fprintf(errOut, "kids-shelf: could not open the running kids-shelf: %v\n", oerr)
 				showErrorDialog(false, msgNotStarted, errOut)
@@ -575,7 +575,7 @@ func runRemove(installDir, dataDir string, deleteData bool, errOut io.Writer) in
 	if err := installer.Remove(o); err != nil {
 		if errors.Is(err, installer.ErrBusy) {
 			fmt.Fprintf(errOut, "kids-shelf: %v\n", err)
-			showErrorDialog(false, "kids-shelf is still running. Quit it from the parent page, then remove it again.", errOut)
+			showErrorDialog(false, "Kids Shelf is still running. Quit it from the parent page, then remove it again.", errOut)
 			return 1
 		}
 		return fail(err, "", false, errOut)

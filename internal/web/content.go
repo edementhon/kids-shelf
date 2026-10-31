@@ -462,13 +462,13 @@ func contentVideos(n int) string {
 func contentSourceProblem(kind core.SourceKind, fi os.FileInfo, statErr error, missing int) string {
 	switch {
 	case statErr != nil && kind == core.SourceNAS && missing > 0:
-		return "kids-shelf can't find this NAS share right now, so " + contentVideos(missing) + " from it can't play. Check that the NAS is on and connected to this computer."
+		return "Kids Shelf can't find this NAS share right now, so " + contentVideos(missing) + " from it can't play. Check that the NAS is on and connected to this computer."
 	case statErr != nil && kind == core.SourceNAS:
-		return "kids-shelf can't find this NAS share right now. Check that the NAS is on and connected to this computer."
+		return "Kids Shelf can't find this NAS share right now. Check that the NAS is on and connected to this computer."
 	case statErr != nil && missing > 0:
-		return "kids-shelf can't find this folder right now, so " + contentVideos(missing) + " from it can't play. If it is on a USB drive, plug the drive in."
+		return "Kids Shelf can't find this folder right now, so " + contentVideos(missing) + " from it can't play. If it is on a USB drive, plug the drive in."
 	case statErr != nil:
-		return "kids-shelf can't find this folder right now. If it is on a USB drive, plug the drive in."
+		return "Kids Shelf can't find this folder right now. If it is on a USB drive, plug the drive in."
 	case !fi.IsDir():
 		return "This is a file, not a folder. Remove it and add the folder that holds your videos."
 	case missing == 1:
@@ -654,10 +654,10 @@ func (s *Server) handleContentSourcesAdd(w http.ResponseWriter, r *http.Request)
 	case errors.Is(err, context.DeadlineExceeded):
 		videos = -1
 	case err != nil:
-		writeError(w, http.StatusBadRequest, "kids-shelf can't open that folder. Check that this computer is allowed to read it.")
+		writeError(w, http.StatusBadRequest, "Kids Shelf can't open that folder. Check that this computer is allowed to read it.")
 		return
 	case videos == 0:
-		writeError(w, http.StatusBadRequest, "There are no videos in that folder. Put your videos in it (each show in its own folder inside), then add it again. kids-shelf finds .mp4, .mkv, .webm, .avi, .mov, .m4v and .ts files.")
+		writeError(w, http.StatusBadRequest, "There are no videos in that folder. Put your videos in it (each show in its own folder inside), then add it again. Kids Shelf finds .mp4, .mkv, .webm, .avi, .mov, .m4v and .ts files.")
 		return
 	}
 	if err := s.deps.Library.AddSource(r.Context(), path, core.SourceKind(req.Kind), nil); err != nil {
@@ -1286,7 +1286,7 @@ func (s *Server) handleContentKiwixRemove(w http.ResponseWriter, r *http.Request
 		case errors.Is(err, kiwix.ErrNotInstalled):
 			writeError(w, http.StatusNotFound, "That library is not installed.")
 		case errors.Is(err, kiwix.ErrFolderBook):
-			writeError(w, http.StatusBadRequest, `This library is a file in a folder on this computer, and kids-shelf never deletes those files. To take it off the shelf, press "Stop using this folder" under "Library files on this computer".`)
+			writeError(w, http.StatusBadRequest, `This library is a file in a folder on this computer, and Kids Shelf never deletes those files. To take it off the shelf, press "Stop using this folder" under "Library files on this computer".`)
 		default:
 			writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
 		}
@@ -1372,13 +1372,13 @@ func (s *Server) handleContentKiwixFolderAdd(w http.ResponseWriter, r *http.Requ
 	case errors.Is(err, kiwix.ErrNotAFolder):
 		writeError(w, http.StatusBadRequest, "That is a file, not a folder. Enter the folder that holds your library files (.zim).")
 	case errors.Is(err, kiwix.ErrFolderNotReadable):
-		writeError(w, http.StatusBadRequest, "kids-shelf can't open that folder. Check that this computer is allowed to read it.")
+		writeError(w, http.StatusBadRequest, "Kids Shelf can't open that folder. Check that this computer is allowed to read it.")
 	case errors.Is(err, kiwix.ErrLibraryFolder):
-		writeError(w, http.StatusBadRequest, "kids-shelf keeps the libraries it downloads in that folder, so they are on the shelf already. Enter another folder.")
+		writeError(w, http.StatusBadRequest, "Kids Shelf keeps the libraries it downloads in that folder, so they are on the shelf already. Enter another folder.")
 	case errors.Is(err, kiwix.ErrFolderAdded):
 		writeError(w, http.StatusBadRequest, "That folder is already on the list.")
 	case errors.Is(err, kiwix.ErrFolderNested):
-		writeError(w, http.StatusBadRequest, "That folder is inside a folder on the list, or holds one. kids-shelf looks in every folder inside a folder on the list, so keep just one of the two.")
+		writeError(w, http.StatusBadRequest, "That folder is inside a folder on the list, or holds one. Kids Shelf looks in every folder inside a folder on the list, so keep just one of the two.")
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, msgContentSaveFailed)
 	default:

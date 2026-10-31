@@ -266,7 +266,7 @@ func (a *App) helpersWaitingFunc() bool {
 // to start the freshly extracted video helpers: Smart App Control checks a
 // new unsigned program for a while (in the Windows VM about 20 minutes and
 // two restarts) before it lets it run.
-const windowsCheckingWords = "Windows is checking kids-shelf's video tools. Videos will start appearing when it is done; this can take a few minutes or a restart of the computer."
+const windowsCheckingWords = "Windows is checking Kids Shelf's video tools. Videos will start appearing when it is done; this can take a few minutes or a restart of the computer."
 
 // summarizeSelfTest turns a self-test result into that message: nothing
 // when every helper works, otherwise what is unavailable and why. A

@@ -162,7 +162,7 @@ BEGIN SELECT RAISE(ABORT, 'the disk refused the write'); END`); err != nil {
 // libraries part is kept either way.
 func TestHelpersProblemWords(t *testing.T) {
 	blockedVideo := tools.SelfTestResult{FFmpeg: false, FFprobe: true, Qjs: true, KiwixServe: false}
-	const windowsWords = "Windows is checking kids-shelf's video tools. Videos will start appearing when it is done; this can take a few minutes or a restart of the computer."
+	const windowsWords = windowsCheckingWords
 	if got := summarizeSelfTest("windows", blockedVideo, true); !strings.HasPrefix(got, windowsWords) ||
 		!strings.Contains(got, "Libraries are unavailable: kiwix-serve did not start.") {
 		t.Errorf("windows, refused = %q, want the Windows words plus the libraries part", got)

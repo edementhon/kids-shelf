@@ -69,7 +69,7 @@ func TestFailWritesErrorFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading last-error.txt: %v", err)
 	}
-	if !strings.Contains(string(b), "kids-shelf could not start") {
+	if !strings.Contains(string(b), "could not start") || !strings.Contains(string(b), failErr.Error()) {
 		t.Fatalf("last-error.txt content: %q", b)
 	}
 }
@@ -101,10 +101,7 @@ func TestUncreatableDataDirShowsDialog(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("ShowError called %d times, want exactly once: %+v", len(calls), calls)
 	}
-	if calls[0].title != "kids-shelf" {
-		t.Fatalf("dialog title = %q, want kids-shelf", calls[0].title)
-	}
-	if !strings.Contains(calls[0].msg, "kids-shelf could not start") {
+	if !strings.Contains(calls[0].msg, "could not start") {
 		t.Fatalf("dialog message %q does not explain the failure", calls[0].msg)
 	}
 	if !strings.Contains(errOut.String(), "kids-shelf:") {

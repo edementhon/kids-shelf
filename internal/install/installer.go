@@ -27,16 +27,16 @@ import (
 var (
 	// ErrBusy: the install or instance lock is held by a running
 	// launcher or app.
-	ErrBusy = errors.New("kids-shelf is running. Quit it from the parent page, then open this download again.")
+	ErrBusy = errors.New("Kids Shelf is running. Quit it from the parent page, then open this download again.")
 	// ErrOlder: this copy is older than one this computer already ran.
 	ErrOlder = errors.New("This copy is older than the one this computer already ran")
 	// ErrLauncherLocked: the root launcher is still in use and could not
 	// be replaced within the retry window (review round 3 R6).
-	ErrLauncherLocked = errors.New("close other kids-shelf windows and try again")
+	ErrLauncherLocked = errors.New("close other Kids Shelf windows and try again")
 	// ErrTrialPending: the launcher is still health-checking an update; a
 	// version published now would be lost when that trial settles, so the
 	// download waits instead (review round 4 finding 7).
-	ErrTrialPending = errors.New("kids-shelf is finishing an update. Wait for it to settle, then open this download again.")
+	ErrTrialPending = errors.New("Kids Shelf is finishing an update. Wait for it to settle, then open this download again.")
 )
 
 // ReleasesPage is where a parent gets the newest kids-shelf.
@@ -54,14 +54,14 @@ func (e olderError) Is(target error) bool { return target == ErrOlder }
 // newOlderError builds the refusal for version v against the journal's
 // highest version; valid says whether an installed copy will open instead.
 func newOlderError(v, highWater string, valid bool) error {
-	msg := "This copy of kids-shelf (" + v + ") is older than the one this computer already ran"
+	msg := "This copy of Kids Shelf (" + v + ") is older than the one this computer already ran"
 	if highWater != "" {
 		msg += " (" + highWater + ")"
 	}
 	if valid {
-		return olderError{msg + ". The kids-shelf already on this computer opens instead."}
+		return olderError{msg + ". The Kids Shelf already on this computer opens instead."}
 	}
-	return olderError{msg + ". Download the newest kids-shelf from " + ReleasesPage + " and open that instead."}
+	return olderError{msg + ". Download the newest Kids Shelf from " + ReleasesPage + " and open that instead."}
 }
 
 // InstallOptions selects what Install does. Empty directory fields resolve
@@ -165,7 +165,7 @@ func Install(o InstallOptions) error {
 	// instant.
 	unlockDB, err := store.LockDB(update.DatabasePath(dataDir), installDBLockWait)
 	if err != nil {
-		return fmt.Errorf("waiting for kids-shelf to close its data: %w", err)
+		return fmt.Errorf("waiting for Kids Shelf to close its data: %w", err)
 	}
 	defer unlockDB()
 
@@ -270,7 +270,7 @@ func lockInstallErr(err error) error {
 	if errors.Is(err, launch.ErrBusy) {
 		return ErrBusy
 	}
-	return fmt.Errorf("taking the kids-shelf lock: %w", err)
+	return fmt.Errorf("taking the Kids Shelf lock: %w", err)
 }
 
 // shortcutOptions builds the shortcut Options for an installed launcher.
@@ -410,7 +410,7 @@ func copySynced(src, dst string, mode os.FileMode) error {
 var startRootLauncher = func(installDir, dataDir string) error {
 	cmd := proc.Command(update.EntryPath(installDir), rootLauncherArgs(dataDir)...)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting kids-shelf: %w", err)
+		return fmt.Errorf("starting Kids Shelf: %w", err)
 	}
 	return nil
 }

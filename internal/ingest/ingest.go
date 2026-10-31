@@ -116,7 +116,7 @@ const (
 	// msgKeepAsIs is what a failed improvement says: the episode is
 	// already on the shelf playing its original bytes, so the failure only
 	// means no better copy was made.
-	msgKeepAsIs = "This video plays as it is, but kids-shelf couldn't make a better copy."
+	msgKeepAsIs = "This video plays as it is, but Kids Shelf couldn't make a better copy."
 	msgDiskFull = "The disk is full. Delete some videos or move your media to a bigger drive, then try again."
 	msgGeneric  = "Something went wrong while adding this video. Try again."
 	// msgNoHelpers matches the problem app.Open shows on the parent page
@@ -129,7 +129,7 @@ const (
 // Windows is how Smart App Control's check of freshly extracted programs
 // looks - so nothing is known about the file yet. internal/app resumes the
 // jobs paused with exactly these words once the helpers start again.
-const MsgHelpersWaiting = "Waiting for kids-shelf's video tools to start. This video will continue on its own."
+const MsgHelpersWaiting = "Waiting for Kids Shelf's video tools to start. This video will continue on its own."
 
 // payload is the per-job state persisted in the jobs table, grown stage by
 // stage, so a resumed job picks up exactly where it stopped.

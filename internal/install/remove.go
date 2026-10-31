@@ -195,7 +195,7 @@ func Remove(o RemoveOptions) error {
 	// installer and restoreDB use; review round 4 finding 5).
 	unlockDB, err := store.LockDB(update.DatabasePath(o.DataDir), removeDBLockWait)
 	if err != nil {
-		return fmt.Errorf("waiting for kids-shelf to close its data: %w", err)
+		return fmt.Errorf("waiting for Kids Shelf to close its data: %w", err)
 	}
 	defer unlockDB()
 

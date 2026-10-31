@@ -313,7 +313,7 @@ func TestRunReportsStartingOrStuck(t *testing.T) {
 	if !strings.Contains(msg, "starting or stuck") {
 		t.Fatalf("error %q does not mention that the app is starting or stuck", msg)
 	}
-	if !strings.Contains(msg, "start kids-shelf again") {
+	if !strings.Contains(msg, "start Kids Shelf again") {
 		t.Fatalf("error %q gives no instruction on what to do", msg)
 	}
 }

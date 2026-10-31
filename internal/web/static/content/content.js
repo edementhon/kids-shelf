@@ -100,10 +100,10 @@ function toast(text, kind) {
 }
 $('toastclose').addEventListener('click', () => toast(''));
 
-const OFFLINE_MSG = 'kids-shelf isn’t answering. Check that the computer kids-shelf runs on is switched on, then reload this page.';
+const OFFLINE_MSG = 'Kids Shelf isn’t answering. Check that the computer Kids Shelf runs on is switched on, then reload this page.';
 
 // loadFailed shows why a card's list could not load. A PIN prompt needs no
-// words; when kids-shelf cannot be reached at all, every card says the same
+// words; when Kids Shelf cannot be reached at all, every card says the same
 // short thing and the one full explanation goes in the message bar.
 function loadFailed(wrap, e) {
   if (e.pin) return;
@@ -446,7 +446,7 @@ $('sources').addEventListener('click', ev => {
   if (!b) return;
   pendingSource = b.dataset.srcpath;
   $('srcconfirmtext').innerHTML =
-    `<b>${esc(pendingSource)}</b> leaves the list, and kids-shelf stops looking in it for new videos. ` +
+    `<b>${esc(pendingSource)}</b> leaves the list, and Kids Shelf stops looking in it for new videos. ` +
     'Videos from it that are already on the shelf stay there. Nothing in the folder is changed or deleted.';
   openDialog('srcconfirm', cancelSourceRemove, 'srcremoveno', $('srcpath'));
 });
@@ -732,7 +732,7 @@ $('confirmok').addEventListener('click', async () => {
 });
 
 const MISSING_MSG = 'The file for this library is missing, so kids can’t open it. If it was on a drive, plug the drive in. Otherwise remove it and download it again.';
-const FOLDER_MISSING_MSG = 'kids-shelf can’t reach the folder this library is in, so kids can’t open it. If it is on a drive or NAS, connect it.';
+const FOLDER_MISSING_MSG = 'Kids Shelf can’t reach the folder this library is in, so kids can’t open it. If it is on a drive or NAS, connect it.';
 
 // missingWhy says in a few words why libraries can't be opened: a library
 // from a folder on this computer is out of reach with its folder, a
@@ -866,7 +866,7 @@ async function loadKiwix() {
 
 // ── library files on this computer (library folders) ────────────────────────
 
-const FOLDER_AWAY_MSG = 'kids-shelf can’t reach this folder right now, so kids can’t open its libraries. If it is on a drive or NAS, connect it.';
+const FOLDER_AWAY_MSG = 'Kids Shelf can’t reach this folder right now, so kids can’t open its libraries. If it is on a drive or NAS, connect it.';
 
 $('zimform').addEventListener('submit', async ev => {
   ev.preventDefault();
@@ -889,7 +889,7 @@ $('zimform').addEventListener('submit', async ev => {
   }
   toast(found
     ? `Folder added. ${plural(found, 'library from it is', 'libraries from it are')} on the shelf now.`
-    : 'Folder added. It has no library files (.zim) yet. kids-shelf looks in it again every 10 minutes.', 'ok');
+    : 'Folder added. It has no library files (.zim) yet. Kids Shelf looks in it again every 10 minutes.', 'ok');
   done();
   await Promise.all([loadZimFolders(), loadKiwix()]);
 });
@@ -954,7 +954,7 @@ $('zimfolders').addEventListener('click', ev => {
   if (!b) return;
   pendingZimStop = b.dataset.zimstop;
   $('zimstoptext').innerHTML =
-    `kids-shelf stops using <b>${esc(pendingZimStop)}</b>, and its libraries leave the shelf. ` +
+    `Kids Shelf stops using <b>${esc(pendingZimStop)}</b>, and its libraries leave the shelf. ` +
     'The files stay where they are: nothing in the folder is changed or deleted.';
   openDialog('zimstopconfirm', cancelZimStop, 'zimstopno', $('zimpath'));
 });
@@ -968,7 +968,7 @@ $('zimstopok').addEventListener('click', async () => {
   if (!path) return;
   try {
     await post('/api/admin/content/kiwix/folders/remove', { path });
-    toast('kids-shelf stopped using the folder. The files in it are still there.', 'ok');
+    toast('Kids Shelf stopped using the folder. The files in it are still there.', 'ok');
     await Promise.all([loadZimFolders(), loadKiwix()]);
   } catch (e) {
     if (!e.pin) toast(e.message, 'err');

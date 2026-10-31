@@ -8,13 +8,15 @@ import (
 
 // TestPruneOtherSetsKeepsTheRunningSetAndUnknownNames: the sets earlier
 // builds extracted go; the running build's set, the yt-dlp folder, a name
-// that only looks similar and a loose file all stay; and with a keep name
+// that only looks similar (upper case; not a variant of a real set's name,
+// which a Mac's case-insensitive disk would treat as the same folder) and a
+// loose file all stay; and with a keep name
 // that is not a helper set (helpers from a configured folder) nothing is
 // removed at all.
 func TestPruneOtherSetsKeepsTheRunningSetAndUnknownNames(t *testing.T) {
 	data := t.TempDir()
 	root := filepath.Join(data, "helpers")
-	for _, d := range []string{"2cbb0d59c6bdc6f0", "8bf972a3ae3184f7", "e3786dbf310600be", "yt-dlp/2026.10.26", "2CBB0D59C6BDC6F0", "8bf972a3ae3184f7-old"} {
+	for _, d := range []string{"2cbb0d59c6bdc6f0", "8bf972a3ae3184f7", "e3786dbf310600be", "yt-dlp/2026.10.26", "ABCDEF0123456789", "8bf972a3ae3184f7-old"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -42,7 +44,7 @@ func TestPruneOtherSetsKeepsTheRunningSetAndUnknownNames(t *testing.T) {
 			t.Errorf("%s kept, want removed", gone)
 		}
 	}
-	for _, kept := range []string{"e3786dbf310600be", "yt-dlp/2026.10.26", "2CBB0D59C6BDC6F0", "8bf972a3ae3184f7-old", "0123456789abcdef"} {
+	for _, kept := range []string{"e3786dbf310600be", "yt-dlp/2026.10.26", "ABCDEF0123456789", "8bf972a3ae3184f7-old", "0123456789abcdef"} {
 		if _, err := os.Stat(filepath.Join(root, kept)); err != nil {
 			t.Errorf("%s removed, want kept", kept)
 		}

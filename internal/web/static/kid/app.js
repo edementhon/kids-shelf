@@ -932,7 +932,7 @@ async function runSearch(q) {
 }
 
 // Opened from the parent page's QR code (?connect=1): drop the marker from
-// the address bar, tell kids-shelf once (so the parent page can say a
+// the address bar, tell Kids Shelf once (so the parent page can say a
 // tablet connected), then move to the computer's name when it works from
 // this tablet, so a home-screen icon saved afterwards survives the router
 // giving the computer a new address.
@@ -947,9 +947,9 @@ async function connectPing() {
 }
 
 // moveToName loads a check image through the announced name (for example
-// kids-shelf.local); only when it comes back from this same kids-shelf
+// kids-shelf.local); only when it comes back from this same Kids Shelf
 // (same instance id) does the page reload there. Anything else, a name
-// this tablet cannot resolve, another kids-shelf, a slow network, keeps
+// this tablet cannot resolve, another Kids Shelf, a slow network, keeps
 // the address that already works.
 async function moveToName() {
   try {

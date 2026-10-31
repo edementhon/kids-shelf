@@ -617,9 +617,9 @@ func (m *Manager) Status() Status {
 		return s
 	}
 	if st.Current == s.Staged {
-		return Status{State: StateIdle, Message: "kids-shelf is up to date (" + st.Current + ")"}
+		return Status{State: StateIdle, Message: "Kids Shelf is up to date (" + st.Current + ")"}
 	}
-	return Status{State: StateFailed, Message: "the update to " + s.Staged + " did not start properly, so kids-shelf went back to " + st.Current}
+	return Status{State: StateFailed, Message: "the update to " + s.Staged + " did not start properly, so Kids Shelf went back to " + st.Current}
 }
 
 // statusMessage turns a failure into the plain words a dashboard shows.
@@ -654,7 +654,7 @@ func statusMessage(err error) string {
 			strings.Contains(err.Error(), "contains no ") ||
 			strings.Contains(err.Error(), "is a directory") ||
 			strings.Contains(err.Error(), "is a symlink") {
-			return "the release is not a usable kids-shelf release"
+			return "the release is not a usable Kids Shelf release"
 		}
 		// The release server / manifest errors are the rest: say plainly
 		// that checking failed. The detail is logged.

@@ -52,51 +52,51 @@ func TestParseStatus(t *testing.T) {
 		{
 			name: "firewall off on the active profile",
 			data: psPayload(activePublic, fwOff, nil),
-			want: Status{Blocked: false, Detail: "Windows Firewall is off, so other devices can already reach kids-shelf."},
+			want: Status{Blocked: false, Detail: "Windows Firewall is off, so other devices can already reach Kids Shelf."},
 		},
 		{
 			name: "firewall on for the active profile and off for others",
 			data: psPayload(activePublic, multiProfile, nil),
-			want: Status{Blocked: true, Detail: "Windows Firewall is blocking kids-shelf."},
+			want: Status{Blocked: true, Detail: "Windows Firewall is blocking Kids Shelf."},
 		},
 		{
 			name: "block rule on the active profile",
 			data: psPayload(activePublic, fwOn, blockOnPublic),
-			want: Status{Blocked: true, Detail: "A Windows Firewall rule is blocking kids-shelf."},
+			want: Status{Blocked: true, Detail: "A Windows Firewall rule is blocking Kids Shelf."},
 		},
 		{
 			name: "allow rule on the active profile",
 			data: psPayload(activePublic, fwOn, allowOnPublic),
-			want: Status{Blocked: false, Detail: "Windows Firewall allows kids-shelf on this network."},
+			want: Status{Blocked: false, Detail: "Windows Firewall allows Kids Shelf on this network."},
 		},
 		{
 			name: "allow rule covering every profile",
 			data: psPayload(activePublic, fwOn, allowAny),
-			want: Status{Blocked: false, Detail: "Windows Firewall allows kids-shelf on this network."},
+			want: Status{Blocked: false, Detail: "Windows Firewall allows Kids Shelf on this network."},
 		},
 		{
 			name: "allow rule only on Private while the active profile is Public",
 			data: psPayload(activePublic, fwOn, allowOnPrivate),
-			want: Status{Blocked: true, Detail: "Windows Firewall is blocking kids-shelf."},
+			want: Status{Blocked: true, Detail: "Windows Firewall is blocking Kids Shelf."},
 		},
 		{
 			name: "no rules yet",
 			data: psPayload(activePublic, fwOn, nil),
-			want: Status{Blocked: true, Detail: "Windows Firewall is blocking kids-shelf."},
+			want: Status{Blocked: true, Detail: "Windows Firewall is blocking Kids Shelf."},
 		},
 		{
 			name: "disabled rule is ignored",
 			data: psPayload(activePublic, fwOn, []psRule{{
 				Enabled: false, Action: "Allow", Direction: "Inbound", Profile: "Public",
 			}}),
-			want: Status{Blocked: true, Detail: "Windows Firewall is blocking kids-shelf."},
+			want: Status{Blocked: true, Detail: "Windows Firewall is blocking Kids Shelf."},
 		},
 		{
 			name: "outbound rule does not open inbound",
 			data: psPayload(activePublic, fwOn, []psRule{{
 				Enabled: true, Action: "Allow", Direction: "Outbound", Profile: "Public",
 			}}),
-			want: Status{Blocked: true, Detail: "Windows Firewall is blocking kids-shelf."},
+			want: Status{Blocked: true, Detail: "Windows Firewall is blocking Kids Shelf."},
 		},
 		{
 			name: "no active profile",
@@ -114,7 +114,7 @@ func TestParseStatus(t *testing.T) {
 				{Enabled: true, Action: "Allow", Direction: "Inbound", Profile: "Public"},
 				{Enabled: true, Action: "Block", Direction: "Inbound", Profile: "Public"},
 			}),
-			want: Status{Blocked: true, Detail: "A Windows Firewall rule is blocking kids-shelf."},
+			want: Status{Blocked: true, Detail: "A Windows Firewall rule is blocking Kids Shelf."},
 		},
 		{
 			// Captured verbatim from the fixed probe on Windows 11 24H2
@@ -122,22 +122,22 @@ func TestParseStatus(t *testing.T) {
 			// "allow public and private networks" prompt.
 			name: "probe output captured on Windows 11 after Cancel",
 			data: []byte(`{"firewalls":[{"profile":"Domain","active":false,"enabled":true},{"profile":"Private","active":false,"enabled":true},{"profile":"Public","active":true,"enabled":true}],"profiles":[{"active":true,"category":"Public","name":"Ethernet"}],"rules":[{"profile":"Public","direction":"Inbound","action":"Block","enabled":true},{"profile":"Public","direction":"Inbound","action":"Block","enabled":true}]}`),
-			want: Status{Blocked: true, Detail: "A Windows Firewall rule is blocking kids-shelf."},
+			want: Status{Blocked: true, Detail: "A Windows Firewall rule is blocking Kids Shelf."},
 		},
 		{
 			name: "array-wrapped probe output still reports blocked",
 			data: []byte(`[{"profiles":[{"name":"Ethernet","category":"Public","active":true}],"firewalls":[{"profile":"Domain","enabled":true,"active":false},{"profile":"Private","enabled":true,"active":false},{"profile":"Public","enabled":true,"active":true}],"rules":[{"enabled":true,"action":"Block","direction":"Inbound","profile":"Public"},{"enabled":true,"action":"Block","direction":"Inbound","profile":"Public"}]}]`),
-			want: Status{Blocked: true, Detail: "A Windows Firewall rule is blocking kids-shelf."},
+			want: Status{Blocked: true, Detail: "A Windows Firewall rule is blocking Kids Shelf."},
 		},
 		{
 			name: "allow rule on Private, Public with the active network Private",
 			data: []byte(`{"profiles":[{"name":"Ethernet","category":"Private","active":true}],"firewalls":[{"profile":"Private","enabled":true,"active":true}],"rules":[{"enabled":true,"action":"Allow","direction":"Inbound","profile":"Private, Public"}]}`),
-			want: Status{Blocked: false, Detail: "Windows Firewall allows kids-shelf on this network."},
+			want: Status{Blocked: false, Detail: "Windows Firewall allows Kids Shelf on this network."},
 		},
 		{
 			name: "domain network is governed by the Domain firewall profile",
 			data: []byte(`{"profiles":[{"name":"Corp","category":"DomainAuthenticated","active":true}],"firewalls":[{"profile":"Domain","enabled":true,"active":true}],"rules":[]}`),
-			want: Status{Blocked: true, Detail: "Windows Firewall is blocking kids-shelf."},
+			want: Status{Blocked: true, Detail: "Windows Firewall is blocking Kids Shelf."},
 		},
 	}
 	for _, c := range cases {

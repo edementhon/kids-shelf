@@ -332,7 +332,7 @@ func parseStatus(data []byte) Status {
 	if !anyOn {
 		// The firewall is off for every active profile (or no profile
 		// state was reported), so it is not what keeps devices out.
-		return Status{Blocked: false, Detail: "Windows Firewall is off, so other devices can already reach kids-shelf."}
+		return Status{Blocked: false, Detail: "Windows Firewall is off, so other devices can already reach Kids Shelf."}
 	}
 	hasAllow := false
 	for _, r := range ps.Rules {
@@ -341,16 +341,16 @@ func parseStatus(data []byte) Status {
 		}
 		action := strings.ToLower(r.Action)
 		if action == "block" && parseProfileUnion(r.Profile).intersects(active) {
-			return Status{Blocked: true, Detail: "A Windows Firewall rule is blocking kids-shelf."}
+			return Status{Blocked: true, Detail: "A Windows Firewall rule is blocking Kids Shelf."}
 		}
 		if action == "allow" && parseProfileUnion(r.Profile).intersects(active) {
 			hasAllow = true
 		}
 	}
 	if hasAllow {
-		return Status{Blocked: false, Detail: "Windows Firewall allows kids-shelf on this network."}
+		return Status{Blocked: false, Detail: "Windows Firewall allows Kids Shelf on this network."}
 	}
-	return Status{Blocked: true, Detail: "Windows Firewall is blocking kids-shelf."}
+	return Status{Blocked: true, Detail: "Windows Firewall is blocking Kids Shelf."}
 }
 
 // profileMap is a set of firewall profile names. The "all" key is the

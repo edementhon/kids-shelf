@@ -111,7 +111,7 @@ const (
 	msgParentPINExists    = "There is already a parent PIN. Enter it to open this page."
 	msgParentPINNeeded    = "The parent page always needs a PIN."
 	msgPINFourDigits      = "The PIN must be exactly 4 digits."
-	msgResetOnComputer    = "Reset the PIN on the computer kids-shelf runs on."
+	msgResetOnComputer    = "Reset the PIN on the computer Kids Shelf runs on."
 	msgWrongPIN           = "That PIN is not right. Try again."
 	msgNoSuchKid          = "No such kid."
 	msgNoSuchShow         = "That show was not found."
@@ -125,7 +125,7 @@ const (
 	// msgFinishingUpdate answers Quit and Remove during an unconfirmed
 	// update trial, so a parent cannot turn a healthy update into a
 	// rejected one (PLAN 1a "Install, reinstall, remove").
-	msgFinishingUpdate = "One moment: kids-shelf is finishing an update."
+	msgFinishingUpdate = "One moment: Kids Shelf is finishing an update."
 )
 
 func init() {
@@ -684,34 +684,34 @@ func plainUpdateMessage(u update.Status) string {
 		// cannot run.
 		return msgUpdatesOff
 	case update.StateChecking:
-		return "Looking for a new version of kids-shelf."
+		return "Looking for a new version of Kids Shelf."
 	case update.StateIdle:
-		return "kids-shelf is up to date."
+		return "Kids Shelf is up to date."
 	case update.StateStaged:
 		if updateApplying(u) {
-			return "A new version is being set up. kids-shelf restarts on its own, and this page comes back when it is ready."
+			return "A new version is being set up. Kids Shelf restarts on its own, and this page comes back when it is ready."
 		}
-		return "A new version (" + u.Staged + ") is ready. Press Restart to update to start using it. Videos stop for a moment while kids-shelf restarts."
+		return "A new version (" + u.Staged + ") is ready. Press Restart to update to start using it. Videos stop for a moment while Kids Shelf restarts."
 	case update.StateFailed:
 		m := u.Message
 		switch {
 		case strings.Contains(m, "went back to"):
-			return "The new version did not start properly, so kids-shelf went back to the one it had before. Nothing else changed."
+			return "The new version did not start properly, so Kids Shelf went back to the one it had before. Nothing else changed."
 		case strings.Contains(m, "disk space"):
-			return "The update needs more free space on this computer. Remove some videos; kids-shelf tries again tomorrow."
+			return "The update needs more free space on this computer. Remove some videos; Kids Shelf tries again tomorrow."
 		case strings.Contains(m, "cannot be written"):
-			return "kids-shelf could not save the new version on this computer. It tries again tomorrow."
+			return "Kids Shelf could not save the new version on this computer. It tries again tomorrow."
 		case strings.Contains(m, "not newer"):
-			return "kids-shelf is up to date."
+			return "Kids Shelf is up to date."
 		case strings.Contains(m, "could not check"):
-			return "kids-shelf could not reach the update server. Check that this computer is on the internet; it tries again tomorrow."
+			return "Kids Shelf could not reach the update server. Check that this computer is on the internet; it tries again tomorrow."
 		default:
 			// Bad signature, bad checksum, a mismatched or unusable release:
 			// the download was not used, nothing changed.
-			return "The new version that was downloaded was damaged, so it was not used. Nothing changed; kids-shelf tries again tomorrow."
+			return "The new version that was downloaded was damaged, so it was not used. Nothing changed; Kids Shelf tries again tomorrow."
 		}
 	}
-	return "kids-shelf is up to date."
+	return "Kids Shelf is up to date."
 }
 
 func (s *Server) handleAdminState(w http.ResponseWriter, r *http.Request) {
@@ -1369,7 +1369,7 @@ func (s *Server) handleAdminQuit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.deps.Quit == nil {
-		writeError(w, http.StatusServiceUnavailable, "This copy cannot stop kids-shelf.")
+		writeError(w, http.StatusServiceUnavailable, "This copy cannot stop Kids Shelf.")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

@@ -51,7 +51,7 @@ async function api(path, opts = {}) {
   try {
     res = await fetch(path, opts);
   } catch (e) {
-    if (!opts.quiet) msg('kids-shelf did not answer. Check that it is still running, then try again.', true);
+    if (!opts.quiet) msg('Kids Shelf did not answer. Check that it is still running, then try again.', true);
     throw e;
   }
   let data = null;
@@ -84,7 +84,7 @@ async function api(path, opts = {}) {
   return data;
 }
 
-/* serverAnswers reports whether kids-shelf still answers its health check,
+/* serverAnswers reports whether Kids Shelf still answers its health check,
    used after a Quit or Remove whose reply never arrived. */
 async function serverAnswers() {
   try {
@@ -138,7 +138,7 @@ function renderProblems(problems) {
 }
 
 /* showFirewall shows or hides the "Other devices on your Wi-Fi can't reach
-   kids-shelf yet" line with its Let other devices in button, in the problems
+   Kids Shelf yet" line with its Let other devices in button, in the problems
    card and in the Connect another device step alike. */
 function showFirewall(blocked) {
   $('firewall').classList.toggle('show', blocked);
@@ -159,10 +159,10 @@ async function letDevicesIn() {
   } catch (e) { return; /* message already shown */ }
   const fw = (out && out.firewall) || {};
   if (!fw.blocked && !fw.unknown) {
-    msg('Other devices on your Wi-Fi can reach kids-shelf now.');
+    msg('Other devices on your Wi-Fi can reach Kids Shelf now.');
     showFirewall(false);
   } else if (fw.unknown) {
-    msg('kids-shelf could not check whether other devices can get in. Try opening the address on one; if it does not work, press Let other devices in again.', true);
+    msg('Kids Shelf could not check whether other devices can get in. Try opening the address on one; if it does not work, press Let other devices in again.', true);
   } else {
     msg('Windows still keeps other devices out. Press Let other devices in again and choose Yes when Windows asks.', true);
   }
@@ -351,7 +351,7 @@ function renderSettings() {
   // yet"; say when that changes.
   const enc = STATE.settings.video_encoder;
   $('hwencoder').textContent = 'Video conversion uses: ' + (enc && enc !== 'not checked yet' ? enc
-    : 'not checked yet. kids-shelf checks the first time a video needs converting.');
+    : 'not checked yet. Kids Shelf checks the first time a video needs converting.');
   const pinSet = !!STATE.settings.grownup_pin_set;
   $('grownupstate').textContent = pinSet
     ? 'A watch-together PIN is set. Type 4 new digits to change it.'
@@ -473,7 +473,7 @@ function renderUpdates() {
   $('restart-update').classList.toggle('hidden', u.state !== 'staged' || !!u.applying);
 }
 
-/* restartToUpdate asks kids-shelf to restart into the new version, then
+/* restartToUpdate asks Kids Shelf to restart into the new version, then
    waits for it to come back (it goes away, or answers with a new version)
    and reloads the page. */
 async function restartToUpdate() {
@@ -482,7 +482,7 @@ async function restartToUpdate() {
   try {
     await api('/api/admin/update/restart', { method: 'POST', body: '{}' });
   } catch (e) { return; /* the PIN lock or the error message is showing */ }
-  showStopped('kids-shelf is restarting with the new version.',
+  showStopped('Kids Shelf is restarting with the new version.',
     'This page comes back on its own in a moment.');
   let wentAway = false;
   for (let i = 0; i < 60; i++) {
@@ -498,8 +498,8 @@ async function restartToUpdate() {
       return;
     }
   }
-  showStopped('kids-shelf has not come back yet.',
-    `Wait a minute and reload this page. If it still does not open, open kids-shelf again from ${REOPEN}.`);
+  showStopped('Kids Shelf has not come back yet.',
+    `Wait a minute and reload this page. If it still does not open, open Kids Shelf again from ${REOPEN}.`);
 }
 
 /* ── PIN gate: the lock and the first-run setup ──────────────────────── */
@@ -559,13 +559,13 @@ async function unlock() {
     if (e && e.status === 429) { lockedOut('pinerr', e, ['pinval', 'pinok']); return; }
     showErr('pinerr', e && e.status === 401
       ? 'That PIN is not right. Try again.'
-      : (e && e.status && e.message) || 'kids-shelf did not answer. Check that it is still running, then try again.');
+      : (e && e.status && e.message) || 'Kids Shelf did not answer. Check that it is still running, then try again.');
     $('pinval').focus();
   }
 }
 
 // "Forgot the PIN?" explains where it can be reset; on the computer
-// kids-shelf runs on (the server says local) the reset button shows too.
+// Kids Shelf runs on (the server says local) the reset button shows too.
 async function showForgot() {
   $('forgothelp').classList.remove('hidden');
   $('forgot').setAttribute('aria-expanded', 'true');
@@ -624,7 +624,7 @@ async function saveSetup(e) {
 
 /* lockPage ends this browser's session and shows the PIN lock, so a kid
    who opens the page next cannot change anything. The page says it is
-   locked only once kids-shelf confirmed the session ended; if it did not
+   locked only once Kids Shelf confirmed the session ended; if it did not
    (no connection, an error), the page stays as it was and says so, with
    Try again, because the session would still open the page. */
 async function lockPage() {
@@ -640,7 +640,7 @@ async function lockPage() {
   locking = false;
   $('lock').disabled = false;
   if (!ok) {
-    msg('This page is not locked yet: kids-shelf did not confirm it. Check that this device is connected, then try again.', true,
+    msg('This page is not locked yet: Kids Shelf did not confirm it. Check that this device is connected, then try again.', true,
       { label: 'Try again', run: lockPage });
     return;
   }
@@ -650,7 +650,7 @@ async function lockPage() {
 }
 
 /* ── quit and remove ──────────────────────────────────────────────────── */
-/* REOPEN names where kids-shelf is opened again on this computer (the
+/* REOPEN names where Kids Shelf is opened again on this computer (the
    server fills it in: the Dock on a Mac, the desktop icon elsewhere). */
 const REOPEN = document.body.dataset.reopen || 'the desktop icon';
 
@@ -666,7 +666,7 @@ function showStopped(title, text, final) {
 }
 
 /* stopApp sends a Quit or Remove and shows the "stopped" screen only once
-   kids-shelf confirmed it: an OK reply, or no reply and no longer answering.
+   Kids Shelf confirmed it: an OK reply, or no reply and no longer answering.
    A refusal shows its message and the page stays usable; a lapsed session
    opens the PIN lock. */
 async function stopApp(path, body, stoppedTitle, stoppedText, final) {
@@ -675,10 +675,10 @@ async function stopApp(path, body, stoppedTitle, stoppedText, final) {
   } catch (e) {
     if (e && e.pinRequired) return;
     if (e && e.status) { msg(e.message, true); return; }
-    // No reply: kids-shelf may have stopped before answering. Look.
+    // No reply: Kids Shelf may have stopped before answering. Look.
     await sleep(1000);
     if (await serverAnswers()) {
-      msg('kids-shelf did not stop. Try again.', true);
+      msg('Kids Shelf did not stop. Try again.', true);
       return;
     }
   }
@@ -686,8 +686,8 @@ async function stopApp(path, body, stoppedTitle, stoppedText, final) {
 }
 
 async function quitApp() {
-  if (!confirm(`Quit kids-shelf? Nothing will run until you open it again from ${REOPEN}.`)) return;
-  await stopApp('/api/admin/quit', {}, 'kids-shelf has stopped.', `Open it again from ${REOPEN}.`);
+  if (!confirm(`Quit Kids Shelf? Nothing will run until you open it again from ${REOPEN}.`)) return;
+  await stopApp('/api/admin/quit', {}, 'Kids Shelf has stopped.', `Open it again from ${REOPEN}.`);
 }
 
 async function removeApp() {
@@ -700,14 +700,14 @@ async function removeApp() {
   const folders = dirs.map(d => '\n  ' + d).join('');
   const own = 'Folders of your own videos that you added are never touched.';
   const text = del
-    ? `Remove kids-shelf AND delete its videos and settings?\n\nThe program is deleted, and so is everything inside ${dirs.length === 1 ? 'this folder' : 'these folders'}:${folders}\n\nThat includes the kids, their minutes and PINs, and the videos kids-shelf saved. ${own}\n\nThis cannot be undone.`
-    : `Remove kids-shelf from this computer?\n\nThe program is deleted. ${dirs.length === 1 ? 'This folder stays, with the videos and settings in it' : 'These folders stay, with the videos and settings in them'}:${folders}\n\n${own}`;
+    ? `Remove Kids Shelf AND delete its videos and settings?\n\nThe program is deleted, and so is everything inside ${dirs.length === 1 ? 'this folder' : 'these folders'}:${folders}\n\nThat includes the kids, their minutes and PINs, and the videos Kids Shelf saved. ${own}\n\nThis cannot be undone.`
+    : `Remove Kids Shelf from this computer?\n\nThe program is deleted. ${dirs.length === 1 ? 'This folder stays, with the videos and settings in it' : 'These folders stay, with the videos and settings in them'}:${folders}\n\n${own}`;
   if (!confirm(text) || (del && !confirm('Last check: delete the kids, their minutes and the saved videos for good?'))) {
     $('removedata').checked = false;
     msg('Nothing was removed.');
     return;
   }
-  await stopApp('/api/admin/remove', { deleteData: del }, 'kids-shelf is removed from this computer.',
+  await stopApp('/api/admin/remove', { deleteData: del }, 'Kids Shelf is removed from this computer.',
     del ? 'Its videos and settings are deleted too. You can close this window.'
       : 'Your videos and settings are kept. You can close this window.', true);
 }

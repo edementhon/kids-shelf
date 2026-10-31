@@ -254,7 +254,7 @@ func superviseImage(ctx context.Context, opts Options, state *superviseState, ch
 				if aerr := update.AbandonTrial(opts.DataDir); aerr != nil {
 					return false, fmt.Errorf("the app could not bind the ports it was given %d times in a row, and the unfinished update trial could not be abandoned: %w", maxBindAttempts, aerr)
 				}
-				return false, fmt.Errorf("the app could not bind the ports it was given %d times in a row; close some programs and start kids-shelf again", maxBindAttempts)
+				return false, fmt.Errorf("the app could not bind the ports it was given %d times in a row; close some programs and start Kids Shelf again", maxBindAttempts)
 			}
 		}
 	}
@@ -518,7 +518,7 @@ func (opts Options) childExited(werr error, trial, confirmed bool) (outcome chil
 			return outcomeEnd, nil
 		}
 		if rerr := opts.OnRemove(); rerr != nil {
-			return outcomeEnd, fmt.Errorf("removing kids-shelf: %w", rerr)
+			return outcomeEnd, fmt.Errorf("removing Kids Shelf: %w", rerr)
 		}
 		return outcomeEnd, nil
 	}

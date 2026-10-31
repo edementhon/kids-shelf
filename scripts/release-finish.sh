@@ -89,7 +89,7 @@ done < <(grep -v '^version:' "$OUT/SHA256SUMS")
 if [ "${KS_PUBLISH:-0}" = "1" ]; then
 	command -v gh >/dev/null 2>&1 || die "KS_PUBLISH=1 needs gh; run 'gh auth login' on this host first"
 	KS_RELEASE_REPO="${KS_RELEASE_REPO:-edementhon/kids-shelf}"
-	TITLE="kids-shelf $VERSION"
+	TITLE="Kids Shelf $VERSION"
 	log "creating the draft GitHub release \"$TITLE\" in $KS_RELEASE_REPO"
 	# Parents land on the release page from the parent guide, so the notes
 	# say which zip is theirs. Passing --title and --notes also keeps gh
@@ -101,7 +101,7 @@ if [ "${KS_PUBLISH:-0}" = "1" ]; then
 - Mac (Apple chip or Intel): kids-shelf_darwin_universal.zip
 - Linux PC: kids-shelf_linux_amd64.zip; Raspberry Pi and other ARM computers: kids-shelf_linux_arm64.zip
 
-Already installed? kids-shelf updates itself."
+Already installed? Kids Shelf updates itself."
 	# The tag goes on the commit the binaries were built from (release.sh
 	# writes SOURCE_COMMIT), so a docs commit pushed after the build cannot
 	# move it. The commit must already be pushed.

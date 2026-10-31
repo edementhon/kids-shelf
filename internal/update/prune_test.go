@@ -119,8 +119,11 @@ func TestRunTidiesOnceTheRunningBuildIsConfirmed(t *testing.T) {
 		CheckEvery: time.Hour, SettleEvery: 5 * time.Millisecond,
 		Tidy: func() { tidied <- struct{}{} }}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go m.Run(ctx)
+	done := make(chan struct{})
+	go func() { m.Run(ctx); close(done) }()
+	// Run reads BuildVersion until it returns; stop it before the cleanup
+	// above restores the variable.
+	defer func() { cancel(); <-done }()
 
 	time.Sleep(50 * time.Millisecond)
 	if !exists(t, filepath.Join(install, "versions", "v0.2.10")) || !exists(t, filepath.Join(data, "update", "pre-v0.3.0.db")) {

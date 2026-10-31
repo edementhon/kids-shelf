@@ -127,7 +127,7 @@ func TestProxyStartingPageWhileChildDown(t *testing.T) {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("app port status = %d, want 503", resp.StatusCode)
 	}
-	if !strings.Contains(string(body), "kids-shelf is starting") {
+	if !strings.Contains(string(body), "is starting, one moment") {
 		t.Errorf("app port body missing the starting message: %q", body)
 	}
 	if !strings.Contains(string(body), `http-equiv="refresh" content="2"`) {
@@ -257,7 +257,7 @@ func TestProxyAbortsWhenChildDiesMidStream(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	body, rerr := io.ReadAll(resp.Body)
-	if strings.Contains(string(body), "kids-shelf is starting") {
+	if strings.Contains(string(body), "is starting, one moment") {
 		t.Fatalf("the starting page was appended to a partial response: %q", body)
 	}
 	if len(body) >= 1000 && rerr == nil {

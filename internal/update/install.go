@@ -11,7 +11,7 @@ import (
 // settles (Confirm clears Staged), so the installer leaves the journal alone
 // and lets the launcher finish the trial first, exactly like the app-side
 // updater refuses to stage while a trial exists (manage.go).
-var ErrTrialPending = errors.New("kids-shelf is finishing an update; nothing new is staged until it settles")
+var ErrTrialPending = errors.New("Kids Shelf is finishing an update; nothing new is staged until it settles")
 
 // ValidVersion reports whether v is a canonical vMAJOR.MINOR.PATCH release
 // version, the only name the installer may publish under versions/.
