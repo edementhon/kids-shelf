@@ -112,7 +112,8 @@ Usage:
   pack -target <goos>/<goarch> -bin <binary> -version <vX.Y.Z> -out <dir> [-stage|-zip]
 
   -target    target as goos/goarch (linux/amd64, linux/arm64, windows/amd64,
-             darwin/amd64, darwin/arm64)
+             darwin/amd64, darwin/arm64, or darwin/universal for a binary
+             joined by build/lipo)
   -bin       path to the built launcher binary (omitted with -zip)
   -version   canonical release version, vMAJOR.MINOR.PATCH (omitted with -zip)
   -out       output directory; the zip and the staged layout live here

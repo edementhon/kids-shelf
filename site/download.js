@@ -8,8 +8,7 @@
   const REPO = 'edementhon/kids-shelf';
   const LABEL = {
     'windows': 'Download for Windows',
-    'mac-arm': 'Download for Mac',
-    'mac-intel': 'Download for Mac (Intel)',
+    'mac': 'Download for Mac',
     'linux': 'Download for Linux',
     'linux-arm': 'Download for Raspberry Pi'
   };
@@ -38,11 +37,8 @@
       } catch (e) { /* not offered: guess from the user agent */ }
     }
     if (/Win/i.test(platform) || /Windows/.test(ua)) return 'windows';
-    if (/Mac/i.test(platform) || /Mac OS X/.test(ua)) {
-      // Safari reports an Intel Mac on every Mac; Chrome and Edge tell the
-      // truth through the architecture. Apple chips are the likelier guess.
-      return arch === 'x86' ? 'mac-intel' : 'mac-arm';
-    }
+    // One universal app runs on Apple-chip and Intel Macs alike.
+    if (/Mac/i.test(platform) || /Mac OS X/.test(ua)) return 'mac';
     if (/CrOS/.test(ua)) return '';
     if (/Linux/i.test(platform) || /Linux|X11/.test(ua)) {
       return arch === 'arm' || /aarch64|arm64/i.test(platform + ' ' + ua) ? 'linux-arm' : 'linux';
@@ -86,11 +82,9 @@
       li.classList.add('mine');
       main.textContent = LABEL[key];
       main.href = li.querySelector('a').href;
-      others = key === 'mac-arm'
-        ? 'For a Mac with an Apple chip. <a href="#download">Intel Mac or another computer?</a>'
-        : '<a href="#download">Other computers</a>';
+      others = '<a href="#download">Other computers</a>';
       note.innerHTML = 'Free. ' + others;
-      const os = key.startsWith('mac') ? 'mac' : key.startsWith('linux') ? 'linux' : 'windows';
+      const os = key === 'mac' ? 'mac' : key.startsWith('linux') ? 'linux' : 'windows';
       const d = document.querySelector('[data-os="' + os + '"]');
       if (d) d.open = true;
     }

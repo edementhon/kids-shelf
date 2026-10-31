@@ -4,6 +4,9 @@
 # (kids-shelf_<goos>_<goarch>.zip, PLAN.md 1a "Updates"), a SHA256SUMS
 # listing them and its ed25519 signature (DECISIONS.md "Updates stay
 # signed"), plus the helper sources archive (THIRD_PARTY_NOTICES.md).
+# A sixth zip, kids-shelf_darwin_universal.zip, holds one app for every
+# Mac (both darwin launchers joined by build/lipo): the one parents
+# download. Installed copies update from their own single-chip zip.
 #
 # The signing key never enters the build machine: the private key lives
 # only on the maintainer's own machine (~/.config/kids-shelf/release.key;
@@ -296,11 +299,26 @@ for TARGET in "${TARGETS[@]}"; do
 	fi
 done
 
+# --- universal macOS app ----------------------------------------------------
+# One download for every Mac: the two darwin launchers, each with its own
+# helpers inside, joined into one universal binary, then staged and
+# ad-hoc signed like the single-chip apps (rcodesign signs every slice).
+# Updates keep using the single-chip zips: they are half the size, and
+# they are the names installed copies already look for.
+log "== darwin/universal =="
+UNIVERSAL_BIN="$OUT/build/darwin_universal/kids-shelf"
+mkdir -p "$(dirname "$UNIVERSAL_BIN")"
+"$GO" run ./build/lipo -o "$UNIVERSAL_BIN" "$OUT/build/darwin_amd64/kids-shelf" "$OUT/build/darwin_arm64/kids-shelf"
+"$GO" run ./build/pack -target darwin/universal -bin "$UNIVERSAL_BIN" -version "$VERSION" -out "$OUT" -stage
+log "  ad-hoc signing $OUT/staged/darwin_universal/kids-shelf.app"
+"$RCODESIGN" sign "$OUT/staged/darwin_universal/kids-shelf.app" >/dev/null
+"$GO" run ./build/pack -target darwin/universal -out "$OUT" -zip
+
 # --- checksums --------------------------------------------------------------
 log "writing SHA256SUMS"
 mapfile -t ZIPS < <(find "$OUT" -maxdepth 1 -type f -name 'kids-shelf_*.zip' -print | sort)
-if [ "${#ZIPS[@]}" -ne 5 ]; then
-	die "expected five release zips in $OUT, found ${#ZIPS[@]}"
+if [ "${#ZIPS[@]}" -ne 6 ]; then
+	die "expected six release zips in $OUT (five targets and the universal Mac app), found ${#ZIPS[@]}"
 fi
 printf 'version: %s\n' "$VERSION" > "$OUT/SHA256SUMS"
 for ZIP in "${ZIPS[@]}"; do

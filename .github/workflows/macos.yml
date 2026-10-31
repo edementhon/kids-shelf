@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   smoke:
-    name: smoke ${{ matrix.arch }} (${{ matrix.runner }})
+    name: smoke ${{ matrix.zip }} (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -24,10 +24,19 @@ jobs:
           # Current standard macOS runner labels (GitHub docs, checked
           # 2026-10-27): macos-15 is Apple Silicon (arm64), macos-15-intel
           # is the Intel (x86_64) image.
+          # The universal zip (the one parents download) runs on both.
           - runner: macos-15
             arch: arm64
+            zip: kids-shelf_darwin_arm64.zip
           - runner: macos-15-intel
             arch: amd64
+            zip: kids-shelf_darwin_amd64.zip
+          - runner: macos-15
+            arch: universal
+            zip: kids-shelf_darwin_universal.zip
+          - runner: macos-15-intel
+            arch: universal
+            zip: kids-shelf_darwin_universal.zip
     env:
       TAG: ${{ inputs.release-tag || github.event.release.tag_name }}
     steps:
@@ -54,14 +63,16 @@ jobs:
           mkdir -p "$RUNNER_TEMP/release"
           gh release download "$TAG" \
             --repo "${{ github.repository }}" \
-            --pattern "kids-shelf_darwin_${{ matrix.arch }}.zip" \
+            --pattern "${{ matrix.zip }}" \
             --dir "$RUNNER_TEMP/release" \
             --clobber
 
       - name: Smoke install (install, health, remove)
         run: |
           bash scripts/smoke-install.sh \
-            "$RUNNER_TEMP/release/kids-shelf_darwin_${{ matrix.arch }}.zip"
+            "$RUNNER_TEMP/release/${{ matrix.zip }}"
 
+      # The Go tests do not depend on the zip: run them once per runner.
       - name: Test
+        if: matrix.arch != 'universal'
         run: go test ./...

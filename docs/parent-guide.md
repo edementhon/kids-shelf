@@ -26,8 +26,7 @@ page: https://github.com/edementhon/kids-shelf/releases/latest
 | Your computer | File |
 | --- | --- |
 | Windows | `kids-shelf_windows_amd64.zip` |
-| Mac with an Apple chip (M1 or later) | `kids-shelf_darwin_arm64.zip` |
-| Mac with an Intel chip | `kids-shelf_darwin_amd64.zip` |
+| Mac (Apple chip or Intel) | `kids-shelf_darwin_universal.zip` |
 | Linux PC | `kids-shelf_linux_amd64.zip` |
 | Raspberry Pi with 64-bit Raspberry Pi OS | `kids-shelf_linux_arm64.zip` |
 
