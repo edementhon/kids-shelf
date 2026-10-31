@@ -412,3 +412,45 @@ func TestUpdaterGateBypassedWithoutBinary(t *testing.T) {
 		t.Errorf("pointer = %q, want the installed version", cur)
 	}
 }
+
+// TestUpdaterConcurrentChecksBothSucceed: on a first launch the app's daily
+// worker and the YouTube queue both call EnsureLatest at once, with no
+// binary installed yet. Both downloads used the same temp names, so one
+// call renamed the other's file away and failed ("rename ...download: no
+// such file or directory"). Calls are serialized: neither may fail, and
+// the version is installed once.
+func TestUpdaterConcurrentChecksBothSucceed(t *testing.T) {
+	t.Setenv("KS_FAKE_YTDLP", "single")
+	dataDir := t.TempDir()
+	ts := releaseServer(t, "2026.10.21", nil, false, false)
+	u := NewUpdater(dataDir, ts.URL+"/releases/latest")
+	u.Now = func() time.Time { return time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC) }
+
+	const n = 4
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	installed := make([]bool, n)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			installed[i], errs[i] = u.EnsureLatest(context.Background(), false)
+		}()
+	}
+	wg.Wait()
+	count := 0
+	for i := range n {
+		if errs[i] != nil {
+			t.Errorf("call %d: %v", i, errs[i])
+		}
+		if installed[i] {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("%d calls installed, want exactly 1", count)
+	}
+	if cur := retiredPointer(dataDir); !strings.Contains(cur, "2026.10.21") {
+		t.Errorf("pointer = %q, want the new version", cur)
+	}
+}

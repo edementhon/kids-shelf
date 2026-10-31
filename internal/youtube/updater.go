@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edementhon/kids-shelf/internal/proc"
@@ -50,6 +51,11 @@ type Updater struct {
 	Client *http.Client
 	// Log receives non-fatal diagnostics.
 	Log func(format string, args ...any)
+
+	// mu serializes EnsureLatest: the app's daily worker and the YouTube
+	// queue both call it at launch, and two installs of one version share
+	// the same temp file names.
+	mu sync.Mutex
 }
 
 // NewUpdater returns an Updater for the given data dir; an empty baseURL
@@ -89,6 +95,8 @@ func (u *Updater) logf(format string, args ...any) {
 // yet, the gate does not apply at all: the first launch must always try to
 // provide one.
 func (u *Updater) EnsureLatest(ctx context.Context, force bool) (bool, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	today := u.now().UTC().Format("2006-01-02")
 	cur, err := u.currentBinaryPath()
 	if err != nil {

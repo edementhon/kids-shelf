@@ -1,8 +1,8 @@
 # kids-shelf: a guide for parents
 
 kids-shelf turns one of your computers into a small, private internet for your kids: the
-videos you chose, offline libraries such as Wikipedia, and practice games. Nothing goes to
-the outside internet while they use it.
+videos you chose, offline libraries such as Wikipedia, and practice games. Nothing the kids
+watch, read or type leaves your computer.
 
 ## How it fits together
 
@@ -20,8 +20,8 @@ the outside internet while they use it.
 
 ## Download
 
-Download from the releases page:
-https://github.com/edementhon/kids-shelf/releases/latest
+Download from https://kidsshelf.org, which picks the file for your computer, or from the releases
+page: https://github.com/edementhon/kids-shelf/releases/latest
 
 | Your computer | File |
 | --- | --- |

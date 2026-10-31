@@ -12,6 +12,8 @@ and updates are verified before they install).
 - What it is, who it is for, and how to install it on Windows, macOS or
   Linux: [docs/parent-guide.md](docs/parent-guide.md)
 - Releases: https://github.com/edementhon/kids-shelf/releases
+- Website: https://kidsshelf.org (the page is `site/`; `.github/workflows/site.yml`
+  publishes it to GitHub Pages on every push to main that changes it)
 
 ## Building
 
