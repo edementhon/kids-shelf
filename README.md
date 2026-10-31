@@ -1,6 +1,6 @@
-# kids-shelf
+# Kids Shelf
 
-kids-shelf is a small "local internet" for kids. One computer on the
+Kids Shelf is a small "local internet" for kids. One computer on the
 home Wi-Fi runs it; any other device with a web browser opens it. There are
 no accounts, no cloud and no ads. Parents manage everything on a parent
 page (`/admin`); kids get their own pages with their own content.
@@ -33,13 +33,13 @@ go test ./...
 Cutting a signed release is documented in
 [docs/RELEASING.md](docs/RELEASING.md).
 
-## Licence
+## License
 
 MIT ([LICENSE](LICENSE)), from v0.3.1 on (v0.2.0 was released under
 GPL-3.0-or-later). The helper programs bundled inside each release
-(ffmpeg, ffprobe, kiwix-serve and qjs) keep their own licences, several
-of them GPL; kids-shelf runs them as separate programs.
+(ffmpeg, ffprobe, kiwix-serve and qjs) keep their own licenses, several
+of them GPL; Kids Shelf runs them as separate programs.
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists every bundled
-component with its version, licence and upstream URL, and the exact
+component with its version, license and upstream URL, and the exact
 pinned sources ship with each release as
 `kids-shelf-helper-sources-<version>.tar.gz`.

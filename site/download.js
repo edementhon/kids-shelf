@@ -64,7 +64,7 @@
       ? new Date(rel.published_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
       : '';
     $('[data-release]').textContent = 'Version ' + version + (when ? ', released ' + when : '') +
-      '. Free. Pick the file for the computer that will run kids-shelf.';
+      '. Free. Pick the file for the computer that will run Kids Shelf.';
     if (others && /^[0-9A-Za-z.+-]+$/.test(version)) {
       $('[data-main-note]').innerHTML = 'Version ' + version + ', free. ' + others;
     }
