@@ -120,6 +120,11 @@ for this app, because it is not sold through Apple. Never click Move to Trash.**
    lets other devices find kids-shelf by its name, kids-shelf.local. If you click Don't Allow,
    they can still use the computer's address (see "Connect other devices").
 
+Later, the first time you add a folder of videos or libraries that is in **Documents**,
+**Desktop** or **Downloads**, or on a USB drive or network share, macOS asks **""kids-shelf"
+would like to access files in your Documents folder"** (or names the drive). Click **Allow**,
+or kids-shelf can't read that folder.
+
 The Mac firewall is off unless you turned it on. If it is on, macOS may ask whether kids-shelf
 may accept incoming connections; choose Allow. (We have not seen this question ourselves.)
 
