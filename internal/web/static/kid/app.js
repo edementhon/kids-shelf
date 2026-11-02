@@ -270,7 +270,7 @@ function openPin(kind, kidId, name, opener) {
   state.pinKid = kidId || null;
   state.pinName = name || '';
   state.pin = '';
-  $('pin-title').textContent = kind === 'grownup' ? 'Grown-up PIN' : ((name || 'Kid') + '\u2019s PIN');
+  $('pin-title').textContent = kind === 'grownup' ? 'Parent PIN' : ((name || 'Kid') + '\u2019s PIN');
   setPinMsg(defaultPinMsg(), false);
   // The grown-up keypad has no "Watch together" link to itself; Back
   // returns to Who's watching from either keypad.
@@ -285,7 +285,7 @@ function openPin(kind, kidId, name, opener) {
 
 function defaultPinMsg() {
   return state.pinKind === 'grownup'
-    ? 'Grown-up mode: watching together is free!'
+    ? 'Watching together is free. Enter the parent PIN.'
     : 'Enter your PIN to spend your minutes';
 }
 
@@ -314,8 +314,8 @@ function closePin() {
   if (back && back.isConnected) back.focus();
 }
 
-// checkGrownupPin explains the keypad when the household has no grown-up
-// PIN yet: "That PIN didn't work" would just be a lie.
+// checkGrownupPin explains the keypad when the household has no parent PIN
+// yet: "That PIN didn't work" would just be a lie.
 async function checkGrownupPin() {
   try {
     const r = await fetch('/api/kid/grownup-pin');
@@ -323,7 +323,7 @@ async function checkGrownupPin() {
       const d = await r.json();
       if (!d.set && state.pinKind === 'grownup' && !$('pinscreen').hidden) {
         const m = $('pin-msg');
-        m.textContent = 'No grown-up PIN yet. Make one on the ';
+        m.textContent = 'No parent PIN yet. Make one on the ';
         const a = el('a', null, 'parent page');
         a.href = '/admin';
         m.appendChild(a);

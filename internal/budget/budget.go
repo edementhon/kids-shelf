@@ -75,6 +75,9 @@ CREATE TABLE household (
 	id              INTEGER PRIMARY KEY CHECK (id = 1),
 	budgets_on      INTEGER NOT NULL DEFAULT 1,
 	default_minutes REAL    NOT NULL DEFAULT 10,
+	-- grownup_pin is unused: the parent PIN is now the one PIN for the
+	-- whole parent page and Watch together. The column stays (no
+	-- destructive migration) but nothing reads or writes it.
 	grownup_pin     TEXT    NOT NULL DEFAULT ''
 );
 CREATE TABLE kid_settings (

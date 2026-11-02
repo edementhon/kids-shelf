@@ -146,10 +146,29 @@ If other devices cannot connect, your firewall may be blocking Kids Shelf's two 
    runs on (from its icon there), click **Forgot the PIN?**, then **Reset the parent PIN**. Other
    devices cannot reset it. Once the PIN is saved, the page walks you through opening Kids Shelf
    on another device (see "Connect other devices" below).
-2. **Add your kids**, each with their own PIN, and set their daily minutes.
-3. **Set a grown-up PIN** under Settings. "Watch together" (free watching with a grown-up)
-   asks for it; until you set one, it tells the kids to ask you. Watching together ends after two
-   hours, or when you press **End watching together**.
+   The parent page keeps you signed in: you enter the PIN once, and it stays until you press
+   **Lock this page** (top of the parent page), until you change the PIN, or until you reset the
+   PIN on the computer.
+2. **Add your kids**, each with their own PIN, and set their daily minutes. The minus buttons can
+   take a kid below zero: the debt comes out of tomorrow's minutes.
+3. **Watch together** uses the same parent PIN. The kids' **Watch together** (free watching with a
+   grown-up) asks for the PIN you made in step 1. Watching together ends after two hours, or when
+   you press **End watching together**.
+
+### Minutes page for your phone
+
+The parent page's **Kids** card has a **Minutes page for your phone** link. It opens a page made
+for a phone, with one card per kid and big +/− buttons for today's minutes, so you can give or take
+minutes while you hold the phone. Use **Give** and **Take away** there just like on the parent
+page, and a kid's minutes can go below zero (the debt comes out of tomorrow's minutes).
+
+Open it on the phone's own browser and save it to the home screen:
+
+- **iPhone or iPad (Safari):** the **Share** button, then **Add to Home Screen**.
+- **Android (Chrome):** the **⋮** menu, then **Add to Home screen**.
+
+To open it on another device, type its address in that device's browser, for example
+`http://192.168.1.20:8070/admin/minutes`.
 
 ## Connect other devices
 

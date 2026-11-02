@@ -184,12 +184,6 @@ func TestFakeKidsCreateKidIdempotentByName(t *testing.T) {
 	if _, found, err := f.FindKid(ctx, "Sam"); err != nil || found {
 		t.Fatalf("FindKid Sam: found %v err %v; want not found", found, err)
 	}
-	if err := f.SetGrownupPIN(ctx, "0000"); err != nil {
-		t.Fatalf("SetGrownupPIN: %v", err)
-	}
-	if f.GrownupPIN() != "0000" || len(f.PinCalls()) != 1 {
-		t.Errorf("grownup PIN = %q, calls %v; want 0000, one call", f.GrownupPIN(), f.PinCalls())
-	}
 	f2 := &FakeKids{Err: errors.New("store down")}
 	if _, err := f2.CreateKid(ctx, "Alex", "1234"); err == nil {
 		t.Fatal("CreateKid with Err: got nil, want error")

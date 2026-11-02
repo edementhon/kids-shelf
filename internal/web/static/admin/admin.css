@@ -333,3 +333,42 @@ button.textbtn {
   #watchlog td.placeholder { grid-column: 1 / -1; }
   .navlink { padding: 10px 12px; font-size: .9rem; }
 }
+
+/* ── Minutes page (phone-first) ─────────────────────────────────────────── */
+/* The phone-first Minutes page: a narrow column, big buttons, the parent
+   PIN keypad. It shares the theme and the .add/.sub/neg colours above. */
+body.minutes { max-width: 480px; }
+.minutes-main { padding: 0 2px; }
+.minutes-cards { display: flex; flex-direction: column; gap: 12px; }
+.minute-card { background: var(--chip); border-radius: 14px; padding: 14px; }
+.minute-card .kidname { font-size: 1.15rem; font-weight: 700; overflow-wrap: anywhere; margin: 0 0 8px; }
+.minute-btns { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.minute-btns .btns3 { flex: 1; }
+.minute-btns .btns3 button { font-size: 1.3rem; padding: 16px 4px; min-height: 56px; }
+.minutes-pin {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, .7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+/* The hidden attribute alone would be overridden by .minutes-pin's own
+   display: flex (same specificity, author beats the UA rule), so hide the
+   PIN box explicitly when it is gone. */
+.minutes-pin[hidden] { display: none; }
+.minutes-pin-box {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 26px;
+  max-width: 420px;
+  width: 92%;
+  text-align: center;
+}
+.minutes-pin-box .pin-dots { display: flex; justify-content: center; gap: 10px; margin: 14px 0; }
+.minutes-pin-box .pin-dots span { width: 14px; height: 14px; border-radius: 50%; background: var(--line); }
+.minutes-pin-box .pin-dots span.on { background: var(--blue); }
+.minutes-pin-box .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+.minutes-pin-box .keypad button { min-height: 56px; font-size: 1.3rem; }
+.minutes-pin-box .err { margin: 6px 0 0; }

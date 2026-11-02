@@ -43,6 +43,7 @@
   <h2>👶 Kids</h2>
   <div id="kids" class="kids"></div>
   <p class="note" id="kidsnote">Minutes a day starts tomorrow. To change today, use Give and Take away. Saved minutes are left over from earlier days or earned in practice.</p>
+  <div class="rowbtns"><a class="navlink" href="/admin/minutes">📱 Minutes page for your phone</a></div>
   <form id="addkid" class="addkid">
     <input id="newname" placeholder="Kid's name" maxlength="40" autocomplete="off" aria-label="Kid's name">
     <input id="newpin" type="password" placeholder="PIN (4 digits)" inputmode="numeric" maxlength="4" autocomplete="new-password" aria-label="PIN for the new kid, 4 digits">
@@ -86,15 +87,6 @@
 <section class="card" id="sec-settings">
   <h2>⚙️ Settings</h2>
   <div class="settings">
-    <div class="setrow">
-      <label for="grownup">Grown-up watch-together PIN: watching with it is free</label>
-      <p class="note" id="grownupstate"></p>
-      <div class="rowbtns">
-        <input id="grownup" type="password" placeholder="4 digits" inputmode="numeric" maxlength="4" autocomplete="new-password">
-        <button id="grownup-save" class="btn">Save PIN</button>
-        <button id="grownup-clear" class="btn danger hidden">Turn off</button>
-      </div>
-    </div>
     <div class="setrow">
       <label for="dashpin">Parent-page PIN: locks this page, always on</label>
       <div class="rowbtns">

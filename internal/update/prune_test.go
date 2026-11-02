@@ -2,8 +2,11 @@ package update
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -150,5 +153,46 @@ func TestRunTidiesOnceTheRunningBuildIsConfirmed(t *testing.T) {
 	}
 	if !exists(t, filepath.Join(install, "versions", "v0.3.0")) {
 		t.Error("the running build was removed")
+	}
+}
+
+// TestRunChecksAgainOnceTheTrialIsConfirmed: the check at start finds the
+// running build on trial and fetches nothing; once Confirm settles it, Run
+// checks for a newer release right away instead of a day later, so a copy
+// two releases behind does not need another restart (box, 2026-11-02).
+func TestRunChecksAgainOnceTheTrialIsConfirmed(t *testing.T) {
+	old := BuildVersion
+	BuildVersion = "v0.3.0"
+	t.Cleanup(func() { BuildVersion = old })
+	newTestKey(t) // with no key, updates are off and nothing is ever checked
+	install, data := pruneFixture(t, State{Current: "v0.2.10", HighWater: "v0.2.10",
+		Trying: &Trial{Version: "v0.3.0", Snapshot: "pre-v0.3.0.db"}})
+
+	var checks atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		checks.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	m := &Manager{DataDir: data, Install: install, BaseURL: srv.URL + "/releases/latest",
+		CheckEvery: time.Hour, SettleEvery: 5 * time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	time.Sleep(50 * time.Millisecond)
+	if n := checks.Load(); n != 0 {
+		t.Fatalf("%d release checks during the trial, want 0", n)
+	}
+	if err := Confirm(data, "v0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for checks.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("no release check after the trial was confirmed")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

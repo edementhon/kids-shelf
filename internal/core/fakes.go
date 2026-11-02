@@ -327,15 +327,13 @@ type FakeKids struct {
 	// Err, when set, is returned by every call without recording it.
 	Err error
 
-	next       int
-	byName     map[string]KidID
-	kids       map[KidID]string // id -> name
-	pins       map[KidID]string // id -> pin
-	grownupPIN string
+	next   int
+	byName map[string]KidID
+	kids   map[KidID]string // id -> name
+	pins   map[KidID]string // id -> pin
 
-	creates  []CreateKidCall
-	finds    []FindKidCall
-	pinCalls []string
+	creates []CreateKidCall
+	finds   []FindKidCall
 }
 
 // CreateKid implements Kids.
@@ -374,18 +372,6 @@ func (f *FakeKids) FindKid(ctx context.Context, name string) (KidID, bool, error
 	return id, found, nil
 }
 
-// SetGrownupPIN implements Kids.
-func (f *FakeKids) SetGrownupPIN(ctx context.Context, pin string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.Err != nil {
-		return f.Err
-	}
-	f.grownupPIN = pin
-	f.pinCalls = append(f.pinCalls, pin)
-	return nil
-}
-
 // Kids returns a copy of the registered kids.
 func (f *FakeKids) Kids() []KidRecord {
 	f.mu.Lock()
@@ -409,22 +395,6 @@ func (f *FakeKids) Finds() []FindKidCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]FindKidCall(nil), f.finds...)
-}
-
-// PinCalls returns a copy of the recorded SetGrownupPIN arguments, in
-// order.
-func (f *FakeKids) PinCalls() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.pinCalls...)
-}
-
-// GrownupPIN returns the PIN last set through SetGrownupPIN, "" when never
-// called.
-func (f *FakeKids) GrownupPIN() string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.grownupPIN
 }
 
 // ImportAccountCall is one recorded ImportAccount invocation.

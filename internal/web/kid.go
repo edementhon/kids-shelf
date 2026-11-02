@@ -548,9 +548,10 @@ func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleWatchTogether starts a grown-up watch-together session: playback
-// with it is free and unmetered. Wrong tries feed the watch-together
-// throttle (per client IP). When no grown-up PIN has been set at all, the
-// keypad is told in plain words instead of being told its PIN was wrong.
+// with it is free and unmetered. It accepts the parent PIN. Wrong tries
+// feed the watch-together throttle (per client IP). When no parent PIN has
+// been set at all, the keypad is told in plain words instead of being told
+// its PIN was wrong.
 func (s *Server) handleWatchTogether(w http.ResponseWriter, r *http.Request) {
 	if !s.requireBudget(w) {
 		return
@@ -564,20 +565,21 @@ func (s *Server) handleWatchTogether(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Pin = strings.TrimSpace(req.Pin)
 	if req.Pin == "" {
-		writeError(w, http.StatusBadRequest, "Enter the grown-up PIN.")
+		writeError(w, http.StatusBadRequest, "Enter the parent PIN.")
 		return
 	}
-	if !s.deps.Budget.GrownupPINSet(r.Context()) {
-		// Nobody has set a PIN yet: say what to do instead of pretending
-		// the entered PIN was wrong. Watch-together stays locked until a
-		// PIN exists, so a missing PIN can never become a free kid path.
-		writeError(w, http.StatusConflict, "No grown-up PIN yet. Set one on the parent page, under Settings.")
+	if s.readDashboardPIN() == "" {
+		// Nobody has set a parent PIN yet: say what to do instead of
+		// pretending the entered PIN was wrong. Watch-together stays
+		// locked until a PIN exists, so a missing PIN can never become a
+		// free kid path.
+		writeError(w, http.StatusConflict, "No parent PIN yet. Make one on the parent page, under Settings.")
 		return
 	}
 	if s.pinLocked(w, r, realmWatchTogether, "") {
 		return
 	}
-	if !s.deps.Budget.VerifyGrownupPIN(r.Context(), req.Pin) {
+	if !pinsEqual(req.Pin, s.readDashboardPIN()) {
 		if s.pinWrong(w, realmWatchTogether, s.clientIP(r), "") {
 			return
 		}
@@ -588,13 +590,13 @@ func (s *Server) handleWatchTogether(w http.ResponseWriter, r *http.Request) {
 	s.startSession(w, kidSession{grownup: true})
 }
 
-// handleGrownupPin reports whether the household watch-together PIN is set,
-// so the keypad can explain itself before anyone types.
+// handleGrownupPin reports whether a parent PIN is set, so the Watch
+// together keypad can explain itself before anyone types.
 func (s *Server) handleGrownupPin(w http.ResponseWriter, r *http.Request) {
 	if !s.requireBudget(w) {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"set": s.deps.Budget.GrownupPINSet(r.Context())})
+	writeJSON(w, http.StatusOK, map[string]any{"set": s.readDashboardPIN() != ""})
 }
 
 // handleLock ends the session and clears the cookie.

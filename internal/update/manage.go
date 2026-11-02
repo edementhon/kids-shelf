@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edementhon/kids-shelf/internal/disk"
@@ -130,6 +131,11 @@ type Manager struct {
 
 	mu     sync.Mutex
 	status Status
+	// checkAfterTrial is set when a check found the running build still on
+	// trial and staged nothing; tidyWhenSettled runs the check again once
+	// the trial is confirmed, so a box two releases behind needs no extra
+	// restart or a day's wait to fetch the newer one (box, 2026-11-02).
+	checkAfterTrial atomic.Bool
 }
 
 func (m *Manager) logf(format string, args ...any) {
@@ -203,8 +209,10 @@ func (m *Manager) Run(ctx context.Context) {
 }
 
 // tidyWhenSettled tidies as soon as the running build is confirmed: a
-// fresh update is confirmed about half a minute after it starts. It gives
-// up after 60 looks (15 minutes by default); the daily check tries again.
+// fresh update is confirmed about half a minute after it starts. A check
+// that was skipped because of that trial runs then too (checkAfterTrial).
+// It gives up after 60 looks (15 minutes by default); the daily check
+// tries again.
 func (m *Manager) tidyWhenSettled(ctx context.Context) {
 	wait := m.SettleEvery
 	if wait == 0 {
@@ -212,6 +220,9 @@ func (m *Manager) tidyWhenSettled(ctx context.Context) {
 	}
 	for range 60 {
 		if m.tidy() {
+			if m.checkAfterTrial.Swap(false) {
+				m.Update(ctx)
+			}
 			return
 		}
 		select {
@@ -293,7 +304,9 @@ func (m *Manager) Update(ctx context.Context) error {
 	}
 	if st.Trying != nil {
 		// An update is being health-checked by the launcher; staging
-		// another on top would lose the rollback records.
+		// another on top would lose the rollback records. Check again
+		// once it is confirmed (tidyWhenSettled).
+		m.checkAfterTrial.Store(true)
 		m.setStatus(Status{State: StateStaged, Staged: st.Trying.Version, Message: "an update is being applied; the app will restart on its own", trial: true})
 		return nil
 	}

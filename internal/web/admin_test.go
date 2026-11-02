@@ -50,7 +50,6 @@ func newTestAdmin(t *testing.T, mut ...func(*Deps)) (*httptest.Server, *budget.B
 func newTestAdminNoPIN(t *testing.T, mut ...func(*Deps)) (*httptest.Server, *budget.Budget, *library.Library) {
 	t.Helper()
 	pinThrottle.reset()
-	adminSessions.clear()
 	st, err := store.Open(filepath.Join(t.TempDir(), "admin.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -388,8 +387,8 @@ func TestAdminAdjustMinutes(t *testing.T) {
 		t.Errorf("after +5: today %v saved %v, want 15 and 0", out["today"], out["saved"])
 	}
 
-	// Negative deltas are allowed but clamp at zero: the page's minus
-	// buttons can never push a kid into debt.
+	// Negative deltas take today first, then saved, and may go below zero:
+	// the debt comes out of tomorrow's minutes.
 	if _, out := post(t, ts.URL+"/api/admin/adjust", map[string]any{"kid": id, "delta": -2}); out["today"] != float64(13) {
 		t.Errorf("after -2: today = %v, want 13", out["today"])
 	}
@@ -397,8 +396,8 @@ func TestAdminAdjustMinutes(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("adjust -100: status %d", resp.StatusCode)
 	}
-	if out["today"] != float64(0) || out["saved"] != float64(0) {
-		t.Errorf("after -100: today %v saved %v, want both 0 (clamped)", out["today"], out["saved"])
+	if out["today"] != float64(-87) || out["saved"] != float64(0) {
+		t.Errorf("after -100: today %v saved %v, want -87 and 0 (debt rides on today)", out["today"], out["saved"])
 	}
 
 	// Unknown kid -> not found.
@@ -656,7 +655,6 @@ func TestAdminDashboardPINCannotBeCleared(t *testing.T) {
 func pinApp(t *testing.T) http.Handler {
 	t.Helper()
 	pinThrottle.reset()
-	adminSessions.clear()
 	return NewApp("pin-test", Deps{DataDir: t.TempDir(), ProxyToken: "proxy-secret"}).Mux()
 }
 
@@ -1209,36 +1207,272 @@ func TestAdminDefaultMinutes(t *testing.T) {
 	}
 }
 
-func TestAdminGrownupPIN(t *testing.T) {
-	ts, b, _ := newTestAdmin(t)
-	ctx := context.Background()
-	pinSet := func() any { return state(t, ts)["settings"].(map[string]any)["grownup_pin_set"] }
-	if v := pinSet(); v != false {
-		t.Errorf("grownup_pin_set before any PIN = %v, want false", v)
+// TestAdminGrownupRouteRemoved: the separate grown-up watch-together PIN
+// setting is gone, so its route no longer answers. The parent PIN is the
+// one PIN now.
+func TestAdminGrownupRouteRemoved(t *testing.T) {
+	ts, _, _ := newTestAdmin(t)
+	// The route is gone: POST no longer sets a PIN (the path falls through
+	// to the shelf's catch-all, so a state changing request is refused).
+	if resp, _ := post(t, ts.URL+"/api/admin/settings/grownup", map[string]any{"pin": "7364"}); resp.StatusCode != http.StatusMethodNotAllowed && resp.StatusCode != http.StatusNotFound {
+		t.Errorf("grownup route after removal: status %d, want 405 or 404", resp.StatusCode)
 	}
-	if b.VerifyGrownupPIN(ctx, "7364") {
-		t.Fatal("grown-up PIN verifies before being set")
+	// The state payload no longer mentions the grown-up PIN.
+	st := state(t, ts)
+	if _, ok := st["settings"].(map[string]any)["grownup_pin_set"]; ok {
+		t.Errorf("state still carries grownup_pin_set: %v", st["settings"])
 	}
-	if resp, _ := post(t, ts.URL+"/api/admin/settings/grownup", map[string]any{"pin": "7364"}); resp.StatusCode != http.StatusOK {
-		t.Errorf("set grownup pin: status %d, want 200", resp.StatusCode)
+}
+
+// TestAdminMinutesPageServed: the phone-first Minutes page shell is served
+// to everyone, and its data routes stay behind the parent PIN.
+func TestAdminMinutesPageServed(t *testing.T) {
+	ts, _, _ := newTestAdmin(t)
+	res, err := http.Get(ts.URL + "/admin/minutes")
+	if err != nil {
+		t.Fatalf("GET /admin/minutes: %v", err)
 	}
-	if !b.VerifyGrownupPIN(ctx, "7364") {
-		t.Error("grown-up PIN does not verify after being set")
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /admin/minutes: status %d, want 200", res.StatusCode)
 	}
-	if v := pinSet(); v != true {
-		t.Errorf("grownup_pin_set after setting = %v, want true", v)
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "<title>Minutes</title>") {
+		t.Errorf("minutes page lacks the Minutes title")
 	}
-	if resp, _ := post(t, ts.URL+"/api/admin/settings/grownup", map[string]any{"pin": "12"}); resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("bad grownup pin: status %d, want 400", resp.StatusCode)
+	if !strings.Contains(string(body), "minutes.webmanifest") {
+		t.Errorf("minutes page lacks the web manifest link")
 	}
-	if resp, _ := post(t, ts.URL+"/api/admin/settings/grownup", map[string]any{"pin": ""}); resp.StatusCode != http.StatusOK {
-		t.Errorf("clear grownup pin: status %d, want 200", resp.StatusCode)
+	// The data routes stay PIN-gated.
+	if resp, _ := visitorReq(t, http.MethodGet, ts.URL+"/api/admin/state", nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("state without a session: status %d, want 401", resp.StatusCode)
 	}
-	if b.VerifyGrownupPIN(ctx, "7364") {
-		t.Error("grown-up PIN still verifies after clearing")
+	if resp, _ := visitorReq(t, http.MethodPost, ts.URL+"/api/admin/adjust", map[string]any{"kid": "x", "delta": 1}); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("adjust without a session: status %d, want 401", resp.StatusCode)
 	}
-	if v := pinSet(); v != false {
-		t.Errorf("grownup_pin_set after clearing = %v, want false", v)
+}
+
+// ─── persisted dashboard sessions ─────────────────────────────────────────
+
+// sessionServer is a parent-page server over dataDir with a settable clock,
+// so session tests can advance time and restart on the same data dir. It has
+// no services, so only the PIN-gated routes that need no service are used
+// (address, pin, logout, settings/dashboard, pin/reset).
+func sessionServer(t *testing.T, dataDir string, now *time.Time) *Server {
+	t.Helper()
+	pinThrottle.reset()
+	return NewApp("sess-test", Deps{DataDir: dataDir, Now: func() time.Time { return *now }})
+}
+
+// cookieOf returns the first Set-Cookie of the given name from w.
+func cookieOf(w *httptest.ResponseRecorder, name string) *http.Cookie {
+	t := w.Result()
+	for _, c := range t.Cookies() {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
+}
+
+// addressWith performs a GET /api/admin/address with the given cookies.
+func addressWith(t *testing.T, h http.Handler, cookie *http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	w, _ := serveFrom(t, h, http.MethodGet, "/api/admin/address", "192.0.2.20:5000", nil, nil, cookie)
+	return w
+}
+
+// TestAdminSessionPersistsAcrossRestart: a verified session is kept in the
+// data dir, so a new Server on the same data dir (a restart or an update)
+// still accepts it.
+func TestAdminSessionPersistsAcrossRestart(t *testing.T) {
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+	s1 := sessionServer(t, dataDir, &now)
+	if err := s1.writeDashboardPIN(testParentPIN); err != nil {
+		t.Fatalf("writeDashboardPIN: %v", err)
+	}
+	w, out := serveFrom(t, s1.Mux(), http.MethodPost, "/api/admin/pin", "192.0.2.20:5000", map[string]any{"pin": testParentPIN}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login: status %d body %v", w.Code, out)
+	}
+	cookie := cookieOf(w, adminPinCookie)
+	if cookie == nil {
+		t.Fatal("login set no session cookie")
+	}
+	if w := addressWith(t, s1.Mux(), cookie); w.Code != http.StatusOK {
+		t.Fatalf("address with session: status %d, want 200", w.Code)
+	}
+
+	// A brand new Server over the same data dir still accepts the session.
+	s2 := sessionServer(t, dataDir, &now)
+	if w := addressWith(t, s2.Mux(), cookie); w.Code != http.StatusOK {
+		t.Errorf("session after restart: status %d, want 200", w.Code)
+	}
+}
+
+// TestAdminSessionLockDropsOne: Lock this page ends only that session; the
+// other stays valid.
+func TestAdminSessionLockDropsOne(t *testing.T) {
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+	s := sessionServer(t, dataDir, &now)
+	if err := s.writeDashboardPIN(testParentPIN); err != nil {
+		t.Fatalf("writeDashboardPIN: %v", err)
+	}
+	w1, _ := serveFrom(t, s.Mux(), http.MethodPost, "/api/admin/pin", "192.0.2.20:5000", map[string]any{"pin": testParentPIN}, nil)
+	c1 := cookieOf(w1, adminPinCookie)
+	w2, _ := serveFrom(t, s.Mux(), http.MethodPost, "/api/admin/pin", "192.0.2.20:5000", map[string]any{"pin": testParentPIN}, nil)
+	c2 := cookieOf(w2, adminPinCookie)
+	if c1 == nil || c2 == nil {
+		t.Fatal("login set no session cookie")
+	}
+	if w := addressWith(t, s.Mux(), c1); w.Code != http.StatusOK {
+		t.Fatalf("c1 before lock: status %d, want 200", w.Code)
+	}
+	if w, _ := serveFrom(t, s.Mux(), http.MethodPost, "/api/admin/logout", "192.0.2.20:5000", nil, nil, c1); w.Code != http.StatusOK {
+		t.Fatalf("logout: status %d", w.Code)
+	}
+	if w := addressWith(t, s.Mux(), c1); w.Code != http.StatusUnauthorized {
+		t.Errorf("c1 after lock: status %d, want 401", w.Code)
+	}
+	if w := addressWith(t, s.Mux(), c2); w.Code != http.StatusOK {
+		t.Errorf("c2 after locking c1: status %d, want 200", w.Code)
+	}
+}
+
+// TestAdminSessionPINChangeDropsAll: changing the parent PIN ends every
+// session, including the one that made the change.
+func TestAdminSessionPINChangeDropsAll(t *testing.T) {
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+	s := sessionServer(t, dataDir, &now)
+	if err := s.writeDashboardPIN(testParentPIN); err != nil {
+		t.Fatalf("writeDashboardPIN: %v", err)
+	}
+	w, _ := serveFrom(t, s.Mux(), http.MethodPost, "/api/admin/pin", "192.0.2.20:5000", map[string]any{"pin": testParentPIN}, nil)
+	cookie := cookieOf(w, adminPinCookie)
+	if cookie == nil {
+		t.Fatal("login set no session cookie")
+	}
+	if w, _ := serveFrom(t, s.Mux(), http.MethodPost, "/api/admin/settings/dashboard", "192.0.2.20:5000", map[string]any{"pin": "2468"}, nil, cookie); w.Code != http.StatusOK {
+		t.Fatalf("change PIN: status %d", w.Code)
+	}
+	if w := addressWith(t, s.Mux(), cookie); w.Code != http.StatusUnauthorized {
+		t.Errorf("session after PIN change: status %d, want 401", w.Code)
+	}
+}
+
+// TestAdminSessionResetDropsAll: the loopback-only reset clears the PIN and
+// every session.
+func TestAdminSessionResetDropsAll(t *testing.T) {
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+	s := sessionServer(t, dataDir, &now)
+	if err := s.writeDashboardPIN(testParentPIN); err != nil {
+		t.Fatalf("writeDashboardPIN: %v", err)
+	}
+	w, _ := serveFrom(t, s.Mux(), http.MethodPost, "/api/admin/pin", "192.0.2.20:5000", map[string]any{"pin": testParentPIN}, nil)
+	cookie := cookieOf(w, adminPinCookie)
+	if cookie == nil {
+		t.Fatal("login set no session cookie")
+	}
+	// The reset only works for a browser on the kids-shelf computer itself.
+	if w, _ := serveFrom(t, s.Mux(), http.MethodPost, "/api/admin/pin/reset", "127.0.0.1:5000", nil, nil, cookie); w.Code != http.StatusOK {
+		t.Fatalf("reset: status %d", w.Code)
+	}
+	if w, out := serveFrom(t, s.Mux(), http.MethodGet, "/api/admin/address", "192.0.2.20:5000", nil, nil, cookie); w.Code != http.StatusUnauthorized {
+		t.Errorf("session after reset: status %d, want 401 (body %v)", w.Code, out)
+	}
+}
+
+// TestAdminSessionIdlePruned: a session unused for over 400 days is refused
+// and dropped from the file.
+func TestAdminSessionIdlePruned(t *testing.T) {
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+	s := sessionServer(t, dataDir, &now)
+	if err := s.writeDashboardPIN(testParentPIN); err != nil {
+		t.Fatalf("writeDashboardPIN: %v", err)
+	}
+	w, _ := serveFrom(t, s.Mux(), http.MethodPost, "/api/admin/pin", "192.0.2.20:5000", map[string]any{"pin": testParentPIN}, nil)
+	cookie := cookieOf(w, adminPinCookie)
+	if cookie == nil {
+		t.Fatal("login set no session cookie")
+	}
+	if w := addressWith(t, s.Mux(), cookie); w.Code != http.StatusOK {
+		t.Fatalf("session before idle: status %d, want 200", w.Code)
+	}
+	now = now.Add(401 * 24 * time.Hour)
+	if w := addressWith(t, s.Mux(), cookie); w.Code != http.StatusUnauthorized {
+		t.Errorf("session after 401 days: status %d, want 401", w.Code)
+	}
+	b, err := os.ReadFile(filepath.Join(dataDir, "dashboard-sessions.json"))
+	if err != nil {
+		t.Fatalf("read sessions file: %v", err)
+	}
+	if strings.Contains(string(b), tokenDigest(cookie.Value)) {
+		t.Errorf("pruned session still in the sessions file")
+	}
+}
+
+// TestAdminSessionCookieRenewedOnceADay: the cookie is re-sent with a fresh
+// Max-Age at most once a day, not on every request.
+func TestAdminSessionCookieRenewedOnceADay(t *testing.T) {
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+	s := sessionServer(t, dataDir, &now)
+	if err := s.writeDashboardPIN(testParentPIN); err != nil {
+		t.Fatalf("writeDashboardPIN: %v", err)
+	}
+	w, _ := serveFrom(t, s.Mux(), http.MethodPost, "/api/admin/pin", "192.0.2.20:5000", map[string]any{"pin": testParentPIN}, nil)
+	cookie := cookieOf(w, adminPinCookie)
+	if cookie == nil {
+		t.Fatal("login set no session cookie")
+	}
+	// Used right after login: no re-send (renewed a moment ago).
+	if w := addressWith(t, s.Mux(), cookie); w.Result().Header.Get("Set-Cookie") != "" {
+		t.Errorf("cookie re-sent on an immediate use, want none")
+	}
+	// A day later the same session is renewed with a fresh Max-Age.
+	now = now.Add(25 * time.Hour)
+	w2 := addressWith(t, s.Mux(), cookie)
+	sc := w2.Result().Header.Get("Set-Cookie")
+	if sc == "" {
+		t.Fatalf("cookie not re-sent after a day, want a fresh Max-Age")
+	}
+	if !strings.Contains(sc, "Max-Age=") || !strings.Contains(sc, adminPinCookie+"=") {
+		t.Errorf("renewed Set-Cookie = %q, want a Max-Age for the session cookie", sc)
+	}
+	// Used again right after: still no re-send (renewed moments ago).
+	if w := addressWith(t, s.Mux(), cookie); w.Result().Header.Get("Set-Cookie") != "" {
+		t.Errorf("cookie re-sent twice in one day, want only once")
+	}
+}
+
+// TestAdminSessionFileHoldsNoRawToken: the sessions file stores only the
+// token's digest, never the token itself.
+func TestAdminSessionFileHoldsNoRawToken(t *testing.T) {
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+	s := sessionServer(t, dataDir, &now)
+	if err := s.writeDashboardPIN(testParentPIN); err != nil {
+		t.Fatalf("writeDashboardPIN: %v", err)
+	}
+	w, _ := serveFrom(t, s.Mux(), http.MethodPost, "/api/admin/pin", "192.0.2.20:5000", map[string]any{"pin": testParentPIN}, nil)
+	cookie := cookieOf(w, adminPinCookie)
+	if cookie == nil {
+		t.Fatal("login set no session cookie")
+	}
+	b, err := os.ReadFile(filepath.Join(dataDir, "dashboard-sessions.json"))
+	if err != nil {
+		t.Fatalf("read sessions file: %v", err)
+	}
+	if strings.Contains(string(b), cookie.Value) {
+		t.Errorf("sessions file holds the raw token")
+	}
+	if !strings.Contains(string(b), tokenDigest(cookie.Value)) {
+		t.Errorf("sessions file lacks the token digest")
 	}
 }
 

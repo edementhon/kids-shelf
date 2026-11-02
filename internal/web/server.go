@@ -148,6 +148,10 @@ type Server struct {
 	id         string // the instance id /healthz reports
 	healthJSON []byte
 
+	// adminSessions keeps verified parent-page sessions across restarts;
+	// nil on a healthz-only New server (no admin routes are registered).
+	adminSessions *adminSessionStore
+
 	hostMu  sync.Mutex
 	hostIPs map[string]struct{} // this machine's interface IPs, string form
 	hostsAt time.Time           // when hostIPs was last refreshed
@@ -170,6 +174,7 @@ func NewApp(instanceID string, deps Deps) *Server {
 	}
 	s := New(instanceID)
 	s.deps = deps
+	s.adminSessions = newAdminSessionStore(s.dashboardSessionsPath())
 	for _, r := range registrars {
 		r(s)
 	}

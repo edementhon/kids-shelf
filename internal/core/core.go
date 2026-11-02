@@ -184,9 +184,6 @@ type Kids interface {
 	// FindKid reports whether a kid with this display name is registered
 	// and, if so, its stable id.
 	FindKid(ctx context.Context, name string) (id KidID, found bool, err error)
-	// SetGrownupPIN sets the watch-together PIN: playback with it is free
-	// and unmetered, and it stays separate from the dashboard PIN.
-	SetGrownupPIN(ctx context.Context, pin string) error
 }
 
 // BudgetImporter imports a legacy portal account exactly as stored: the

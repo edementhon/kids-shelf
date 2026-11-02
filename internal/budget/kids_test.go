@@ -235,34 +235,6 @@ func TestVerifyKidPIN(t *testing.T) {
 	}
 }
 
-// TestVerifyGrownupPIN: an unset grown-up PIN never verifies, not even
-// against an empty pin; once set it verifies and survives a restart.
-func TestVerifyGrownupPIN(t *testing.T) {
-	b, s := newTestBudget(t, at(nowOct26))
-	if b.VerifyGrownupPIN(ctx, "") {
-		t.Error("unset grown-up PIN verifies empty input")
-	}
-	if b.VerifyGrownupPIN(ctx, "0000") {
-		t.Error("unset grown-up PIN verifies a PIN")
-	}
-	if err := b.SetGrownupPIN(ctx, "0000"); err != nil {
-		t.Fatalf("SetGrownupPIN: %v", err)
-	}
-	if !b.VerifyGrownupPIN(ctx, "0000") {
-		t.Error("set grown-up PIN does not verify")
-	}
-	if b.VerifyGrownupPIN(ctx, "1111") {
-		t.Error("wrong grown-up PIN verifies")
-	}
-	b2, err := New(s, at(nowOct26))
-	if err != nil {
-		t.Fatalf("budget.New: %v", err)
-	}
-	if !b2.VerifyGrownupPIN(ctx, "0000") {
-		t.Error("grown-up PIN lost on restart")
-	}
-}
-
 // TestPinsEqual: the constant-time comparator itself, equal only for
 // identical strings, and length differences do not match.
 func TestPinsEqual(t *testing.T) {

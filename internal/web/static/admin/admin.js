@@ -16,7 +16,7 @@ function esc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-function fmt(n) { return Math.max(0, Math.round(n * 10) / 10); }
+function fmt(n) { return Math.round(n * 10) / 10; }
 function cls(n) { return n < 0 ? 'neg' : ''; }
 
 /* msg shows a result or an error as a toast fixed to the bottom of the
@@ -178,10 +178,8 @@ function renderKids() {
     return;
   }
   wrap.innerHTML = kids.map(k => {
-    const total = k.today + k.saved;
-    const sub = total <= 0 ? ' disabled' : '';
     const n = esc(k.name);
-    const take = d => `<button class="sub" data-act="adj" data-id="${esc(k.id)}" data-d="-${d}"${sub} aria-label="Take ${d} minutes away from ${n} today">−${d}</button>`;
+    const take = d => `<button class="sub" data-act="adj" data-id="${esc(k.id)}" data-d="-${d}" aria-label="Take ${d} minutes away from ${n} today">−${d}</button>`;
     const give = d => `<button class="add" data-act="adj" data-id="${esc(k.id)}" data-d="${d}" aria-label="Give ${n} ${d} more minutes today">+${d}</button>`;
     return `
     <div class="kid" data-id="${esc(k.id)}">
@@ -352,12 +350,6 @@ function renderSettings() {
   const enc = STATE.settings.video_encoder;
   $('hwencoder').textContent = 'Video conversion uses: ' + (enc && enc !== 'not checked yet' ? enc
     : 'not checked yet. Kids Shelf checks the first time a video needs converting.');
-  const pinSet = !!STATE.settings.grownup_pin_set;
-  $('grownupstate').textContent = pinSet
-    ? 'A watch-together PIN is set. Type 4 new digits to change it.'
-    : 'No watch-together PIN yet. Type 4 digits to make one.';
-  $('grownup-save').textContent = pinSet ? 'Change PIN' : 'Save PIN';
-  $('grownup-clear').classList.toggle('hidden', !pinSet);
   // Practice normally earns video minutes. Only a copy whose earnings were
   // pointed elsewhere (the old free-text counter) shows the way back.
   const counter = STATE.settings.counter;
@@ -875,8 +867,8 @@ $('defaultform').addEventListener('submit', async e => {
   } catch (err) { /* message already shown */ }
 });
 
-// savePin saves the 4 digits typed in input; clear sends "" instead (only
-// the watch-together PIN can be turned off: the parent page always has one).
+// savePin saves the 4 digits typed in input; clear sends "" instead (the
+// parent page always has a PIN, so the caller only clears when it can).
 async function savePin(input, path, savedText, clear) {
   const pin = clear ? '' : input.value.trim();
   if (!clear && !/^\d{4}$/.test(pin)) { msg('The PIN must be exactly 4 digits.', true); input.focus(); return; }
@@ -888,12 +880,6 @@ async function savePin(input, path, savedText, clear) {
   } catch (err) { /* the PIN lock or the error message is showing */ }
 }
 
-$('grownup-save').addEventListener('click', () =>
-  savePin($('grownup'), '/api/admin/settings/grownup', 'Watch-together PIN saved.', false));
-$('grownup-clear').addEventListener('click', () => {
-  if (!confirm('Turn off the watch-together PIN? Grown-ups cannot watch for free until you make a new one.')) return;
-  savePin($('grownup'), '/api/admin/settings/grownup', 'Watch-together PIN turned off.', true);
-});
 $('dashpin-save').addEventListener('click', () =>
   savePin($('dashpin'), '/api/admin/settings/dashboard', 'Parent-page PIN changed.', false));
 $('counter-video').addEventListener('click', counterToVideo);

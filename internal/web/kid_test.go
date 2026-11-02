@@ -48,8 +48,8 @@ func newKidEnv(t *testing.T) *kidEnv {
 	return newKidEnvPin(t, &now, "9999")
 }
 
-// newKidEnvNoPin is newKidEnv for a fresh household that has not configured
-// the grown-up watch-together PIN yet.
+// newKidEnvNoPin is newKidEnv for a fresh household that has not made a
+// parent PIN yet.
 func newKidEnvNoPin(t *testing.T) *kidEnv {
 	t.Helper()
 	now := fixedNow()
@@ -63,9 +63,10 @@ func newKidEnvAt(t *testing.T, now *time.Time) *kidEnv {
 	return newKidEnvPin(t, now, "9999")
 }
 
-func newKidEnvPin(t *testing.T, now *time.Time, grownupPIN string) *kidEnv {
+func newKidEnvPin(t *testing.T, now *time.Time, parentPIN string) *kidEnv {
 	t.Helper()
 	pinThrottle.reset()
+	dataDir := t.TempDir()
 	st, err := store.Open(filepath.Join(t.TempDir(), "kid.sqlite"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -90,11 +91,6 @@ func newKidEnvPin(t *testing.T, now *time.Time, grownupPIN string) *kidEnv {
 	if err != nil {
 		t.Fatalf("CreateKid: %v", err)
 	}
-	if grownupPIN != "" {
-		if err := bud.SetGrownupPIN(ctx, grownupPIN); err != nil {
-			t.Fatalf("SetGrownupPIN: %v", err)
-		}
-	}
 
 	env := &kidEnv{
 		lib:    lib,
@@ -104,7 +100,12 @@ func newKidEnvPin(t *testing.T, now *time.Time, grownupPIN string) *kidEnv {
 		t:      t,
 		client: newClient(),
 	}
-	s := NewApp("kid-test", Deps{Budget: bud, Library: lib, Now: func() time.Time { return *now }})
+	s := NewApp("kid-test", Deps{Budget: bud, Library: lib, Now: func() time.Time { return *now }, DataDir: dataDir})
+	if parentPIN != "" {
+		if err := s.writeDashboardPIN(parentPIN); err != nil {
+			t.Fatalf("writeDashboardPIN: %v", err)
+		}
+	}
 	env.s = s
 	env.ts = httptest.NewServer(s.Mux())
 	t.Cleanup(env.ts.Close)
@@ -587,7 +588,7 @@ func TestWatchTogetherUnlock(t *testing.T) {
 
 	resp, m := e.do("POST", "/api/kid/watch-together", map[string]string{"pin": "0000"})
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("wrong grown-up pin: status %d, want 401", resp.StatusCode)
+		t.Errorf("wrong parent pin: status %d, want 401", resp.StatusCode)
 	}
 
 	resp, m = e.do("POST", "/api/kid/watch-together", map[string]string{"pin": "9999"})
@@ -597,6 +598,27 @@ func TestWatchTogetherUnlock(t *testing.T) {
 	resp, m = e.do("GET", "/api/kid/me", nil)
 	if resp.StatusCode != http.StatusOK || m["grownup"] != true {
 		t.Errorf("me = status %d body %v, want grownup session", resp.StatusCode, m)
+	}
+}
+
+// TestWatchTogetherThrottled: the Watch together keypad is throttled like
+// the kid keypad, so a wrong parent PIN cannot be brute-forced.
+func TestWatchTogetherThrottled(t *testing.T) {
+	e, advance := newKidEnvClock(t)
+	for range 5 {
+		resp, _ := e.do("POST", "/api/kid/watch-together", map[string]string{"pin": "0000"})
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("wrong parent pin: status %d, want 401", resp.StatusCode)
+		}
+	}
+	resp, m := e.do("POST", "/api/kid/watch-together", map[string]string{"pin": "9999"})
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("sixth try with the right PIN: status %d, want 429 (body %v)", resp.StatusCode, m)
+	}
+	advance(31 * time.Second)
+	resp, _ = e.do("POST", "/api/kid/watch-together", map[string]string{"pin": "9999"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("right PIN after the lockout: status %d, want 200", resp.StatusCode)
 	}
 }
 
@@ -1011,7 +1033,7 @@ func TestWatchBlockedNoLog(t *testing.T) {
 	}
 }
 
-// TestWatchTogetherNoPINExplained: with no grown-up PIN set, the keypad is
+// TestWatchTogetherNoPINExplained: with no parent PIN set, the keypad is
 // told in plain words and watch-together never unlocks.
 func TestWatchTogetherNoPINExplained(t *testing.T) {
 	e := newKidEnvNoPin(t)
@@ -1025,16 +1047,16 @@ func TestWatchTogetherNoPINExplained(t *testing.T) {
 		t.Fatalf("watch-together without a PIN: status %d, want 409", resp.StatusCode)
 	}
 	errMsg, _ := m["error"].(string)
-	if !strings.Contains(errMsg, "No grown-up PIN yet") {
+	if !strings.Contains(errMsg, "No parent PIN yet") {
 		t.Errorf("watch-together error = %q, want the no-PIN explanation", errMsg)
 	}
 	if resp, _ := e.do("GET", "/api/kid/me", nil); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("me after no-PIN watch-together: status %d, want 401 (never unlocked)", resp.StatusCode)
 	}
 
-	// Once the parent sets a PIN, the same endpoints agree it exists.
-	if err := e.bud.SetGrownupPIN(e.ctx, "9999"); err != nil {
-		t.Fatalf("SetGrownupPIN: %v", err)
+	// Once the parent makes a PIN, the same endpoints agree it exists.
+	if err := e.s.writeDashboardPIN("9999"); err != nil {
+		t.Fatalf("writeDashboardPIN: %v", err)
 	}
 	resp, m = e.do("GET", "/api/kid/grownup-pin", nil)
 	if resp.StatusCode != http.StatusOK || m["set"] != true {

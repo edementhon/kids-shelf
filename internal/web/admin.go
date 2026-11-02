@@ -40,65 +40,149 @@ var adminFiles embed.FS
 // /api/admin route of the parent page requires it. The parent page always
 // has a PIN: the kids can see the Grown-ups link, so with no PIN set the
 // gate answers "make one" instead of opening. The value is a random
-// server-side session token (adminSessions), never the PIN itself, so the
-// raw PIN cannot be replayed as a cookie.
+// server-side session token (kept in the session store), never the PIN
+// itself, so the raw PIN cannot be replayed as a cookie.
 const adminPinCookie = "ks_admin_pin"
 
-// adminSessionLifetime is how long a verified dashboard session lasts.
-const adminSessionLifetime = 12 * time.Hour
+// Dashboard sessions last until they are not used for adminSessionIdle, so
+// a parent stays signed in across restarts and updates without ever being
+// asked for the PIN again; the cookie's Max-Age is capped at the same
+// length by browsers, so the server re-sends it (at most once a day) to
+// keep a session that is used regularly from expiring.
+const (
+	adminSessionIdle      = 400 * 24 * time.Hour
+	adminSessionMaxAge    = 400 * 24 * time.Hour
+	adminSessionTouchTime = time.Hour
+	adminCookieRenewTime  = 24 * time.Hour
+)
 
-// adminSessions is the in-memory ledger of verified dashboard sessions: the
-// cookie holds the opaque token, the ledger holds its expiry. A restart
-// forgets every session (the parent simply enters the PIN again), and a PIN
-// change or clear drops them all.
-var adminSessions = newAdminSessionLedger()
-
-type adminSession struct {
-	expires time.Time
+// adminSessionRecord is one verified dashboard session as it is kept on
+// disk: only the sha-256 digest of the session token, never the token
+// itself, with when it was made and last used. Renewed is when the cookie
+// was last re-sent with a fresh Max-Age, so that happens at most once a
+// day per session.
+type adminSessionRecord struct {
+	Created  time.Time `json:"created"`
+	LastUsed time.Time `json:"last_used"`
+	Renewed  time.Time `json:"renewed"`
 }
 
-type adminSessionLedger struct {
+// adminSessionStore keeps verified dashboard sessions in
+// <DataDir>/dashboard-sessions.json so a restart or an update keeps every
+// parent signed in. The file holds only token digests, is written 0600
+// with a temp file plus rename, and is guarded by a mutex; the last-used
+// time is refreshed at most once an hour so no request writes the file.
+type adminSessionStore struct {
 	mu   sync.Mutex
-	toks map[string]adminSession
+	path string
+	toks map[string]adminSessionRecord
 }
 
-func newAdminSessionLedger() *adminSessionLedger {
-	return &adminSessionLedger{toks: make(map[string]adminSession)}
+func newAdminSessionStore(path string) *adminSessionStore {
+	st := &adminSessionStore{path: path, toks: map[string]adminSessionRecord{}}
+	st.load()
+	return st
 }
 
-func (l *adminSessionLedger) put(token string, s adminSession) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.toks[token] = s
+// load reads the sessions file; a missing or unreadable file starts empty.
+func (st *adminSessionStore) load() {
+	b, err := os.ReadFile(st.path)
+	if err != nil {
+		return
+	}
+	var m map[string]adminSessionRecord
+	if json.Unmarshal(b, &m) != nil {
+		return
+	}
+	if m != nil {
+		st.toks = m
+	}
 }
 
-// valid reports whether token is a live dashboard session, dropping it when
-// expired.
-func (l *adminSessionLedger) valid(token string, now time.Time) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	s, ok := l.toks[token]
+// writeLocked writes the session file atomically. Callers hold st.mu.
+func (st *adminSessionStore) writeLocked() error {
+	b, err := json.Marshal(st.toks)
+	if err != nil {
+		return err
+	}
+	tmp := st.path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, st.path)
+}
+
+// tokenDigest is the file key for a session token: its sha-256 digest, so
+// the raw token never reaches disk.
+func tokenDigest(token string) string {
+	d := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(d[:])
+}
+
+// put records a new session at now and writes the file.
+func (st *adminSessionStore) put(token string, now time.Time) error {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.toks[tokenDigest(token)] = adminSessionRecord{Created: now, LastUsed: now, Renewed: now}
+	return st.writeLocked()
+}
+
+// valid reports whether token is a live session, pruning it once it has
+// gone adminSessionIdle without use. When valid it refreshes the last-used
+// time (at most once an hour, writing the file only then) and reports
+// whether the cookie should be re-sent with a fresh Max-Age (at most once
+// a day per session).
+func (st *adminSessionStore) valid(token string, now time.Time) (renew, ok bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	key := tokenDigest(token)
+	rec, ok := st.toks[key]
 	if !ok {
-		return false
+		return false, false
 	}
-	if now.After(s.expires) {
-		delete(l.toks, token)
-		return false
+	if now.Sub(rec.LastUsed) >= adminSessionIdle {
+		delete(st.toks, key)
+		_ = st.writeLocked()
+		return false, false
 	}
-	return true
+	dirty := false
+	if now.Sub(rec.LastUsed) >= adminSessionTouchTime {
+		rec.LastUsed = now
+		dirty = true
+	}
+	if now.Sub(rec.Renewed) >= adminCookieRenewTime {
+		rec.Renewed = now
+		renew = true
+		dirty = true
+	}
+	if dirty {
+		st.toks[key] = rec
+		_ = st.writeLocked()
+	}
+	return renew, true
 }
 
-func (l *adminSessionLedger) drop(token string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.toks, token)
+// drop ends one session (Lock this page) and writes the file.
+func (st *adminSessionStore) drop(token string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	key := tokenDigest(token)
+	if _, ok := st.toks[key]; !ok {
+		return
+	}
+	delete(st.toks, key)
+	_ = st.writeLocked()
 }
 
-// clear invalidates every dashboard session (a PIN change or clear).
-func (l *adminSessionLedger) clear() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.toks = make(map[string]adminSession)
+// clear ends every session (a PIN change or a local reset).
+func (st *adminSessionStore) clear() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if len(st.toks) == 0 {
+		return
+	}
+	st.toks = map[string]adminSessionRecord{}
+	_ = st.writeLocked()
 }
 
 // Plain-words messages the dashboard shows; internal details never reach a
@@ -132,6 +216,7 @@ func init() {
 	register(func(s *Server) {
 		m := s.mux
 		m.HandleFunc("GET /admin", s.handleAdminPage)
+		m.HandleFunc("GET /admin/minutes", s.handleAdminMinutesPage)
 		m.HandleFunc("GET /admin/static/", s.handleAdminStatic)
 		m.HandleFunc("GET /api/admin/state", s.handleAdminState)
 		m.HandleFunc("GET /api/admin/address", s.handleAdminAddress)
@@ -149,7 +234,6 @@ func init() {
 		m.HandleFunc("POST /api/admin/pin/setup", s.handleAdminPINSetup)
 		m.HandleFunc("POST /api/admin/pin/reset", s.handleAdminPINReset)
 		m.HandleFunc("POST /api/admin/logout", s.handleAdminLogout)
-		m.HandleFunc("POST /api/admin/settings/grownup", s.handleAdminGrownupPIN)
 		m.HandleFunc("POST /api/admin/settings/dashboard", s.handleAdminDashboardPIN)
 		m.HandleFunc("POST /api/admin/settings/counter", s.handleAdminCounter)
 		m.HandleFunc("POST /api/admin/settings/default", s.handleAdminDefaultMinutes)
@@ -167,15 +251,23 @@ func init() {
 
 // dashboardPinPath is the file holding the parent PIN. It is a
 // single small JSON file owned by this area, not a database table: the web
-// package has no store handle in Deps, and the budget package owns every
-// settings table (its household row holds the grown-up watch-together PIN,
-// which stays separate per core.Kids).
+// package has no store handle in Deps.
 func (s *Server) dashboardPinPath() string {
 	dir := s.deps.DataDir
 	if dir == "" {
 		dir = os.TempDir()
 	}
 	return filepath.Join(dir, "dashboard-pin.json")
+}
+
+// dashboardSessionsPath is the file holding the verified dashboard
+// sessions, next to the PIN file (see adminSessionStore).
+func (s *Server) dashboardSessionsPath() string {
+	dir := s.deps.DataDir
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	return filepath.Join(dir, "dashboard-sessions.json")
 }
 
 // readDashboardPIN returns the stored parent PIN; "" means none is set yet
@@ -219,7 +311,7 @@ func (s *Server) writeDashboardPIN(pin string) error {
 }
 
 // pinsEqual compares two secrets in constant time by comparing their sha-256
-// digests, like the budget package does for the kid and grown-up PINs.
+// digests, like the budget package does for the kid PINs.
 func pinsEqual(a, b string) bool {
 	da := sha256.Sum256([]byte(a))
 	db := sha256.Sum256([]byte(b))
@@ -257,9 +349,20 @@ func (s *Server) requireAdminPIN(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	ck, err := r.Cookie(adminPinCookie)
-	if err != nil || !adminSessions.valid(ck.Value, s.now()) {
+	if err != nil {
 		writeError(w, http.StatusUnauthorized, msgEnterParentPIN)
 		return false
+	}
+	renew, ok := s.adminSessions.valid(ck.Value, s.now())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, msgEnterParentPIN)
+		return false
+	}
+	// A session used regularly keeps its cookie alive: re-send it with a
+	// fresh Max-Age at most once a day, so the browser never lets a cookie
+	// expire while the parent still uses the page.
+	if renew {
+		s.writeAdminCookie(w, ck.Value)
 	}
 	return true
 }
@@ -275,17 +378,28 @@ func (s *Server) clientIsLocal(r *http.Request) bool {
 
 // issueAdminCookie marks the request's client as a parent who verified the
 // dashboard PIN: a fresh random session token goes in the cookie and into
-// the in-memory ledger. The cookie is HttpOnly, SameSite=Strict and expires
-// with the session, so a leaked or guessed value cannot be replayed beyond
-// it and the PIN itself never sits in a cookie.
+// the session store. The cookie is HttpOnly, SameSite=Strict and the
+// session lives until it is unused for 400 days, so a leaked or guessed
+// value cannot be replayed beyond a session and the PIN itself never sits
+// in a cookie.
 func (s *Server) issueAdminCookie(w http.ResponseWriter) {
 	token, err := newSessionToken()
 	if err != nil {
 		writeError(w, 500, "Something went wrong. Try again.")
 		return
 	}
-	expires := s.now().Add(adminSessionLifetime)
-	adminSessions.put(token, adminSession{expires: expires})
+	if err := s.adminSessions.put(token, s.now()); err != nil {
+		writeError(w, http.StatusInternalServerError, msgSaveFailed)
+		return
+	}
+	s.writeAdminCookie(w, token)
+}
+
+// writeAdminCookie sets the session cookie with a fresh Max-Age, so a
+// parent stays signed in for a long time without the server re-sending it
+// on every request.
+func (s *Server) writeAdminCookie(w http.ResponseWriter, token string) {
+	expires := s.now().Add(adminSessionMaxAge)
 	http.SetCookie(w, &http.Cookie{
 		Name:     adminPinCookie,
 		Value:    token,
@@ -293,7 +407,7 @@ func (s *Server) issueAdminCookie(w http.ResponseWriter) {
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 		Expires:  expires,
-		MaxAge:   int(adminSessionLifetime.Seconds()),
+		MaxAge:   int(adminSessionMaxAge.Seconds()),
 	})
 }
 
@@ -418,6 +532,30 @@ var adminPage = sync.OnceValues(func() (string, error) {
 	return versionAssets(page, adminFiles, "static/admin", "/admin/static/")
 })
 
+// handleAdminMinutesPage serves the phone-first Minutes page shell to
+// everyone: the page shows a PIN box (numeric keypad) until a session
+// exists, and all data is behind requireAdminPIN, never the shell.
+func (s *Server) handleAdminMinutesPage(w http.ResponseWriter, r *http.Request) {
+	page, err := minutesPage()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "This page is missing from this copy.")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	io.WriteString(w, page)
+}
+
+// minutesPage is the Minutes page shell with its asset URLs versioned (see
+// versionAssets).
+var minutesPage = sync.OnceValues(func() (string, error) {
+	b, err := adminFiles.ReadFile("static/admin/minutes.html")
+	if err != nil {
+		return "", err
+	}
+	return versionAssets(string(b), adminFiles, "static/admin", "/admin/static/")
+})
+
 // versionAssets returns page with every quoted URL prefix+name of a file
 // in dir of files given a content hash in its query, like practiceAsset:
 // the page shells are never cached but their scripts and stylesheets are
@@ -480,6 +618,8 @@ func (s *Server) handleAdminStatic(w http.ResponseWriter, r *http.Request) {
 		ctype = "text/css; charset=utf-8"
 	case strings.HasSuffix(name, ".html"):
 		ctype = "text/html; charset=utf-8"
+	case strings.HasSuffix(name, ".webmanifest"):
+		ctype = "application/manifest+json"
 	case strings.HasSuffix(name, ".mp4"):
 		ctype = "video/mp4"
 	}
@@ -539,9 +679,6 @@ type adminSettings struct {
 	// the chosen hardware encoder, "this computer's processor" for
 	// software, or "not checked yet" before the first selection.
 	VideoEncoder string `json:"video_encoder"`
-	// GrownupPINSet says whether a watch-together PIN exists, so the
-	// Settings row can show "A PIN is set" or "No PIN yet" (never the PIN).
-	GrownupPINSet bool `json:"grownup_pin_set"`
 }
 
 type adminUpdate struct {
@@ -654,7 +791,6 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 	if s.deps.VideoEncoder != nil {
 		st.Settings.VideoEncoder = s.deps.VideoEncoder()
 	}
-	st.Settings.GrownupPINSet = b.GrownupPINSet(ctx)
 	// Updates (may be nil: plain words tell the parent this copy has none).
 	st.Updates.Message = msgUpdatesOff
 	if s.deps.Updates != nil {
@@ -979,10 +1115,10 @@ func (s *Server) handleAdminAdjust(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msgNoSuchKid)
 		return
 	}
-	// Adjust clamps at zero (allowNegative=false): the minus buttons on the
-	// page stop at 0, so a parent can never push a kid into debt by
-	// overshooting.
-	today, saved, err := b.Adjust(r.Context(), core.KidID(req.Kid), budget.DefaultCounter, req.Delta, false)
+	// Adjust allows going below zero: a parent can take minutes away past
+	// today and saved, and the debt comes out of tomorrow's minutes (the
+	// legacy portal's behaviour).
+	today, saved, err := b.Adjust(r.Context(), core.KidID(req.Kid), budget.DefaultCounter, req.Delta, true)
 	if err != nil {
 		serviceError(w, err)
 		return
@@ -1124,7 +1260,7 @@ func (s *Server) handleAdminPINReset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, msgSaveFailed)
 		return
 	}
-	adminSessions.clear()
+	s.adminSessions.clear()
 	pinThrottle.ok(realmDashboard, s.clientIP(r), "")
 	s.clearAdminCookie(w)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1132,42 +1268,13 @@ func (s *Server) handleAdminPINReset(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(adminPinCookie); err == nil {
-		adminSessions.drop(c.Value)
+		s.adminSessions.drop(c.Value)
 	}
 	s.clearAdminCookie(w)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // ─── settings ──────────────────────────────────────────────────────────────
-
-// handleAdminGrownupPIN sets or clears the watch-together PIN (playback with
-// it is free and unmetered). Empty clears it.
-func (s *Server) handleAdminGrownupPIN(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdminPIN(w, r) {
-		return
-	}
-	b := s.deps.Budget
-	if b == nil {
-		writeError(w, http.StatusServiceUnavailable, msgAdminServiceDown)
-		return
-	}
-	var req struct {
-		PIN string `json:"pin"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "That didn't look right. Try again.")
-		return
-	}
-	if !validPIN(req.PIN, true) {
-		writeError(w, http.StatusBadRequest, msgPINFourDigits)
-		return
-	}
-	if err := b.SetGrownupPIN(r.Context(), req.PIN); err != nil {
-		serviceError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
 
 // handleAdminDashboardPIN changes the parent PIN; it can never clear it (an
 // empty PIN answers 400: the parent page always needs one). Changing it
@@ -1199,7 +1306,7 @@ func (s *Server) handleAdminDashboardPIN(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, msgSaveFailed)
 		return
 	}
-	adminSessions.clear()
+	s.adminSessions.clear()
 	s.issueAdminCookie(w)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

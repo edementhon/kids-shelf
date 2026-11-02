@@ -74,7 +74,6 @@ func TestAdminQREncodesConnect(t *testing.T) {
 func connectApp(t *testing.T, now *time.Time) http.Handler {
 	t.Helper()
 	pinThrottle.reset()
-	adminSessions.clear()
 	connectPings.reset()
 	t.Cleanup(connectPings.reset)
 	return NewApp("connect-test", Deps{

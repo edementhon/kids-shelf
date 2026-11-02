@@ -194,21 +194,6 @@ func (b *Budget) FindKid(ctx context.Context, name string) (core.KidID, bool, er
 	return core.KidID(id), true, nil
 }
 
-// SetGrownupPIN implements core.Kids: it sets the household watch-together
-// PIN; playback with it is free and unmetered, and it stays separate from
-// the optional dashboard PIN.
-func (b *Budget) SetGrownupPIN(ctx context.Context, pin string) error {
-	tx, err := b.begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE household SET grownup_pin = ? WHERE id = 1`, pin); err != nil {
-		return fmt.Errorf("budget: set grown-up PIN: %w", err)
-	}
-	return tx.Commit()
-}
-
 // ListKids returns the registered kids ordered by display name. A kid
 // without an animal yet gets one here, stored in the same transaction that
 // read the list, so it is chosen once and every later listing agrees.
@@ -366,31 +351,6 @@ func (b *Budget) VerifyKidPIN(ctx context.Context, id core.KidID, pin string) bo
 		return false
 	}
 	return stored != "" && pinsEqual(stored, pin)
-}
-
-// VerifyGrownupPIN reports whether pin is the household watch-together PIN,
-// compared in constant time like VerifyKidPIN. An unset grown-up PIN never
-// verifies, not even against an empty pin, so the shelf cannot unlock a
-// household that has not configured one.
-func (b *Budget) VerifyGrownupPIN(ctx context.Context, pin string) bool {
-	var stored string
-	err := b.store.DB().QueryRowContext(ctx, `SELECT grownup_pin FROM household WHERE id = 1`).Scan(&stored)
-	if err != nil {
-		return false
-	}
-	return stored != "" && pinsEqual(stored, pin)
-}
-
-// GrownupPINSet reports whether the household has configured the watch-
-// together PIN. The kid page uses it to explain the keypad when no PIN
-// exists yet, instead of showing a wrong-PIN error.
-func (b *Budget) GrownupPINSet(ctx context.Context) bool {
-	var stored string
-	err := b.store.DB().QueryRowContext(ctx, `SELECT grownup_pin FROM household WHERE id = 1`).Scan(&stored)
-	if err != nil {
-		return false
-	}
-	return stored != ""
 }
 
 // pinsEqual compares two secrets in constant time by comparing their sha-256
