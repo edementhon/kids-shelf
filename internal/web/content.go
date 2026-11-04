@@ -117,6 +117,7 @@ var contentPage = sync.OnceValues(func() (string, error) {
 	}
 	page := strings.Replace(string(b), "__KS_OS_PATH__", exampleMediaPath(), 1)
 	page = strings.Replace(page, "__KS_OS_LIBRARY_PATH__", exampleLibraryPath(), 1)
+	page = strings.Replace(page, "__KS_OS_DRIVE_PATH__", exampleDriveFolder(), 1)
 	return versionAssets(page, contentFiles, "static/content", "/admin/content/static/")
 })
 
@@ -232,7 +233,12 @@ func (s *Server) handleContentYouTubeList(w http.ResponseWriter, r *http.Request
 		}
 		out = append(out, row)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"jobs": out})
+	folder, err := s.videoFolderView(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": out, "folder": folder})
 }
 
 // handleContentYouTubeAdd enqueues a YouTube download for a video, playlist

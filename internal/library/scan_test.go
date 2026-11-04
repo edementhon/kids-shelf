@@ -234,6 +234,11 @@ func TestScannerSkipRules(t *testing.T) {
 	writeFile(t, filepath.Join(root, "#hidden-show", "epz.mp4"), "v")
 	writeFile(t, filepath.Join(root, "@eaDir", "syno.mp4"), "v")
 	writeFile(t, filepath.Join(root, ".dotdir", "epw.mp4"), "v")
+	// Kids Shelf's own media folder, as a top-level show folder and deeper
+	// down (the parent added the folder that holds it): its copies are on
+	// the shelf already.
+	writeFile(t, filepath.Join(root, "kids-shelf media", "library", "0123abcd.mp4"), "v")
+	writeFile(t, filepath.Join(root, "Bluey", "kids-shelf media", "library", "4567cdef.mp4"), "v")
 	if err := lib.AddSource(context.Background(), root, core.SourceFolder, nil); err != nil {
 		t.Fatalf("AddSource: %v", err)
 	}

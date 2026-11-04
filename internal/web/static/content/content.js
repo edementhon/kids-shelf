@@ -350,11 +350,74 @@ async function loadYouTube() {
   try {
     const d = await api('/api/admin/content/youtube');
     store.ytJobs = d.jobs || [];
+    store.folder = d.folder || null;
     renderYouTube();
+    renderFolder();
   } catch (e) {
     loadFailed($('ytjobs'), e);
   }
 }
+
+// ── where new videos are saved ──────────────────────────────────────────────
+
+/* renderFolder says where downloads and converted copies go, and whether
+   a chosen folder is missing right now (its drive unplugged). */
+function renderFolder() {
+  const f = store.folder;
+  if (!f) return;
+  const free = f.free >= 0 ? ` (${bytes(f.free)} free)` : '';
+  $('vfwhere').innerHTML = f.missing
+    ? `New videos are saved in <b>${esc(f.path)}</b>, but that folder isn’t there right now. Plug in its drive: downloads wait until it’s back.`
+    : `New videos are saved in <b>${esc(f.path)}</b>${esc(free)}. That’s where downloads go, and the copies Kids Shelf makes of videos that don’t play everywhere.`;
+  $('vfwhere').classList.toggle('err', !!f.missing);
+  $('vfdefault').classList.toggle('hidden', !f.chosen);
+}
+
+function showFolderForm(open) {
+  $('vfform').classList.toggle('hidden', !open);
+  $('vfhelp').classList.toggle('hidden', !open);
+  $('vfbtns').classList.toggle('hidden', open);
+  if (open) {
+    $('vfpath').value = (store.folder && store.folder.chosen) || '';
+    $('vfpath').focus();
+  }
+}
+
+async function saveFolder(path) {
+  const d = await post('/api/admin/content/videofolder', { path });
+  store.folder = d.folder;
+  renderFolder();
+  return d.folder;
+}
+
+$('vfchange').addEventListener('click', () => showFolderForm(true));
+$('vfcancel').addEventListener('click', () => showFolderForm(false));
+
+$('vfform').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const path = $('vfpath').value.trim();
+  if (!path) {
+    toast('Enter the path to the folder first.', 'err');
+    $('vfpath').focus();
+    return;
+  }
+  try {
+    const f = await saveFolder(path);
+    showFolderForm(false);
+    toast(`New videos are saved in ${f.path} from now on.`, 'ok');
+  } catch (e) {
+    if (!e.pin) toast(e.message, 'err');
+  }
+});
+
+$('vfdefault').addEventListener('click', async () => {
+  try {
+    const f = await saveFolder('');
+    toast(`New videos are saved in ${f.path} again. Videos already saved stay where they are.`, 'ok');
+  } catch (e) {
+    if (!e.pin) toast(e.message, 'err');
+  }
+});
 
 $('ytjobs').addEventListener('click', ev => {
   const b = ev.target.closest('[data-retry]');

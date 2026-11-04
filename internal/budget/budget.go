@@ -149,6 +149,16 @@ UPDATE kids SET animal = (
 ALTER TABLE household ADD COLUMN games_on INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE household ADD COLUMN games_weekly REAL NOT NULL DEFAULT 30;
 ALTER TABLE household ADD COLUMN games_day INTEGER NOT NULL DEFAULT 2;`,
+}, {
+	// video_folder is the folder a parent chose for new videos (YouTube
+	// downloads and converted copies go into a "kids-shelf media" folder
+	// inside it); '' is the standard media folder. It lives on the
+	// household row with the Safari and graphics-chip settings, which the
+	// ingest worker also reads through this package.
+	Owner:   "budget",
+	Version: 6,
+	SQL: `
+ALTER TABLE household ADD COLUMN video_folder TEXT NOT NULL DEFAULT '';`,
 }}
 
 // Budget owns the kid profiles and their screen-time accounts, backed by the
@@ -549,6 +559,31 @@ func (b *Budget) SafariScreens(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("budget: read safari screens: %w", err)
 	}
 	return v != 0, nil
+}
+
+// SetVideoFolder stores the folder a parent chose for new videos; ""
+// returns to the standard media folder. The caller checks the folder.
+func (b *Budget) SetVideoFolder(ctx context.Context, folder string) error {
+	if _, err := b.store.DB().ExecContext(ctx,
+		`UPDATE household SET video_folder = ? WHERE id = 1`, folder); err != nil {
+		return fmt.Errorf("budget: set video folder: %w", err)
+	}
+	return nil
+}
+
+// VideoFolder returns the folder a parent chose for new videos, or "" for
+// the standard media folder.
+func (b *Budget) VideoFolder(ctx context.Context) (string, error) {
+	var v string
+	err := b.store.DB().QueryRowContext(ctx,
+		`SELECT video_folder FROM household WHERE id = 1`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("budget: read video folder: %w", err)
+	}
+	return v, nil
 }
 
 // SetHWEncode switches the household's "use the graphics chip to convert

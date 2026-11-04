@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edementhon/kids-shelf/internal/launch"
+	"github.com/edementhon/kids-shelf/internal/paths"
 	"github.com/edementhon/kids-shelf/internal/store"
 	"github.com/edementhon/kids-shelf/internal/update"
 )
@@ -57,7 +58,7 @@ func removeFixture(t *testing.T, withMedia bool) (root, data, media string) {
 		}
 	}
 	if withMedia {
-		media = filepath.Join(home, "Videos", mediaDirName)
+		media = filepath.Join(home, "Videos", paths.MediaDirName)
 		if err := os.MkdirAll(filepath.Join(media, "episodes"), 0o755); err != nil {
 			t.Fatal(err)
 		}

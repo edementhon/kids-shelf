@@ -35,11 +35,6 @@ import (
 // the launch package's LockInstance contract.
 const instanceLockFileName = "instance.lock"
 
-// mediaDirName is the app-owned default media folder (internal/paths keeps
-// the same name). Removal deletes it only when it is the configured media
-// directory; imported or custom folders are never touched.
-const mediaDirName = "kids-shelf media"
-
 // removeLockWait bounds how long the remover waits for the supervisor and
 // its child to release both locks; a variable so tests can shorten it.
 var removeLockWait = time.Minute
@@ -390,7 +385,7 @@ func removeDefaultMedia(o RemoveOptions, mediaDir string) error {
 	if resolved != paths.DefaultMediaDir(o.DataDir, "") {
 		return nil // a custom media directory: never removed
 	}
-	if filepath.Base(resolved) != mediaDirName {
+	if filepath.Base(resolved) != paths.MediaDirName {
 		return nil
 	}
 	if sameDir(resolved, o.DataDir) || sameDir(resolved, o.InstallDir) {

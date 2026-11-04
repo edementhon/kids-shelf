@@ -36,6 +36,7 @@ import (
 	"github.com/edementhon/kids-shelf/internal/core"
 	"github.com/edementhon/kids-shelf/internal/disk"
 	"github.com/edementhon/kids-shelf/internal/jobs"
+	"github.com/edementhon/kids-shelf/internal/paths"
 	"github.com/edementhon/kids-shelf/internal/proc"
 	"github.com/edementhon/kids-shelf/internal/tools"
 )
@@ -130,6 +131,13 @@ const (
 // looks - so nothing is known about the file yet. internal/app resumes the
 // jobs paused with exactly these words once the helpers start again.
 const MsgHelpersWaiting = "Waiting for Kids Shelf's video tools to start. This video will continue on its own."
+
+// MsgVideoFolderMissing is the pause reason of a job whose video file goes
+// to the folder a parent chose for new videos while that folder is not
+// there (its drive unplugged, say). Nothing is written anywhere else in the
+// meantime; internal/app resumes the jobs paused with exactly these words
+// once the folder is back or the parent picks another.
+const MsgVideoFolderMissing = "The folder for new videos isn't there right now. Connect its drive and this video continues on its own, or choose another folder under Add from YouTube."
 
 // payload is the per-job state persisted in the jobs table, grown stage by
 // stage, so a resumed job picks up exactly where it stopped.
@@ -375,6 +383,9 @@ type Worker struct {
 	// nil means on (the default). When it is off, remux-only plans are
 	// final in place and never grow an improvement job.
 	safari func(ctx context.Context) (bool, error)
+	// videoFolder reports the folder a parent chose for new videos, ""
+	// for the standard media folder (see videoDir); nil means "".
+	videoFolder func(ctx context.Context) (string, error)
 	// hw is the process-wide hardware encoder selection: probed lazily
 	// before the first full re-encode, cached, and cut off after three
 	// consecutive failures (see hwenc.go).
@@ -445,6 +456,41 @@ func (w *Worker) WithReservations(r *disk.Reservations) *Worker {
 func (w *Worker) WithSafariSetting(safari func(ctx context.Context) (bool, error)) *Worker {
 	w.safari = safari
 	return w
+}
+
+// WithVideoFolder wires the household's "save new videos in" folder into
+// the worker (internal/app passes the budget setting). Converted copies and
+// YouTube downloads made after a change go to the new folder; finished
+// files stay where they are, and thumbnails stay in the media folder.
+func (w *Worker) WithVideoFolder(folder func(ctx context.Context) (string, error)) *Worker {
+	w.videoFolder = folder
+	return w
+}
+
+// videoDir is the folder a new video file goes to, made if missing: the
+// media folder's library, or the library inside the "kids-shelf media"
+// folder of the folder a parent chose. A chosen folder that is not there
+// pauses the job (MsgVideoFolderMissing) instead of being created: on a
+// drive that is not plugged in, that would quietly fill the computer's own
+// disk.
+func (w *Worker) videoDir(ctx context.Context) (string, error) {
+	dir := w.libraryDir()
+	if w.videoFolder != nil {
+		folder, err := w.videoFolder(ctx)
+		if err != nil {
+			return "", errors.New(msgGeneric)
+		}
+		if folder != "" {
+			if st, err := os.Stat(folder); err != nil || !st.IsDir() {
+				return "", &pauseError{reason: MsgVideoFolderMissing}
+			}
+			dir = filepath.Join(paths.MediaIn(folder), "library")
+		}
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", errors.New(msgGeneric)
+	}
+	return dir, nil
 }
 
 // Run claims and processes jobs of kind "ingest" until ctx is done, on
@@ -896,20 +942,27 @@ func issueFixFor(action Action) (issue, fix string) {
 // reason fails the job with the keep-as-is words: the episode stays
 // published playing its original, it is never unpublished.
 func (w *Worker) stageConvert(ctx context.Context, jobID string, pl *payload) (string, error) {
-	tmp := filepath.Join(w.libraryDir(), "."+string(pl.EpisodeID)+".tmp.mp4")
-	final := filepath.Join(w.libraryDir(), string(pl.EpisodeID)+".mp4")
+	// The folder is looked up once, so the space check, the temp file and
+	// the finished file all use the same drive even if a parent changes
+	// the folder while this runs; Output keeps the finished path.
+	dir, err := w.videoDir(ctx)
+	if err != nil {
+		w.resv.Release(jobID)
+		return "", err
+	}
+	tmp := filepath.Join(dir, "."+string(pl.EpisodeID)+".tmp.mp4")
+	final := filepath.Join(dir, string(pl.EpisodeID)+".mp4")
 	fail := func(err error) (string, error) {
 		os.Remove(tmp)
 		w.resv.Release(jobID)
 		return "", err
 	}
 	if !w.reserved(jobID) {
-		if err := w.reserve(jobID, pl); err != nil {
+		if err := w.reserve(jobID, pl, dir); err != nil {
 			return fail(err)
 		}
 	}
 	var out []byte
-	var err error
 	switch pl.Action {
 	case ActionKeep:
 		err = copyFile(ctx, pl.File, tmp)
@@ -993,8 +1046,9 @@ func (w *Worker) reserved(jobID string) bool {
 // duration at 8.16 Mbit/s. An AUDIO job copies the video uncapped, so its
 // bound is the source video's own bytes plus the 160 kbit/s audio. Every
 // bound carries a 10% margin plus a fixed 50 MB of container and index
-// slack. A full disk pauses the job instead of failing it.
-func (w *Worker) reserve(jobID string, pl *payload) error {
+// slack, on the drive of dir, where the file is written. A full disk
+// pauses the job instead of failing it.
+func (w *Worker) reserve(jobID string, pl *payload, dir string) error {
 	st, err := os.Stat(pl.File)
 	if err != nil {
 		return errors.New(msgGeneric)
@@ -1006,7 +1060,7 @@ func (w *Worker) reserve(jobID string, pl *payload) error {
 	} else if pl.Action == ActionFull {
 		worst = reservedBytes(pl)
 	}
-	if err := w.resv.Reserve(jobID, worst, w.mediaDir); err != nil {
+	if err := w.resv.Reserve(jobID, worst, dir); err != nil {
 		var ns *disk.ErrNoSpace
 		if errors.As(err, &ns) {
 			return &pauseError{reason: msgDiskFull}

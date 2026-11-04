@@ -9,8 +9,11 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime/debug"
 	"time"
+
+	"github.com/edementhon/kids-shelf/internal/ingest"
 )
 
 // Worker pacing: how long a worker waits between runs while healthy, and
@@ -57,10 +60,39 @@ func workersOf(a *App) []worker {
 	}
 }
 
-// scan enqueues new files from the registered media sources. It is a single
-// pass; the loop gives it its 5-minute cadence.
+// scan enqueues new files from the registered media sources, and lets the
+// videos that waited for a missing "save new videos in" folder continue
+// once it is back (resumeVideoFolder). It is a single pass; the loop gives
+// it its 5-minute cadence.
 func (a *App) scan(ctx context.Context) error {
+	if err := a.resumeVideoFolder(ctx); err != nil {
+		logf("%v", err)
+	}
 	return a.library.Scan(ctx, a.ingestQ)
+}
+
+// resumeVideoFolder puts the ingest jobs paused with MsgVideoFolderMissing
+// back in the queue when the folder chosen for new videos is there again
+// (or the standard folder is chosen). A job whose folder is still missing
+// pauses again on its next try, so a stale answer costs one claim.
+func (a *App) resumeVideoFolder(ctx context.Context) error {
+	folder, err := a.budget.VideoFolder(ctx)
+	if err != nil {
+		return err
+	}
+	if folder != "" {
+		if st, err := os.Stat(folder); err != nil || !st.IsDir() {
+			return nil
+		}
+	}
+	n, err := a.queue.ResumePaused(ingest.JobKind, ingest.MsgVideoFolderMissing)
+	if err != nil {
+		return fmt.Errorf("resume videos waiting for their folder: %w", err)
+	}
+	if n > 0 {
+		logf("the folder for new videos is there; %d videos that waited for it continue", n)
+	}
+	return nil
 }
 
 // updateYtDlp runs the daily release check. EnsureLatest's once-a-day gate

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/edementhon/kids-shelf/internal/core"
+	"github.com/edementhon/kids-shelf/internal/paths"
 )
 
 // Media sources and the periodic scan live here. A source is one root
@@ -107,9 +108,12 @@ var videoExts = []string{".mp4", ".m4v", ".mkv", ".webm", ".avi", ".mov", ".ts"}
 
 // skippedName reports whether a directory or file entry is ignored: names
 // starting with '#' (legacy ignore marks), the Synology @eaDir metadata
-// directories and hidden entries.
+// directories, hidden entries, and Kids Shelf's own media folders
+// (paths.MediaDirName), whose converted copies and downloads are on the
+// shelf already: a parent may add a folder that holds one (their Videos
+// folder, or the drive they chose for new videos).
 func skippedName(name string) bool {
-	return strings.HasPrefix(name, "#") || name == "@eaDir" || strings.HasPrefix(name, ".")
+	return strings.HasPrefix(name, "#") || name == "@eaDir" || strings.HasPrefix(name, ".") || name == paths.MediaDirName
 }
 
 func isVideo(name string) bool {

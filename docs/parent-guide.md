@@ -208,8 +208,9 @@ number address after a restart), connect that device again the same way.
 
 On the parent page, click **Add videos & libraries**:
 
-- **Add from YouTube**: paste a link to a video, a playlist or a channel and click **Add**.
-  Kids Shelf downloads every video and keeps a copy, so the kids never see YouTube itself.
+- **Add from YouTube**: paste a link to a video, a playlist or a whole channel and click **Add**.
+  Kids Shelf downloads every video and keeps its own copy, so the kids never see YouTube itself:
+  no suggestions, no comments, no ads. You don't need any other downloader.
 - **Add a folder or NAS share**: type the path to a folder of videos and click **Add folder**.
   Each folder inside it becomes a show (for example `Kids/Bluey/` and `Kids/Octonauts/`), and
   videos lying loose in it form a show named after the folder. Kids Shelf tells you how many
@@ -218,6 +219,21 @@ On the parent page, click **Add videos & libraries**:
   drive or NAS is unplugged, its row says so.
 - **Offline libraries**: search for a library (Wikipedia, Vikidia, PhET science simulations and
   others) and click **Download**.
+
+### Where new videos are saved
+
+Under **Add from YouTube** the page says where new videos are saved: the YouTube downloads, and
+the copies Kids Shelf makes of videos that don't play everywhere. At first that is a
+`kids-shelf media` folder in your Videos folder (Movies on a Mac). To use a bigger drive, plug it
+in, click **Change where videos are saved**, type the path to the drive or a folder on it (for
+example `E:\` on Windows, `/Volumes/MyDrive` on a Mac or `/media/you/MyDrive` on Linux) and
+click **Save**. Kids Shelf makes its own `kids-shelf media` folder there. Videos already saved
+stay where they are and keep playing; offline libraries stay in the first folder.
+
+If that drive is unplugged, new downloads wait and the page says the folder isn't there right
+now; plug it back in and they continue by themselves within a few minutes. **Use the standard
+folder** goes back to the Videos folder. Removing Kids Shelf never deletes the folder on that
+drive; delete it yourself if you no longer want those videos.
 
 ### Library files you already have
 
@@ -242,7 +258,8 @@ play silent, or HEVC video, which may play black) appears on the shelf marked **
 while Kids Shelf makes a better copy in the background; the quick fixes come first and the long
 ones last, and the episode starts playing once its copy is done. The **Fixing videos** card on
 the **Add videos & libraries** page shows how many are waiting. Kids Shelf never changes or
-deletes your own files. Videos downloaded from YouTube live in Kids Shelf's own folder.
+deletes your own files. Videos downloaded from YouTube and the copies live in Kids Shelf's own
+folder, which can be on another drive (see "Where new videos are saved" above).
 
 Making those copies is hard work for the computer. Kids Shelf uses the computer's graphics chip
 when it can, which is much faster; Settings on the parent page shows which it uses under

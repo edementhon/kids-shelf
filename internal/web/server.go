@@ -107,6 +107,10 @@ type Deps struct {
 	// name from the ingest worker's cached hardware selection (nil: the
 	// parent page says the conversion has not been checked yet).
 	VideoEncoder func() string
+	// VideoFolderChanged runs after a parent saves the folder for new
+	// videos, so videos that waited for a missing folder continue (nil:
+	// they continue on the app's next library scan).
+	VideoFolderChanged func()
 	// ProxyToken is the secret the supervisor's proxy presents with the
 	// real client address (X-KS-Token, X-KS-Client). Empty: requests are
 	// never proxied, so client addresses come from the connection only.

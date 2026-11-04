@@ -18,8 +18,12 @@ import (
 )
 
 const (
-	dataDirName  = "kids-shelf"
-	mediaDirName = "kids-shelf media"
+	dataDirName = "kids-shelf"
+	// MediaDirName is the folder Kids Shelf makes for its own media: in the
+	// user's Videos or Movies folder by default, and inside the folder a
+	// parent chose for new videos (MediaIn). The library scan never looks
+	// inside a folder with this name, so its copies are never found twice.
+	MediaDirName = "kids-shelf media"
 	videosFolder = "Videos"
 	moviesFolder = "Movies"
 )
@@ -111,7 +115,13 @@ func mediaDirFor(goos, home, fallback, override string) string {
 	if _, err := os.Stat(wellKnown); err != nil {
 		return fallback
 	}
-	return filepath.Join(wellKnown, mediaDirName)
+	return filepath.Join(wellKnown, MediaDirName)
+}
+
+// MediaIn is the media folder Kids Shelf makes inside folder, a folder a
+// parent chose for new videos.
+func MediaIn(folder string) string {
+	return filepath.Join(folder, MediaDirName)
 }
 
 func first(override []string) string {

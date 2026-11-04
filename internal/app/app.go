@@ -455,6 +455,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	ingestWorker.WithHardwareSetting(func(ctx context.Context) (bool, error) {
 		return b.HWEncode(ctx)
 	})
+	ingestWorker.WithVideoFolder(b.VideoFolder)
 
 	updater := youtube.NewUpdater(dataDir, "")
 	var qjsPath, ffmpegDir string
@@ -573,6 +574,13 @@ func (a *App) Deps() web.Deps {
 		DataDir:  a.dataDir,
 		Now:      time.Now,
 		LANName:  os.Getenv("KS_LAN_NAME"),
+	}
+	// VideoFolderChanged lets the videos that waited for a missing folder
+	// continue at once when a parent picks a folder that is there.
+	d.VideoFolderChanged = func() {
+		if err := a.resumeVideoFolder(a.ctx); err != nil {
+			logf("%v", err)
+		}
 	}
 	// A nil *kiwix.Server assigned to the interface would make a non-nil
 	// interface and the /kiwix/ routes would treat libraries as available

@@ -788,6 +788,58 @@ func TestYouTubeDownloadNeverInPlace(t *testing.T) {
 	}
 }
 
+// TestYouTubeDownloadGoesToChosenFolder: with a folder chosen for new
+// videos, the downloaded copy lands in the "kids-shelf media" folder inside
+// it (the thumbnail stays in the media folder). While that folder is not
+// there (a drive unplugged) the job pauses with MsgVideoFolderMissing and
+// creates nothing; once the folder is back, the resumed job finishes there.
+func TestYouTubeDownloadGoesToChosenFolder(t *testing.T) {
+	helpers, _ := fixtureEnv(t)
+	f := makeFixtures(t)
+	h := newHarness(t, helpers)
+	drive := filepath.Join(t.TempDir(), "USB drive")
+	h.w.WithVideoFolder(func(context.Context) (string, error) { return drive, nil })
+	id, err := h.iq.Enqueue(context.Background(), f.keep, core.Source{
+		Kind:  core.SourceYouTube,
+		Path:  "https://www.youtube.com/watch?v=abc123",
+		Title: testTitle,
+		Show:  testShow,
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	h.runToEnd(t, id)
+	j, err := h.q.Get(id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if j.State != jobs.StatePaused || j.Error != MsgVideoFolderMissing {
+		t.Fatalf("with the drive missing: state %s, error %q; want paused with MsgVideoFolderMissing", j.State, j.Error)
+	}
+	if _, err := os.Stat(drive); !os.IsNotExist(err) {
+		t.Fatalf("the missing drive's folder was created (stat err %v)", err)
+	}
+
+	if err := os.Mkdir(drive, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := h.q.ResumePaused(JobKind, MsgVideoFolderMissing); err != nil || n != 1 {
+		t.Fatalf("ResumePaused = %d, %v; want 1", n, err)
+	}
+	h.runToEnd(t, id)
+	ep, _ := suit(t, h, id)
+	if want := filepath.Join(drive, "kids-shelf media", "library", filepath.Base(ep.File)); ep.File != want {
+		t.Errorf("File = %q, want %q", ep.File, want)
+	}
+	if got := sha256File(t, ep.File); got != sha256File(t, f.keep) {
+		t.Error("the copy in the chosen folder does not match the download bytes")
+	}
+	if ep.Thumb != "" && !strings.HasPrefix(ep.Thumb, h.mediaDir) {
+		t.Errorf("Thumb = %q, want it in the media folder %s", ep.Thumb, h.mediaDir)
+	}
+}
+
 // TestPipelineInplaceWithLeadingCoverArt runs an in-place-eligible MP4 whose
 // first listed stream is an attached picture - the layout some phones and
 // tools write - end to end: verify must judge the selectStreams H.264
@@ -2117,7 +2169,7 @@ func TestReserveBound(t *testing.T) {
 	pl.File = file
 	reserved := func(t *testing.T) uint64 {
 		t.Helper()
-		if err := h.w.reserve(id, &pl); err != nil {
+		if err := h.w.reserve(id, &pl, h.mediaDir); err != nil {
 			t.Fatalf("reserve: %v", err)
 		}
 		j, err := h.q.Get(id)

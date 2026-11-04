@@ -233,13 +233,16 @@ function showCard(s) {
 }
 
 function renderBins() {
+  let shows = 0;
   for (const bin of ['fun', 'learning', 'free']) {
     const list = STATE.bins[bin] || [];
+    shows += list.length;
     const wrap = $(`cards-${bin}`);
     wrap.innerHTML = list.length
       ? list.map(showCard).join('')
       : `<p class="placeholder">No shows here yet.</p>`;
   }
+  $('binsempty').classList.toggle('hidden', shows > 0);
 }
 
 function binOf(showID) {
@@ -707,12 +710,13 @@ async function quitApp() {
 async function removeApp() {
   let info;
   try {
-    info = await api('/api/admin/remove'); // {data_dir, media_dir} for the confirmation
+    info = await api('/api/admin/remove'); // {data_dir, media_dir, video_dir?} for the confirmation
   } catch (e) { return; }
   const del = $('removedata').checked;
   const dirs = [...new Set([info.data_dir, info.media_dir].filter(Boolean))];
   const folders = dirs.map(d => '\n  ' + d).join('');
-  const own = 'Folders of your own videos that you added are never touched.';
+  const own = 'Folders of your own videos that you added are never touched.'
+    + (info.video_dir ? ` Videos saved in ${info.video_dir} stay there; delete that folder yourself if you no longer want them.` : '');
   const text = del
     ? `Remove Kids Shelf AND delete its videos and settings?\n\nThe program is deleted, and so is everything inside ${dirs.length === 1 ? 'this folder' : 'these folders'}:${folders}\n\nThat includes the kids, their minutes and PINs, and the videos Kids Shelf saved. ${own}\n\nThis cannot be undone.`
     : `Remove Kids Shelf from this computer?\n\nThe program is deleted. ${dirs.length === 1 ? 'This folder stays, with the videos and settings in it' : 'These folders stay, with the videos and settings in them'}:${folders}\n\n${own}`;

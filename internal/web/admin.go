@@ -26,6 +26,7 @@ import (
 	"github.com/edementhon/kids-shelf/internal/firewall"
 	"github.com/edementhon/kids-shelf/internal/lanaddr"
 	"github.com/edementhon/kids-shelf/internal/library"
+	"github.com/edementhon/kids-shelf/internal/paths"
 	"github.com/edementhon/kids-shelf/internal/update"
 )
 
@@ -1597,10 +1598,18 @@ func (s *Server) handleAdminRemoveInfo(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
+	info := map[string]string{
 		"data_dir":  s.deps.DataDir,
 		"media_dir": s.deps.MediaDir,
-	})
+	}
+	// A folder the parent chose for new videos is never deleted (it may be
+	// a drive full of their own files); the confirmation says it stays.
+	if s.deps.Budget != nil {
+		if chosen, err := s.deps.Budget.VideoFolder(r.Context()); err == nil && chosen != "" {
+			info["video_dir"] = paths.MediaIn(chosen)
+		}
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 // handleAdminRemove records a parent's request to remove kids-shelf from

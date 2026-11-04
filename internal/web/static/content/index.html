@@ -19,6 +19,19 @@
     <input type="text" inputmode="url" id="yturl" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false" aria-label="YouTube link">
     <button class="btn add" type="submit">Add</button>
   </form>
+  <div class="vfolder">
+    <p class="note" id="vfwhere"></p>
+    <div class="rowbtns" id="vfbtns">
+      <button type="button" class="btn chip" id="vfchange">Change where videos are saved</button>
+      <button type="button" class="btn chip hidden" id="vfdefault">Use the standard folder</button>
+    </div>
+    <form id="vfform" class="inlineform hidden">
+      <input type="text" id="vfpath" placeholder="Path to the folder, e.g. __KS_OS_DRIVE_PATH__" autocomplete="off" spellcheck="false" aria-label="Path to the folder for new videos">
+      <button class="btn add" type="submit">Save</button>
+      <button class="btn" type="button" id="vfcancel">Cancel</button>
+    </form>
+    <p class="note hidden" id="vfhelp">For example a drive you plugged into this computer. Kids Shelf makes a “kids-shelf media” folder inside it. Videos already saved stay where they are and keep playing.</p>
+  </div>
   <div id="ytjobs" class="jobs"></div>
 </section>
 

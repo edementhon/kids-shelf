@@ -5,6 +5,21 @@ home Wi-Fi runs it; any other device with a web browser opens it. There are
 no accounts, no cloud and no ads. Parents manage everything on a parent
 page (`/admin`); kids get their own pages with their own content.
 
+What it does:
+
+- **Downloads from YouTube**: paste a video, playlist or channel link on
+  the parent page and Kids Shelf downloads every video (with its bundled
+  yt-dlp and ffmpeg) and keeps its own copy, on any drive you choose. Kids
+  never see YouTube itself. No separate downloader, Docker or server setup.
+- **Plays your own videos**: folders on the computer, an external drive or a
+  NAS share, in place; files browsers can't play get a converted copy.
+- **Daily minutes per kid**, math and spelling practice that earns extra
+  minutes, and optional weekly game minutes for screen time outside the app.
+- **Offline libraries** (Wikipedia, Vikidia, PhET, Project Gutenberg and
+  more, from Kiwix), downloaded or used from `.zim` files you already have.
+- No algorithm and no autoplay: a video ends and the next plays only when
+  the kid presses Next.
+
 It is built for non-technical families on whatever spare hardware they
 have, and it updates itself in the background (every release is signed,
 and updates are verified before they install).
