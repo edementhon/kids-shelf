@@ -89,6 +89,13 @@ Security, App & browser control, Smart App Control settings). Some versions of W
 let you turn it back on without resetting Windows, so decide whether that trade is worth it for
 your family.
 
+**The YouTube downloader.** Kids Shelf downloads YouTube videos with yt-dlp, a free program it
+fetches and keeps up to date by itself. A few antivirus programs flag yt-dlp by mistake. If
+a YouTube link fails with **"Windows or an antivirus program stopped Kids Shelf's YouTube
+downloader (yt-dlp)"**, open Windows Security, then Protection history, find the yt-dlp entry,
+allow it, and press **Try again**. If an antivirus deleted yt-dlp instead, Kids Shelf downloads
+it again by itself within half an hour.
+
 ## Mac (macOS 15)
 
 **Apple shows three warnings that use the words "malware" and "harm your Mac". They are normal
@@ -280,9 +287,11 @@ For the offline libraries, some examples:
 
 ## Updates
 
-Kids Shelf checks for a new version once a day and downloads it by itself. The parent page then
-shows **Restart to update**. After the restart it checks for 30 seconds that the new version
-works, and goes back to the old one if it does not.
+Kids Shelf checks for a new version when it starts and once a day, and downloads it by itself.
+The parent page then shows **Restart to update**. After the restart it checks for 30 seconds
+that the new version works, and goes back to the old one if it does not. The bottom of the parent
+page says which version is running (for example "Kids Shelf v0.3.9"); the newest one is at
+https://github.com/edementhon/kids-shelf/releases/latest.
 
 ## Removing Kids Shelf
 

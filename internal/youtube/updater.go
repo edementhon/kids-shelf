@@ -59,7 +59,16 @@ type Updater struct {
 	// queue both call it at launch, and two installs of one version share
 	// the same temp file names.
 	mu sync.Mutex
+	// lastRepair is when EnsureLatest last fetched a yt-dlp whose file had
+	// gone missing (see repairInterval). Guarded by mu.
+	lastRepair time.Time
 }
+
+// repairInterval spaces out the downloads of a yt-dlp whose file went
+// missing: the YouTube worker calls EnsureLatest about every second, and an
+// antivirus that deletes the file again would otherwise cause a download
+// loop.
+const repairInterval = 30 * time.Minute
 
 // NewUpdater returns an Updater for the given data dir; an empty baseURL
 // selects DefaultBaseURL. It is safe to call more than once.
@@ -96,7 +105,9 @@ func (u *Updater) logf(format string, args ...any) {
 // up-to-date check, so a failed download is retried on the next call
 // instead of being skipped until tomorrow. When no binary is installed
 // yet, the gate does not apply at all: the first launch must always try to
-// provide one.
+// provide one. A binary whose file is gone (an antivirus deleted it, say)
+// counts as not installed, so the latest release is fetched even when it is
+// the same version, at most once every repairInterval.
 func (u *Updater) EnsureLatest(ctx context.Context, force bool) (bool, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -104,6 +115,16 @@ func (u *Updater) EnsureLatest(ctx context.Context, force bool) (bool, error) {
 	cur, err := u.currentBinaryPath()
 	if err != nil {
 		return false, err
+	}
+	if cur != "" {
+		if _, err := os.Stat(cur); err != nil {
+			if !u.lastRepair.IsZero() && u.now().Sub(u.lastRepair) < repairInterval {
+				return false, nil
+			}
+			u.lastRepair = u.now()
+			u.logf("youtube: yt-dlp %s is missing; downloading it again", cur)
+			cur = ""
+		}
 	}
 	if !force && cur != "" {
 		if b, err := os.ReadFile(filepath.Join(u.dir(), lastCheckName)); err == nil && strings.TrimSpace(string(b)) == today {

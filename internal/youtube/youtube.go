@@ -27,8 +27,10 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -247,6 +249,13 @@ func (m *Manager) logf(format string, args ...any) {
 	}
 }
 
+// WithLog sends the manager's log lines (failed resolves and downloads,
+// a yt-dlp that could not start) to log; internal/app passes its logger.
+func (m *Manager) WithLog(log func(format string, args ...any)) *Manager {
+	m.log = log
+	return m
+}
+
 func (m *Manager) hookf(phase string) {
 	if m.hook != nil {
 		m.hook(phase)
@@ -375,11 +384,23 @@ func (m *Manager) process(ctx context.Context, job *jobs.Job) error {
 			return err
 		}
 		single, entries, err := m.resolve(ctx, p.URL)
+		if isStartError(err) && ctx.Err() == nil {
+			// yt-dlp never ran: fetch it again if its file is gone (or a
+			// newer one), then try once more before giving up.
+			m.logf("youtube: resolve job %s: %v", job.ID, err)
+			if _, uerr := m.updater.EnsureLatest(ctx, true); uerr != nil && ctx.Err() == nil {
+				m.logf("youtube: forced yt-dlp update failed: %v", uerr)
+			}
+			single, entries, err = m.resolve(ctx, p.URL)
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			m.logf("youtube: resolve job %s: %v", job.ID, err)
+			if isStartError(err) {
+				return m.fail(job.ID, m.startFailureMessage())
+			}
 			return m.fail(job.ID, resolveFailureMessage(err))
 		}
 		if entries != nil {
@@ -400,7 +421,11 @@ func (m *Manager) process(ctx context.Context, job *jobs.Job) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			return err
+			// Not fatal: the size stays unknown and the reservation takes
+			// the default. Returning the error would leave the job
+			// "running" until the next launch; a yt-dlp that cannot run
+			// fails the download below with its own words.
+			m.logf("youtube: size probe of job %s: %v", job.ID, err)
 		}
 		// Reserve the download's worst-case space before any byte is
 		// written. A reservation denied for lack of free space pauses the
@@ -451,6 +476,9 @@ func (m *Manager) process(ctx context.Context, job *jobs.Job) error {
 				}
 				if downloadDiskFull(err) {
 					return m.q.Pause(job.ID, msgDiskFull)
+				}
+				if isStartError(err) {
+					return m.fail(job.ID, m.startFailureMessage())
 				}
 				return m.fail(job.ID, downloadMessage(p, err))
 			}
@@ -651,7 +679,7 @@ const maxFlatDepth = 3
 // its Videos/Shorts/Live tabs are playlist entries of their own, flattened
 // here into a plain list of videos.
 func (m *Manager) resolve(ctx context.Context, url string) (*videoInfo, []videoInfo, error) {
-	bin, err := m.helpers.YtDlp()
+	bin, err := m.binary()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -694,6 +722,9 @@ func (m *Manager) resolveJSON(ctx context.Context, bin, qjs, url string) (*ytRes
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		if isStartError(err) {
+			return nil, err
 		}
 		return nil, fmt.Errorf("yt-dlp: %s", strings.TrimSpace(stderr))
 	}
@@ -788,7 +819,7 @@ func (m *Manager) resolveDownloadSize(ctx context.Context, p *Payload) error {
 	if p.Size > 0 {
 		return nil
 	}
-	bin, err := m.helpers.YtDlp()
+	bin, err := m.binary()
 	if err != nil {
 		return err
 	}
@@ -803,6 +834,9 @@ func (m *Manager) resolveDownloadSize(ctx context.Context, p *Payload) error {
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if isStartError(err) {
+			return err
 		}
 		return fmt.Errorf("yt-dlp: %s", strings.TrimSpace(stderr))
 	}
@@ -868,7 +902,7 @@ func tempDirBytes(dir string) (int64, error) {
 // extended; if there is no space to extend into, yt-dlp is stopped and the
 // job pauses with the disk-full message, keeping the partial download.
 func (m *Manager) runDownload(ctx context.Context, jobID string, p *Payload) error {
-	bin, err := m.helpers.YtDlp()
+	bin, err := m.binary()
 	if err != nil {
 		return err
 	}
@@ -971,7 +1005,7 @@ func (m *Manager) ytdlp(ctx context.Context, bin string, args []string, onLine f
 		return err
 	}
 	if err := cmd.Start(); err != nil {
-		return err
+		return &startError{bin: bin, err: err}
 	}
 	lines := make(chan string, 64)
 	var wg sync.WaitGroup
@@ -1009,14 +1043,62 @@ func (m *Manager) ytdlp(ctx context.Context, bin string, args []string, onLine f
 }
 
 // runOutput runs a short yt-dlp command and returns its stdout and stderr
-// separately: resolve JSON comes on stdout, warnings on stderr.
+// separately: resolve JSON comes on stdout, warnings on stderr. A yt-dlp
+// that never ran comes back as a *startError.
 func (m *Manager) runOutput(ctx context.Context, bin string, args ...string) (string, string, error) {
 	cmd := proc.CommandContext(ctx, bin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
+	var exit *exec.ExitError
+	if err != nil && ctx.Err() == nil && !errors.As(err, &exit) {
+		err = &startError{bin: bin, err: err}
+	}
 	return stdout.String(), stderr.String(), err
+}
+
+// startError is a yt-dlp that never ran: its file is missing, or the
+// operating system (an antivirus, Smart App Control, a missing loader)
+// refused to start it. It is told apart from yt-dlp's own failures, which
+// are about YouTube, so the parent gets words about the downloader.
+type startError struct {
+	bin string
+	err error
+}
+
+func (e *startError) Error() string {
+	return fmt.Sprintf("yt-dlp %s could not start: %v", e.bin, e.err)
+}
+
+func (e *startError) Unwrap() error { return e.err }
+
+func isStartError(err error) bool {
+	var se *startError
+	return errors.As(err, &se)
+}
+
+// binary is the yt-dlp to run. A missing or empty "current" pointer is a
+// startError: nothing could be run.
+func (m *Manager) binary() (string, error) {
+	bin, err := m.helpers.YtDlp()
+	if err != nil {
+		return "", &startError{err: err}
+	}
+	return bin, nil
+}
+
+// startFailureMessage is the parent's failure text for a yt-dlp that never
+// ran: missing (and not fetched again yet) or refused by the system.
+func (m *Manager) startFailureMessage() string {
+	bin, err := m.helpers.YtDlp()
+	if err != nil {
+		return msgYtDlpMissing
+	}
+	if _, err := os.Stat(bin); err != nil {
+		return msgYtDlpMissing
+	}
+	return blockedMessage(runtime.GOOS)
 }
 
 // downloadedFile returns the finished video file in the job's temp dir.
@@ -1262,6 +1344,23 @@ const (
 	msgResolveLink        = "That doesn't look like a YouTube video link we can read. Check the address and try again."
 	msgResolveFallback    = "We couldn't read that link from YouTube. Please try again later."
 )
+
+// msgYtDlpMissing is the failure when yt-dlp is not on this computer and
+// could not be downloaded again just now (no internet, or it vanished
+// again). Kids Shelf keeps trying while it runs (see Updater.EnsureLatest).
+const msgYtDlpMissing = "Kids Shelf's YouTube downloader (yt-dlp) isn't on this computer right now. Kids Shelf downloads it again by itself while this computer is online. Wait a few minutes, then press Try again."
+
+// blockedMessage is the failure when yt-dlp is there but the operating
+// system would not start it. On Windows that is usually an antivirus
+// program flagging it by mistake (yt-dlp is an unsigned program built from
+// Python; yt-dlp's tracker lists such reports, issue #15415), and the fix
+// the parent can make is in Windows Security.
+func blockedMessage(goos string) string {
+	if goos == "windows" {
+		return "Windows or an antivirus program stopped Kids Shelf's YouTube downloader (yt-dlp) from running. Some antivirus programs flag it by mistake. In Windows Security, open Protection history, find yt-dlp and allow it, then press Try again."
+	}
+	return "This computer wouldn't start Kids Shelf's YouTube downloader (yt-dlp), so nothing was downloaded. Wait a few minutes, then press Try again."
+}
 
 // resolveFailureMessage is the parent-facing text for a failed resolve: it
 // follows the cause yt-dlp reported, never guessing at the link.

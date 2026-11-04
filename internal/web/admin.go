@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"math"
 	"net"
@@ -526,14 +527,18 @@ func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, page)
 }
 
-// adminPage is the parent page shell with where to reopen kids-shelf
-// filled in and its asset URLs versioned (see versionAssets).
+// adminPage is the parent page shell with where to reopen kids-shelf and
+// the running version (its footer) filled in, and its asset URLs versioned
+// (see versionAssets).
 var adminPage = sync.OnceValues(func() (string, error) {
 	b, err := adminFiles.ReadFile("static/admin/index.html")
 	if err != nil {
 		return "", err
 	}
-	page := strings.ReplaceAll(string(b), "__KS_REOPEN__", reopenWhere())
+	page := strings.NewReplacer(
+		"__KS_REOPEN__", reopenWhere(),
+		"__KS_VERSION__", html.EscapeString(Version),
+	).Replace(string(b))
 	return versionAssets(page, adminFiles, "static/admin", "/admin/static/")
 })
 

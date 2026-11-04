@@ -125,6 +125,7 @@ body.locked main, body.locked .whenopen { display: none; }
 .kidname { font-size: 1.15rem; font-weight: 700; overflow-wrap: anywhere; }
 .placeholder { color: var(--muted); font-size: .95rem; }
 .addhint { background: var(--chip); border-left: 4px solid var(--blue); border-radius: 10px; padding: 10px 14px; margin: 8px 0 12px; }
+.pagefoot { color: var(--muted); font-size: .85rem; text-align: center; padding: 18px 0 8px; }
 .bal { display: flex; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
 .bal span { background: var(--card); padding: 6px 12px; border-radius: 10px; font-size: .9rem; }
 .bal b { font-size: 1.1rem; }

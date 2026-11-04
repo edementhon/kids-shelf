@@ -458,6 +458,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	ingestWorker.WithVideoFolder(b.VideoFolder)
 
 	updater := youtube.NewUpdater(dataDir, "")
+	updater.Log = logf
 	var qjsPath, ffmpegDir string
 	if helpers != nil {
 		qjsPath = helpers.Qjs
@@ -467,7 +468,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 		DataDir:        dataDir,
 		QuickJSPath:    qjsPath,
 		FFmpegLocation: ffmpegDir,
-	}, updater, dataDir)
+	}, updater, dataDir).WithLog(logf)
 
 	catalog := kiwix.NewCatalog("", nil)
 	kiwixMgr, err := kiwix.NewManager(st, queue, disk.NewReservations(queue), filepath.Join(mediaDir, "libraries"))
