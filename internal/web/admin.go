@@ -210,6 +210,8 @@ const (
 	// update trial, so a parent cannot turn a healthy update into a
 	// rejected one (PLAN 1a "Install, reinstall, remove").
 	msgFinishingUpdate = "One moment: Kids Shelf is finishing an update."
+	msgGamesOff        = "Game minutes are off. Turn them on on the parent page first."
+	msgGamesSettings   = "Pick 0 to 10080 minutes a week and a day of the week."
 )
 
 func init() {
@@ -217,6 +219,7 @@ func init() {
 		m := s.mux
 		m.HandleFunc("GET /admin", s.handleAdminPage)
 		m.HandleFunc("GET /admin/minutes", s.handleAdminMinutesPage)
+		m.HandleFunc("GET /admin/games", s.handleAdminGamesPage)
 		m.HandleFunc("GET /admin/static/", s.handleAdminStatic)
 		m.HandleFunc("GET /api/admin/state", s.handleAdminState)
 		m.HandleFunc("GET /api/admin/address", s.handleAdminAddress)
@@ -240,6 +243,7 @@ func init() {
 		m.HandleFunc("POST /api/admin/settings/budgets", s.handleAdminBudgets)
 		m.HandleFunc("POST /api/admin/settings/safari", s.handleAdminSafariScreens)
 		m.HandleFunc("POST /api/admin/settings/hwencode", s.handleAdminHWEncode)
+		m.HandleFunc("POST /api/admin/settings/games", s.handleAdminGames)
 		m.HandleFunc("POST /api/admin/update/restart", s.handleAdminUpdateRestart)
 		m.HandleFunc("GET /api/admin/remove", s.handleAdminRemoveInfo)
 		m.HandleFunc("POST /api/admin/remove", s.handleAdminRemove)
@@ -536,25 +540,40 @@ var adminPage = sync.OnceValues(func() (string, error) {
 // everyone: the page shows a PIN box (numeric keypad) until a session
 // exists, and all data is behind requireAdminPIN, never the shell.
 func (s *Server) handleAdminMinutesPage(w http.ResponseWriter, r *http.Request) {
-	page, err := minutesPage()
+	servePhonePage(w, minutesPage)
+}
+
+// handleAdminGamesPage serves the Game minutes page shell, the Minutes
+// page's twin for the games counter, on the same terms.
+func (s *Server) handleAdminGamesPage(w http.ResponseWriter, r *http.Request) {
+	servePhonePage(w, gamesPage)
+}
+
+func servePhonePage(w http.ResponseWriter, page func() (string, error)) {
+	p, err := page()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "This page is missing from this copy.")
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	io.WriteString(w, page)
+	io.WriteString(w, p)
 }
 
-// minutesPage is the Minutes page shell with its asset URLs versioned (see
-// versionAssets).
-var minutesPage = sync.OnceValues(func() (string, error) {
-	b, err := adminFiles.ReadFile("static/admin/minutes.html")
+// minutesPage and gamesPage are the phone page shells with their asset URLs
+// versioned (see versionAssets).
+var (
+	minutesPage = sync.OnceValues(func() (string, error) { return phonePage("minutes.html") })
+	gamesPage   = sync.OnceValues(func() (string, error) { return phonePage("games.html") })
+)
+
+func phonePage(name string) (string, error) {
+	b, err := adminFiles.ReadFile("static/admin/" + name)
 	if err != nil {
 		return "", err
 	}
 	return versionAssets(string(b), adminFiles, "static/admin", "/admin/static/")
-})
+}
 
 // versionAssets returns page with every quoted URL prefix+name of a file
 // in dir of files given a content hash in its query, like practiceAsset:
@@ -636,6 +655,16 @@ type adminKid struct {
 	Today float64 `json:"today"`
 	Saved float64 `json:"saved"`
 	Daily float64 `json:"daily"`
+	Games float64 `json:"games"` // game minutes; 0 while they are off
+}
+
+// adminGames is the household's game-minutes setup: Day is 0 (Sunday) to 6
+// (Saturday) and Next the local date of the next top-up (2006-01-02).
+type adminGames struct {
+	On     bool    `json:"on"`
+	Weekly float64 `json:"weekly"`
+	Day    int     `json:"day"`
+	Next   string  `json:"next"`
 }
 
 type adminWatch struct {
@@ -694,6 +723,7 @@ type adminState struct {
 	Kids           []adminKid    `json:"kids"`
 	DefaultMinutes float64       `json:"default_minutes"`
 	BudgetsOn      bool          `json:"budgets_on"`
+	Games          adminGames    `json:"games"`
 	WatchLog       []adminWatch  `json:"watch_log"`
 	Bins           adminBins     `json:"bins"`
 	Settings       adminSettings `json:"settings"`
@@ -718,6 +748,12 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 	if err != nil {
 		return st, err
 	}
+	gs, err := b.Games(ctx)
+	if err != nil {
+		return st, err
+	}
+	st.Games = adminGames{On: gs.On, Weekly: gs.Weekly, Day: int(gs.Day),
+		Next: b.NextGamesTopUp(gs.Day).Format("2006-01-02")}
 	// Lists encode as [] (not null) so a fresh install's page can iterate them.
 	st.Kids, st.WatchLog = []adminKid{}, []adminWatch{}
 	kidNames := make(map[string]string, len(kids))
@@ -731,10 +767,16 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 		if err != nil {
 			return st, err
 		}
-		st.Kids = append(st.Kids, adminKid{
+		kid := adminKid{
 			ID: string(k.ID), Name: k.Name,
 			Today: today, Saved: saved, Daily: daily,
-		})
+		}
+		if gs.On {
+			if kid.Games, _, err = b.Balance(ctx, k.ID, budget.GamesCounter); err != nil {
+				return st, err
+			}
+		}
+		st.Kids = append(st.Kids, kid)
 	}
 
 	// Watch log (Library.WatchLog): joined to kid names and show names.
@@ -1104,8 +1146,9 @@ func (s *Server) handleAdminAdjust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Kid   string  `json:"kid"`
-		Delta float64 `json:"delta"`
+		Kid     string  `json:"kid"`
+		Delta   float64 `json:"delta"`
+		Counter string  `json:"counter"` // "" or "video", or "games"
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "That didn't look right. Try again.")
@@ -1115,10 +1158,29 @@ func (s *Server) handleAdminAdjust(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msgNoSuchKid)
 		return
 	}
+	counter := budget.DefaultCounter
+	switch req.Counter {
+	case "", budget.DefaultCounter:
+	case budget.GamesCounter:
+		gs, err := b.Games(r.Context())
+		if err != nil {
+			serviceError(w, err)
+			return
+		}
+		if !gs.On {
+			writeError(w, http.StatusConflict, msgGamesOff)
+			return
+		}
+		counter = budget.GamesCounter
+	default:
+		writeError(w, http.StatusBadRequest, "That didn't look right. Try again.")
+		return
+	}
 	// Adjust allows going below zero: a parent can take minutes away past
 	// today and saved, and the debt comes out of tomorrow's minutes (the
-	// legacy portal's behaviour).
-	today, saved, err := b.Adjust(r.Context(), core.KidID(req.Kid), budget.DefaultCounter, req.Delta, true)
+	// legacy portal's behaviour); game minutes carry the debt into the
+	// next week's top-up.
+	today, saved, err := b.Adjust(r.Context(), core.KidID(req.Kid), counter, req.Delta, true)
 	if err != nil {
 		serviceError(w, err)
 		return
@@ -1390,6 +1452,40 @@ func (s *Server) handleAdminBudgets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := b.SetBudgetsOn(r.Context(), req.On); err != nil {
+		writeError(w, http.StatusInternalServerError, msgSaveFailed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleAdminGames sets the household's game minutes: on or off, the
+// weekly top-up and its weekday (0 = Sunday ... 6 = Saturday). The weekly
+// minutes and the day are pointers like the other minute boxes: a missing
+// value is refused, never read as 0.
+func (s *Server) handleAdminGames(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPIN(w, r) {
+		return
+	}
+	b := s.deps.Budget
+	if b == nil {
+		writeError(w, http.StatusServiceUnavailable, msgAdminServiceDown)
+		return
+	}
+	var req struct {
+		On     bool     `json:"on"`
+		Weekly *float64 `json:"weekly"`
+		Day    *int     `json:"day"`
+	}
+	if err := readJSON(r, &req); err != nil || req.Weekly == nil || req.Day == nil {
+		writeError(w, http.StatusBadRequest, msgGamesSettings)
+		return
+	}
+	err := b.SetGames(r.Context(), budget.GamesSettings{On: req.On, Weekly: *req.Weekly, Day: time.Weekday(*req.Day)})
+	switch {
+	case errors.Is(err, budget.ErrGamesSettings):
+		writeError(w, http.StatusBadRequest, msgGamesSettings)
+		return
+	case err != nil:
 		writeError(w, http.StatusInternalServerError, msgSaveFailed)
 		return
 	}

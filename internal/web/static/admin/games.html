@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Game minutes</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Games">
+<link rel="apple-touch-icon" href="/admin/static/kids-shelf-256.png">
+<link rel="icon" type="image/png" sizes="128x128" href="/admin/static/kids-shelf-128.png">
+<link rel="icon" type="image/png" sizes="256x256" href="/admin/static/kids-shelf-256.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/admin/static/kids-shelf-512.png">
+<link rel="manifest" href="/admin/static/games.webmanifest">
+<link rel="stylesheet" href="/admin/static/admin.css">
+</head>
+<body class="minutes" data-counter="games">
+<header class="topbar">
+  <h1>🎮 Game minutes</h1>
+  <nav class="topnav"><a class="navlink" href="/admin/minutes">⏱️ Minutes</a><a class="navlink" href="/admin">Parent page</a></nav>
+</header>
+<main id="main" class="minutes-main" hidden>
+  <p class="statusline" id="status" role="status" aria-live="polite"></p>
+  <p class="note" id="gamesnote"></p>
+  <div id="cards" class="minutes-cards"></div>
+</main>
+<div id="pin" class="minutes-pin">
+  <div class="minutes-pin-box" role="dialog" aria-modal="true" aria-labelledby="minutes-pin-title">
+    <h2 id="minutes-pin-title">Enter the parent PIN</h2>
+    <p class="note">The same PIN as the parent page.</p>
+    <p class="pin-dots" id="minutes-dots"><span></span><span></span><span></span><span></span></p>
+    <p class="err" id="minutes-pin-err" role="alert"></p>
+    <div class="keypad" id="minutes-keypad">
+      <button type="button" data-d="1">1</button>
+      <button type="button" data-d="2">2</button>
+      <button type="button" data-d="3">3</button>
+      <button type="button" data-d="4">4</button>
+      <button type="button" data-d="5">5</button>
+      <button type="button" data-d="6">6</button>
+      <button type="button" data-d="7">7</button>
+      <button type="button" data-d="8">8</button>
+      <button type="button" data-d="9">9</button>
+      <button type="button" data-d="del" aria-label="Delete">⌫</button>
+      <button type="button" data-d="0">0</button>
+      <button type="button" data-d="ok" id="minutes-ok" disabled>OK</button>
+    </div>
+    <div class="rowbtns center gap"><a class="btn linkbtn" href="/admin">Parent page</a></div>
+  </div>
+</div>
+<script src="/admin/static/minutes.js"></script>
+</body>
+</html>

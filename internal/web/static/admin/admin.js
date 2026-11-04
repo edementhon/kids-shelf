@@ -113,6 +113,7 @@ function renderAll() {
   renderWatchLog();
   renderBins();
   renderSettings();
+  renderGames();
   renderAddress();
   renderUpdates();
   $('budgetswitch').checked = STATE.budgets_on;
@@ -354,6 +355,27 @@ function renderSettings() {
   // pointed elsewhere (the old free-text counter) shows the way back.
   const counter = STATE.settings.counter;
   $('counterrow').classList.toggle('hidden', !counter || counter === 'video');
+}
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+  'August', 'September', 'October', 'November', 'December'];
+
+/* renderGames shows the Game minutes card: the switch, and while on the
+   weekly top-up, its day and when it next lands. */
+function renderGames() {
+  const g = STATE.games || {};
+  $('gamesswitch').checked = !!g.on;
+  $('gameslabel').textContent = 'Game minutes: ' + (g.on ? 'on' : 'off');
+  $('gamesset').classList.toggle('hidden', !g.on);
+  $('gamesweekly').value = g.weekly;
+  $('gamesday').value = String(g.day);
+  const [, m, d] = String(g.next || '').split('-').map(Number);
+  $('gamesnext').textContent = g.on && m ? `Next top-up: ${DAY_NAMES[g.day]}, ${MONTH_NAMES[m - 1]} ${d}.` : '';
+}
+
+async function saveGames(on, weekly, day) {
+  await api('/api/admin/settings/games', { method: 'POST', body: JSON.stringify({ on, weekly, day }) });
 }
 
 /* bareAddress shows an address the way it is typed: no http://, no
@@ -838,6 +860,17 @@ document.addEventListener('change', async e => {
     } catch (err) { e.target.checked = !e.target.checked; }
     return;
   }
+  if (e.target.id === 'gamesswitch') {
+    const g = STATE.games || {};
+    try {
+      await saveGames(e.target.checked, g.weekly, g.day);
+      msg(e.target.checked
+        ? `Game minutes are on: each kid gets ${g.weekly} minutes every ${DAY_NAMES[g.day]}.`
+        : 'Game minutes are off. Their balances are kept for when you turn them on again.');
+      await load();
+    } catch (err) { e.target.checked = !e.target.checked; }
+    return;
+  }
 });
 
 /* forms */
@@ -863,6 +896,19 @@ $('defaultform').addEventListener('submit', async e => {
   try {
     await api('/api/admin/settings/default', { method: 'POST', body: JSON.stringify({ minutes }) });
     msg(`Each kid gets ${minutes} minutes a day from tomorrow, unless their own card says otherwise.`);
+    await load();
+  } catch (err) { /* message already shown */ }
+});
+
+$('gamesform').addEventListener('submit', async e => {
+  e.preventDefault();
+  const g = STATE.games || {};
+  const weekly = readMinutes($('gamesweekly'), g.weekly);
+  if (weekly === null) return;
+  const day = Number($('gamesday').value);
+  try {
+    await saveGames(true, weekly, day);
+    msg(`Each kid gets ${weekly} game minutes every ${DAY_NAMES[day]}.`);
     await load();
   } catch (err) { /* message already shown */ }
 });

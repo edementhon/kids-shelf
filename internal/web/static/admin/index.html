@@ -73,6 +73,33 @@
   <p class="note">Cost is an estimate for one full watch. Minutes are charged as the video plays.</p>
 </section>
 
+<section class="card" id="sec-games">
+  <h2>🎮 Game minutes</h2>
+  <p class="note">For screen time Kids Shelf does not run, like video games. Each kid gets minutes every week, and you take them away on the Game minutes page as they play. Minutes left over carry into the next week.</p>
+  <label class="switch" title="Keep track of each kid's game minutes">
+    <input type="checkbox" id="gamesswitch"> <span id="gameslabel">Game minutes: off</span>
+  </label>
+  <div id="gamesset" class="hidden">
+    <h3 class="subhead"><label for="gamesweekly">Minutes each week</label></h3>
+    <form id="gamesform" class="inlineform">
+      <input type="number" id="gamesweekly" min="0" step="1" inputmode="decimal">
+      <label for="gamesday">every</label>
+      <select id="gamesday">
+        <option value="0">Sunday</option>
+        <option value="1">Monday</option>
+        <option value="2">Tuesday</option>
+        <option value="3">Wednesday</option>
+        <option value="4">Thursday</option>
+        <option value="5">Friday</option>
+        <option value="6">Saturday</option>
+      </select>
+      <button class="btn">Save</button>
+    </form>
+    <p class="note" id="gamesnext"></p>
+    <div class="rowbtns"><a class="navlink" href="/admin/games">📱 Game minutes page for your phone</a></div>
+  </div>
+</section>
+
 
 <section class="card" id="sec-bins">
   <h2>📦 Bins: what shows cost</h2>

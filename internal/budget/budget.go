@@ -138,6 +138,17 @@ UPDATE kids SET animal = (
 		WHEN 4 THEN '🦁' WHEN 5 THEN '🐧' WHEN 6 THEN '🦄' ELSE '🐨' END
 	FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY name) AS pos FROM kids) AS o
 	WHERE o.id = kids.id);`,
+}, {
+	// Game minutes (games.go): off until a parent turns them on; when on,
+	// games_weekly minutes land on each kid's games counter every
+	// games_day (0 = Sunday ... 6 = Saturday, Go's time.Weekday), at local
+	// midnight. Defaults are the legacy portal's 30 a week, on Tuesday.
+	Owner:   "budget",
+	Version: 5,
+	SQL: `
+ALTER TABLE household ADD COLUMN games_on INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE household ADD COLUMN games_weekly REAL NOT NULL DEFAULT 30;
+ALTER TABLE household ADD COLUMN games_day INTEGER NOT NULL DEFAULT 2;`,
 }}
 
 // Budget owns the kid profiles and their screen-time accounts, backed by the
@@ -233,8 +244,17 @@ func (b *Budget) dailyAllowance(tx *sql.Tx, kid string) (float64, error) {
 // allowance; debt bigger than a full day's allowance rides into saved, which
 // may go negative. The account row is created on first touch, so the first
 // balance read of a day grants that day's allowance. Returns the
-// post-rollover balances.
+// post-rollover balances. The games counter follows its own weekly rule
+// instead (gamesRollover); its balance comes back as today, saved is 0.
 func (b *Budget) rollover(tx *sql.Tx, kid, counter, day string) (today, saved float64, err error) {
+	if counter == GamesCounter {
+		gs, err := b.games(tx)
+		if err != nil {
+			return 0, 0, err
+		}
+		bal, err := b.gamesRollover(tx, kid, gs)
+		return bal, 0, err
+	}
 	allow, err := b.dailyAllowance(tx, kid)
 	if err != nil {
 		return 0, 0, err

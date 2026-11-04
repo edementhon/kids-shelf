@@ -170,6 +170,15 @@ Open it on the phone's own browser and save it to the home screen:
 To open it on another device, type its address in that device's browser, for example
 `http://192.168.1.20:8070/admin/minutes`.
 
+### Game minutes
+
+For screen time Kids Shelf does not run itself, such as video games, turn on **Game minutes** on
+the parent page. Each kid gets the minutes you choose once a week, on the day you choose (30 every
+Tuesday unless you change it). Minutes left over carry into the next week, and taking away more
+than is left goes below zero, which the next week's minutes pay back first. The **Game minutes
+page for your phone** link opens a page like the Minutes page, with big +/− buttons, so you can
+take minutes away as the kids play. Save it to the home screen the same way.
+
 ## Connect other devices
 
 Right after you make the parent PIN, the parent page opens **Open Kids Shelf on another

@@ -47,7 +47,7 @@ button {
 }
 button:hover, button:focus-visible { filter: brightness(1.12); }
 button:active { transform: translateY(1px); }
-input {
+input, select {
   min-height: 44px;
   padding: 10px 12px;
   font-size: 1.05rem;
@@ -56,7 +56,7 @@ input {
   background: var(--card);
   color: var(--fg);
 }
-input:focus { outline: 3px solid rgba(59, 130, 246, .45); border-color: var(--blue); }
+input:focus, select:focus { outline: 3px solid rgba(59, 130, 246, .45); border-color: var(--blue); }
 a { color: var(--blue); }
 .note { color: var(--muted); font-size: .85rem; margin: 6px 0; }
 .subtag { color: var(--muted); font-size: .75rem; font-weight: 500; margin-left: 8px; }

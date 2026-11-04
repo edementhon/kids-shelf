@@ -1,0 +1,23 @@
+{
+  "name": "Game minutes",
+  "short_name": "Games",
+  "start_url": "/admin/games",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "/admin/static/kids-shelf-128.png",
+      "sizes": "128x128",
+      "type": "image/png"
+    },
+    {
+      "src": "/admin/static/kids-shelf-256.png",
+      "sizes": "256x256",
+      "type": "image/png"
+    },
+    {
+      "src": "/admin/static/kids-shelf-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

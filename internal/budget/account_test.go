@@ -246,13 +246,14 @@ func TestCredit(t *testing.T) {
 	if !almost(today, 16) || !almost(saved, 0) {
 		t.Errorf("after second award = (%v, %v), want (16, 0)", today, saved)
 	}
-	// another counter is a separate account
-	if err := b.Credit(ctx, string(kid), "games", 3, "award-3"); err != nil {
+	// another counter is a separate account (games has its own weekly
+	// rule, games_test.go; any other name gets the daily one)
+	if err := b.Credit(ctx, string(kid), "reading", 3, "award-3"); err != nil {
 		t.Fatalf("Credit: %v", err)
 	}
-	today, saved, _ = b.Balance(ctx, kid, "games")
+	today, saved, _ = b.Balance(ctx, kid, "reading")
 	if !almost(today, 13) || !almost(saved, 0) {
-		t.Errorf("games counter = (%v, %v), want (13, 0)", today, saved)
+		t.Errorf("reading counter = (%v, %v), want (13, 0)", today, saved)
 	}
 	today, saved, _ = b.Balance(ctx, kid, DefaultCounter)
 	if !almost(today, 16) || !almost(saved, 0) {

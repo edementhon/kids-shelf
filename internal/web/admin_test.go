@@ -406,6 +406,74 @@ func TestAdminAdjustMinutes(t *testing.T) {
 	}
 }
 
+func TestAdminGameMinutes(t *testing.T) {
+	ts, _, _ := newTestAdmin(t)
+	id := kidID(t, ts, "Alex", "1111")
+	games := func() map[string]any {
+		t.Helper()
+		g, _ := state(t, ts)["games"].(map[string]any)
+		return g
+	}
+
+	// Off on a fresh install: the Game minutes page has nothing to change.
+	if g := games(); g["on"] != false {
+		t.Errorf("fresh games = %v, want off", g)
+	}
+	if resp, _ := post(t, ts.URL+"/api/admin/adjust", map[string]any{"kid": id, "delta": -5, "counter": "games"}); resp.StatusCode != http.StatusConflict {
+		t.Errorf("game minutes adjust while off: status %d, want 409", resp.StatusCode)
+	}
+
+	// Settings are refused when a value is missing or out of range.
+	for _, body := range []map[string]any{
+		{"on": true, "day": 2},
+		{"on": true, "weekly": 30},
+		{"on": true, "weekly": -5, "day": 2},
+		{"on": true, "weekly": 30, "day": 7},
+	} {
+		if resp, _ := post(t, ts.URL+"/api/admin/settings/games", body); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("settings %v: status %d, want 400", body, resp.StatusCode)
+		}
+	}
+	if g := games(); g["on"] != false {
+		t.Errorf("a refused setting changed games: %v", g)
+	}
+
+	// On, 30 every Tuesday: each kid starts with this week's 30, and the
+	// next top-up is the coming Tuesday.
+	if resp, out := post(t, ts.URL+"/api/admin/settings/games", map[string]any{"on": true, "weekly": 30, "day": 2}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("turn games on: status %d body %v", resp.StatusCode, out)
+	}
+	g := games()
+	if g["on"] != true || g["weekly"] != float64(30) || g["day"] != float64(2) {
+		t.Errorf("games = %v, want on, 30, Tuesday", g)
+	}
+	next, err := time.ParseInLocation("2006-01-02", fmt.Sprint(g["next"]), time.Local)
+	if err != nil {
+		t.Fatalf("next top-up %v: %v", g["next"], err)
+	}
+	if wait := time.Until(next); next.Weekday() != time.Tuesday || wait <= 0 || wait > 7*24*time.Hour {
+		t.Errorf("next top-up %v, want the coming Tuesday", g["next"])
+	}
+	if got := kidByName(t, state(t, ts), "Alex")["games"]; got != float64(30) {
+		t.Errorf("game minutes after turning on = %v, want 30", got)
+	}
+
+	// Taking away more than is left goes below zero; video minutes are
+	// untouched.
+	resp, out := post(t, ts.URL+"/api/admin/adjust", map[string]any{"kid": id, "delta": -45, "counter": "games"})
+	if resp.StatusCode != http.StatusOK || out["today"] != float64(-15) {
+		t.Errorf("games -45: status %d body %v, want -15", resp.StatusCode, out)
+	}
+	kid := kidByName(t, state(t, ts), "Alex")
+	if kid["games"] != float64(-15) || kid["today"] != float64(10) {
+		t.Errorf("after games -45: games %v, video today %v, want -15 and 10", kid["games"], kid["today"])
+	}
+
+	if resp, _ := post(t, ts.URL+"/api/admin/adjust", map[string]any{"kid": id, "delta": 1, "counter": "candy"}); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("adjust on an unknown counter: status %d, want 400", resp.StatusCode)
+	}
+}
+
 func TestAdminSetBin(t *testing.T) {
 	ts, _, l := newTestAdmin(t)
 	publishShow(t, l, "show-bluey", "Bluey")
