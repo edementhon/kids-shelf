@@ -182,17 +182,118 @@ type contentYouTubeAddRequest struct {
 	URL string `json:"url"`
 }
 
-// contentYouTubeJob is one YouTube-list row: the download job plus, once its
-// video went to the shelf, the show it landed in (the channel name, which a
-// parent would not guess).
+// contentYouTubeJob is one YouTube-list row: the download job; once its
+// video went to the converter, what happens to it next (Next, the linked
+// ingest job) and the show it lands in (the channel name, which a parent
+// would not guess); for a playlist or channel, how its videos are doing.
 type contentYouTubeJob struct {
 	youtube.JobView
-	Show string `json:"show,omitempty"`
+	Show     string              `json:"show,omitempty"`
+	Next     *contentYouTubeNext `json:"next,omitempty"`
+	Playlist *contentVideoCounts `json:"playlist,omitempty"`
 }
 
-// handleContentYouTubeList lists the YouTube jobs, newest first. A failed
-// job that a later job for the same link replaced (a Retry, or the same link
-// pasted again) is left out, so failures do not pile up after a retry.
+// contentYouTubeNext is the conversion a downloaded video was handed to:
+// its state and stage, its place in the converter's line while it waits,
+// its progress while it converts, and, when it could not finish, the
+// message plus whether Try again works (Retry) or why not (Hint). ID is
+// the ingest job's, for the conversions Try again.
+type contentYouTubeNext struct {
+	ID          string  `json:"id"`
+	State       string  `json:"state"`
+	Stage       string  `json:"stage"`
+	Place       int     `json:"place,omitempty"`
+	Progress    float64 `json:"progress,omitempty"`
+	SecondsLeft int     `json:"secondsLeft,omitempty"`
+	Message     string  `json:"message,omitempty"`
+	Retry       bool    `json:"retry,omitempty"`
+	Hint        string  `json:"hint,omitempty"`
+}
+
+// contentVideoCounts says how a set of YouTube videos is doing: the whole
+// list (the summary line on top of the card) or one playlist's videos.
+// Waiting counts videos waiting to download and downloaded videos waiting
+// to convert; NeedsYou counts failed and paused ones.
+type contentVideoCounts struct {
+	Videos      int `json:"videos"`
+	Downloading int `json:"downloading"`
+	Converting  int `json:"converting"`
+	Waiting     int `json:"waiting"`
+	OnShelf     int `json:"onShelf"`
+	NeedsYou    int `json:"needsYou"`
+}
+
+// contentVideoStatus is where one YouTube video is, across its download
+// and its conversion.
+type contentVideoStatus int
+
+const (
+	videoDownloading contentVideoStatus = iota
+	videoConverting
+	videoNeedsYou
+	videoWaitingDownload
+	videoWaitingConvert
+	videoOnShelf
+)
+
+// contentVideoStatusOf combines a YouTube job and its linked conversion
+// (nil when it has none) into one status.
+func contentVideoStatusOf(j youtube.JobView, next *ingest.JobView) contentVideoStatus {
+	switch j.State {
+	case jobs.StateRunning:
+		return videoDownloading
+	case jobs.StateFailed, jobs.StatePaused:
+		return videoNeedsYou
+	case jobs.StateQueued:
+		return videoWaitingDownload
+	}
+	if next == nil {
+		return videoOnShelf
+	}
+	switch next.State {
+	case jobs.StateRunning:
+		return videoConverting
+	case jobs.StateFailed, jobs.StatePaused:
+		return videoNeedsYou
+	case jobs.StateQueued:
+		return videoWaitingConvert
+	}
+	return videoOnShelf
+}
+
+// add counts one video of status st.
+func (c *contentVideoCounts) add(st contentVideoStatus) {
+	c.Videos++
+	switch st {
+	case videoDownloading:
+		c.Downloading++
+	case videoConverting:
+		c.Converting++
+	case videoNeedsYou:
+		c.NeedsYou++
+	case videoWaitingDownload, videoWaitingConvert:
+		c.Waiting++
+	case videoOnShelf:
+		c.OnShelf++
+	}
+}
+
+// active reports whether any of the videos is still on its way.
+func (c *contentVideoCounts) active() bool {
+	return c.Downloading+c.Converting+c.Waiting > 0
+}
+
+// handleContentYouTubeList lists the YouTube jobs with the story of each
+// video: its download and, once downloaded, its conversion (joined here
+// from the ingest job it was handed to, so the page asks once). The order
+// is what a parent needs first: what is working now (a playlist still
+// filling up, then the download, then conversions), then what needs the
+// parent (failed or paused), then what waits (downloads in the order they
+// will run, then downloaded videos in the converter's order), then what
+// is done, most recently finished first. A failed job that a later job
+// for the same link replaced (a Retry, or the same link pasted again) is
+// left out, so failures do not pile up after a retry. Summary counts the
+// videos (not the playlists) for the line on top of the card.
 func (s *Server) handleContentYouTubeList(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
@@ -201,50 +302,170 @@ func (s *Server) handleContentYouTubeList(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, msgContentYouTubeDown)
 		return
 	}
-	list, err := s.deps.YouTube.Jobs()
+	rows, videos, summary, err := s.contentYouTubeRows(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
 		return
 	}
-	// The ingest job of a downloaded video carries its watch URL as the
-	// source path and the show it was filed under.
-	shows := map[string]string{}
-	if s.deps.Ingest != nil {
-		if ing, err := s.deps.Ingest.Jobs(); err == nil {
-			for _, j := range ing {
-				if j.Source.Kind == core.SourceYouTube && j.Source.Show != "" {
-					if _, ok := shows[j.Source.Path]; !ok {
-						shows[j.Source.Path] = j.Source.Show
-					}
-				}
+	for i := range rows {
+		rw := &rows[i]
+		if !rw.List || len(rw.Videos) == 0 {
+			continue
+		}
+		var c contentVideoCounts
+		for _, id := range rw.Videos {
+			if v := videos[id]; v != nil {
+				c.add(v.status)
 			}
 		}
+		rw.Playlist = &c
 	}
-	seen := map[string]bool{}
-	out := make([]contentYouTubeJob, 0, len(list))
-	for _, j := range list {
-		if j.State == jobs.StateFailed && seen[j.URL] {
-			continue // replaced by a newer job for the same link
+	// key orders the rows: group, then the order inside it.
+	key := func(rw *contentYouTubeRow) (group, sub int, n int64) {
+		switch {
+		case rw.Playlist != nil && rw.Playlist.active():
+			return jobs.GroupWorking, 0, -rw.Seq
+		case rw.List:
+			return jobs.GroupDone, 0, -rw.Updated.UnixNano()
 		}
-		seen[j.URL] = true
-		row := contentYouTubeJob{JobView: j}
-		if j.State == jobs.StateDone {
-			row.Show = shows[j.URL]
+		switch rw.status {
+		case videoDownloading:
+			return jobs.GroupWorking, 1, rw.Seq
+		case videoConverting:
+			return jobs.GroupWorking, 2, rw.ing.Seq
+		case videoNeedsYou:
+			return jobs.GroupNeedsYou, 0, -rw.Seq
+		case videoWaitingDownload:
+			return jobs.GroupWaiting, 0, int64(rw.Place)
+		case videoWaitingConvert:
+			return jobs.GroupWaiting, 1, int64(rw.ing.Place)
 		}
-		out = append(out, row)
+		finished := rw.Updated
+		if rw.ing != nil {
+			finished = rw.ing.Updated
+		}
+		return jobs.GroupDone, 0, -finished.UnixNano()
+	}
+	sort.SliceStable(rows, func(a, b int) bool {
+		ga, sa, na := key(&rows[a])
+		gb, sb, nb := key(&rows[b])
+		if ga != gb {
+			return ga < gb
+		}
+		if sa != sb {
+			return sa < sb
+		}
+		return na < nb
+	})
+	out := make([]contentYouTubeJob, len(rows))
+	for i := range rows {
+		out[i] = rows[i].contentYouTubeJob
 	}
 	folder, err := s.videoFolderView(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"jobs": out, "folder": folder})
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": out, "folder": folder, "summary": summary})
 }
 
-// handleContentYouTubeAdd enqueues a YouTube download for a video, playlist
-// or channel URL. Only real YouTube addresses pass: the URL is parsed and
-// rebuilt into its canonical https://www.youtube.com form, so yt-dlp never
-// sees a foreign host or a client-chosen URL shape.
+// contentYouTubeRow is one YouTube job joined with the conversion its
+// video was handed to, and where the video is across the two.
+type contentYouTubeRow struct {
+	contentYouTubeJob
+	status contentVideoStatus
+	ing    *ingest.JobView
+}
+
+// contentYouTubeRows joins every YouTube job with its conversion: rows
+// in the jobs' order (a failed job a later one for the same link replaced
+// is left out), videos maps a video id to its newest row, and summary
+// counts the videos (not the playlists). The YouTube list and the
+// Following counts (content_follow.go) both read it.
+func (s *Server) contentYouTubeRows(ctx context.Context) ([]contentYouTubeRow, map[string]*contentYouTubeRow, contentVideoCounts, error) {
+	var summary contentVideoCounts
+	list, err := s.deps.YouTube.Jobs()
+	if err != nil {
+		return nil, nil, summary, err
+	}
+	// A downloaded video's conversion is the ingest job it was handed to
+	// or, when a Try again replaced that one, the newer job for the same
+	// watch URL (YouTube ingest jobs use it as their source path).
+	byID := map[string]*ingest.JobView{}
+	bySource := map[string]*ingest.JobView{}
+	if s.deps.Ingest != nil {
+		if ing, err := s.deps.Ingest.Jobs(); err == nil {
+			for i := range ing {
+				j := &ing[i]
+				byID[j.ID] = j
+				if j.Source.Kind != core.SourceYouTube {
+					continue
+				}
+				if old, ok := bySource[j.Source.Path]; !ok || j.Seq > old.Seq {
+					bySource[j.Source.Path] = j
+				}
+			}
+		}
+	}
+	newest := map[string]int64{}
+	for _, j := range list {
+		newest[j.URL] = max(newest[j.URL], j.Seq)
+	}
+	rows := make([]contentYouTubeRow, 0, len(list))
+	for _, j := range list {
+		if j.State == jobs.StateFailed && j.Seq < newest[j.URL] {
+			continue // replaced by a newer job for the same link
+		}
+		rw := contentYouTubeRow{contentYouTubeJob: contentYouTubeJob{JobView: j}}
+		if j.State == jobs.StateDone && !j.List {
+			ing := byID[j.IngestID]
+			if n := bySource[j.URL]; n != nil && (ing == nil || n.Seq > ing.Seq) {
+				ing = n
+			}
+			if ing != nil {
+				rw.ing = ing
+				rw.Show = ing.Source.Show
+				rw.Next = &contentYouTubeNext{
+					ID: ing.ID, State: ing.State, Stage: ing.Stage, Place: ing.Place,
+					Progress: ing.Progress, SecondsLeft: ing.SecondsLeft, Message: ing.Message,
+				}
+				if ing.State == jobs.StateFailed {
+					why, err := s.contentIngestRetryBlock(ctx, *ing)
+					if err != nil {
+						return nil, nil, summary, err
+					}
+					rw.Next.Retry, rw.Next.Hint = why == "", why
+				}
+			}
+		}
+		rw.status = contentVideoStatusOf(j, rw.ing)
+		rows = append(rows, rw)
+	}
+	videos := map[string]*contentYouTubeRow{} // video id -> its newest job
+	for i := range rows {
+		rw := &rows[i]
+		if rw.List {
+			continue
+		}
+		// A pasted link not looked up yet has no video id: it still
+		// counts (as waiting, or downloading while it is looked up).
+		summary.add(rw.status)
+		if rw.VideoID == "" {
+			continue
+		}
+		if old, ok := videos[rw.VideoID]; !ok || rw.Seq > old.Seq {
+			videos[rw.VideoID] = rw
+		}
+	}
+	return rows, videos, summary, nil
+}
+
+// handleContentYouTubeAdd takes a pasted YouTube link. Only real YouTube
+// addresses pass: the URL is parsed and rebuilt into its canonical
+// https://www.youtube.com form, so yt-dlp never sees a foreign host or a
+// client-chosen URL shape. A single video downloads at once; a playlist
+// or channel is looked up for its preview first (content_follow.go), so
+// nothing downloads until the parent presses Start.
 func (s *Server) handleContentYouTubeAdd(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
@@ -266,6 +487,10 @@ func (s *Server) handleContentYouTubeAdd(w http.ResponseWriter, r *http.Request)
 	canonical, err := contentYouTubeCanonical(link)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, msgContentBadLink)
+		return
+	}
+	if kind, err := youtube.ListKind(canonical); err == nil {
+		s.contentFollowLookup(w, canonical, kind)
 		return
 	}
 	id, err := s.deps.YouTube.Enqueue(r.Context(), canonical)
@@ -748,10 +973,38 @@ func contentIngestKey(j ingest.JobView) string {
 	return string(j.Source.Kind) + "\x00" + j.Source.Path
 }
 
-// handleContentIngestList lists the conversions, newest first: everything
-// waiting, running, paused or failed, and what finished in the last day. A
-// failed job that a newer job for the same file replaced (a Retry, or a
-// scan that found the file changed) is left out.
+// contentIngestCounts is the summary line on top of the conversions card:
+// how many videos are being converted (a conversion and its checks), how
+// many are being added to the shelf (looked at and put on the shelf before
+// any conversion), how many wait, and how many need the parent (failed or
+// paused).
+type contentIngestCounts struct {
+	Converting int `json:"converting"`
+	Adding     int `json:"adding"`
+	Waiting    int `json:"waiting"`
+	NeedsYou   int `json:"needs_you"`
+}
+
+// contentNewestSeq maps each file key (contentIngestKey) to the newest
+// job for it, so a failed job a newer one replaced is recognised.
+func contentNewestSeq(list []ingest.JobView) map[string]int64 {
+	newest := map[string]int64{}
+	for _, j := range list {
+		if key := contentIngestKey(j); key != "" {
+			newest[key] = max(newest[key], j.Seq)
+		}
+	}
+	return newest
+}
+
+// handleContentIngestList lists the conversions in the order the queue
+// gives them (ingest.Queue.Jobs): running first, then failed and paused,
+// then waiting in the order the workers will take them up (each with its
+// place in line), then finished, most recent first. Everything that has not
+// finished is listed, and what finished in the last day. A failed job that
+// a newer job for the same file replaced (a Retry, or a scan that found
+// the file changed) is left out. Summary counts the work for the line on
+// top of the card.
 func (s *Server) handleContentIngestList(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPIN(w, r) {
 		return
@@ -766,20 +1019,31 @@ func (s *Server) handleContentIngestList(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	cutoff := s.now().Add(-contentDoneShown)
-	seen := map[string]bool{}
+	newest := contentNewestSeq(list)
+	var summary contentIngestCounts
 	out := make([]contentIngestJob, 0, len(list))
 	for _, j := range list {
-		key := contentIngestKey(j)
-		replaced := key != "" && seen[key]
-		seen[key] = true
-		if j.State == jobs.StateFailed && replaced {
+		if key := contentIngestKey(j); j.State == jobs.StateFailed && key != "" && j.Seq < newest[key] {
 			continue
 		}
 		if j.State == jobs.StateDone && j.Updated.Before(cutoff) {
 			continue
 		}
 		row := contentIngestJob{JobView: j, Title: contentIngestTitle(j)}
-		if j.State == jobs.StateFailed {
+		switch j.State {
+		case jobs.StateRunning:
+			switch j.Stage {
+			case "", ingest.StageProbe, ingest.StagePlan, ingest.StageShow:
+				summary.Adding++
+			default:
+				summary.Converting++
+			}
+		case jobs.StateQueued:
+			summary.Waiting++
+		case jobs.StatePaused:
+			summary.NeedsYou++
+		case jobs.StateFailed:
+			summary.NeedsYou++
 			why, err := s.contentIngestRetryBlock(r.Context(), j)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, msgContentLoadFailed)
@@ -789,7 +1053,7 @@ func (s *Server) handleContentIngestList(w http.ResponseWriter, r *http.Request)
 		}
 		out = append(out, row)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"jobs": out})
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": out, "summary": summary})
 }
 
 // contentIngestRetryBlock says why a failed conversion cannot be tried
@@ -852,13 +1116,9 @@ func (s *Server) handleContentIngestRetry(w http.ResponseWriter, r *http.Request
 		return
 	}
 	j := list[idx]
-	if key := contentIngestKey(j); key != "" {
-		for _, newer := range list[:idx] { // the list is newest first
-			if contentIngestKey(newer) == key {
-				writeError(w, http.StatusBadRequest, "That video is already being tried again. The list shows how it is doing.")
-				return
-			}
-		}
+	if key := contentIngestKey(j); key != "" && j.Seq < contentNewestSeq(list)[key] {
+		writeError(w, http.StatusBadRequest, "That video is already being tried again. The list shows how it is doing.")
+		return
 	}
 	why, err := s.contentIngestRetryBlock(r.Context(), j)
 	if err != nil {

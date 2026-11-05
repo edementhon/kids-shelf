@@ -175,6 +175,12 @@ type payload struct {
 	// Improved is the improvement-phase publish marker, the same
 	// idempotency for the converted copy.
 	Improved bool `json:"improved"`
+	// Progress is how far the running conversion got, in percent of the
+	// probed duration, and SecondsLeft the estimate of how long it still
+	// takes (0: not known yet). The convert stage writes both every few
+	// seconds while ffmpeg runs and clears them when it ends.
+	Progress    float64 `json:"progress,omitempty"`
+	SecondsLeft int     `json:"seconds_left,omitempty"`
 }
 
 // Queue implements core.IngestQueue on top of a jobs.Queue: Enqueue hands a
@@ -201,37 +207,56 @@ func NewQueue(q *jobs.Queue) *Queue {
 // JobView is one ingest job as the parent dashboard lists it: the file it
 // came from, the pipeline stage it is on, its state, and the plain-words
 // message for paused (disk full) and failed jobs (the jobs table's error
-// column). JSON tags keep the dashboard API shape stable.
+// column). Place is a waiting job's place in its lane's line (1: next);
+// Progress and SecondsLeft report a conversion while it runs. JSON tags
+// keep the dashboard API shape stable.
 type JobView struct {
-	ID        string         `json:"id"`
-	State     string         `json:"state"`
-	Stage     string         `json:"stage"`
-	Message   string         `json:"message,omitempty"`
-	File      string         `json:"file"`
-	Source    core.Source    `json:"source"`
-	EpisodeID core.EpisodeID `json:"episode_id"`
-	Created   time.Time      `json:"created"`
-	Updated   time.Time      `json:"updated"`
+	ID          string         `json:"id"`
+	State       string         `json:"state"`
+	Stage       string         `json:"stage"`
+	Message     string         `json:"message,omitempty"`
+	File        string         `json:"file"`
+	Source      core.Source    `json:"source"`
+	EpisodeID   core.EpisodeID `json:"episode_id"`
+	Place       int            `json:"place,omitempty"`
+	Progress    float64        `json:"progress,omitempty"`
+	SecondsLeft int            `json:"seconds_left,omitempty"`
+	Created     time.Time      `json:"created"`
+	Updated     time.Time      `json:"updated"`
+	// Seq is the enqueue order (higher is newer), for telling which of
+	// two jobs for the same file replaced the other.
+	Seq int64 `json:"-"`
 }
 
-// Jobs lists every ingest job, most recently enqueued first. A job whose
-// payload does not decode still lists with its id, stage, state and error,
-// so the dashboard never hides a stuck job.
+// Lanes are the claim lanes the worker runs (see Run): the sort lane for
+// show-phase work and the fix lane for improvements. Each has its own line.
+var Lanes = []jobs.Lane{{Min: prioShow, Max: prioShow}, {Min: prioShow + 1, Max: math.MaxInt}}
+
+// Jobs lists every ingest job in the order the parent pages show them
+// (jobs.Lineup over Lanes): running first, then failed and paused, then
+// waiting in the order the lanes will claim them, then finished, most
+// recent first. A job whose payload does not decode still lists with its
+// id, stage, state and error, so the dashboard never hides a stuck job.
 func (s *Queue) Jobs() ([]JobView, error) {
-	jobs, err := s.q.List(JobKind)
+	list, err := s.q.List(JobKind)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]JobView, 0, len(jobs))
-	for i := range jobs {
-		j := &jobs[i]
+	place := jobs.Lineup(list, Lanes...)
+	out := make([]JobView, 0, len(list))
+	for i := range list {
+		j := &list[i]
 		var p payload
 		_ = j.DecodePayload(&p)
-		out = append(out, JobView{
+		v := JobView{
 			ID: j.ID, State: j.State, Stage: j.Stage, Message: j.Error,
 			File: p.File, Source: p.Source, EpisodeID: p.EpisodeID,
-			Created: j.Created, Updated: j.Updated,
-		})
+			Place: place[j.ID], Created: j.Created, Updated: j.Updated, Seq: j.Seq,
+		}
+		if j.State == jobs.StateRunning && j.Stage == StageConvert {
+			v.Progress, v.SecondsLeft = p.Progress, p.SecondsLeft
+		}
+		out = append(out, v)
 	}
 	return out, nil
 }
@@ -397,6 +422,9 @@ type Worker struct {
 	// helpersBlockedSet, when set (tests only), runs right after
 	// helpersBlocked is set: the first moment the helpers check can see it.
 	helpersBlockedSet func()
+	// progressEvery is how often a running conversion's progress is read
+	// and saved (convertProgressEvery; tests shorten it).
+	progressEvery time.Duration
 }
 
 // HelpersBlocked reports whether a job paused because a helper program
@@ -440,6 +468,8 @@ func NewWorker(q *jobs.Queue, dir *tools.Dir, pub core.Publisher, mediaDir strin
 		mediaDir: mediaDir,
 		runCmd:   runCombined,
 		hw:       newHWState(),
+
+		progressEvery: convertProgressEvery,
 	}
 }
 
@@ -503,15 +533,13 @@ func (w *Worker) videoDir(ctx context.Context) (string, error) {
 // next launch requeues it from that stage.
 func (w *Worker) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		w.runLane(ctx, prioShow, prioShow)
-	}()
-	go func() {
-		defer wg.Done()
-		w.runLane(ctx, 1, math.MaxInt)
-	}()
+	for _, lane := range Lanes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w.runLane(ctx, lane.Min, lane.Max)
+		}()
+	}
 	wg.Wait()
 	return nil
 }
@@ -962,18 +990,26 @@ func (w *Worker) stageConvert(ctx context.Context, jobID string, pl *payload) (s
 			return fail(err)
 		}
 	}
+	if pl.Progress != 0 || pl.SecondsLeft != 0 {
+		// A conversion cut short by a quit left its numbers behind; this
+		// run starts from zero, so the list must not show the old ones.
+		pl.Progress, pl.SecondsLeft = 0, 0
+		if err := w.q.Advance(jobID, StageConvert, pl); err != nil {
+			log.Printf("ingest: clear progress of job %s: %v", jobID, err)
+		}
+	}
 	var out []byte
 	switch pl.Action {
 	case ActionKeep:
 		err = copyFile(ctx, pl.File, tmp)
 	case ActionRemux:
-		out, err = w.run(ctx, w.dir.FFmpeg, w.streamArgs(pl, "-c", "copy", "-movflags", "+faststart", tmp)...)
+		out, err = w.runConvert(ctx, jobID, pl, w.dir.FFmpeg, w.streamArgs(pl, "-c", "copy", "-movflags", "+faststart", tmp)...)
 	case ActionAudio:
-		out, err = w.run(ctx, w.dir.FFmpeg, w.streamArgs(pl,
+		out, err = w.runConvert(ctx, jobID, pl, w.dir.FFmpeg, w.streamArgs(pl,
 			"-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-ac", "2",
 			"-movflags", "+faststart", tmp)...)
 	case ActionFull:
-		out, err = w.fullConvert(ctx, pl, tmp)
+		out, err = w.fullConvert(ctx, jobID, pl, tmp)
 	default:
 		return fail(errors.New(msgGeneric))
 	}
@@ -986,6 +1022,98 @@ func (w *Worker) stageConvert(ctx context.Context, jobID string, pl *payload) (s
 	w.resv.Release(jobID)
 	pl.Output = final
 	return StageVerify, nil
+}
+
+// convertProgressEvery is how often a running conversion's progress is read
+// and saved: often enough for the parent page, which refreshes every four
+// seconds, and rare enough that an hour-long conversion writes its job row
+// only a few times a minute.
+const convertProgressEvery = 3 * time.Second
+
+// The time left is only estimated once the conversion has run for
+// minEstimateRun and done minEstimateShare of the video: earlier guesses
+// swing wildly, and no estimate is better than a wrong one.
+const (
+	minEstimateRun   = 10 * time.Second
+	minEstimateShare = 0.03
+)
+
+// runConvert runs one conversion ffmpeg (bin) with args and reports its
+// progress into the job payload while it runs: ffmpeg writes its -progress
+// file, and every progressEvery the last output time (lastOutTimeUS) is
+// compared with the probed duration (convertEstimate). Only a copy of pl is
+// saved, and the reporter stops before runConvert returns, so pl stays the
+// caller's alone. Progress is cosmetic: a progress file that cannot be made
+// runs the conversion without it.
+func (w *Worker) runConvert(ctx context.Context, jobID string, pl *payload, bin string, args ...string) ([]byte, error) {
+	dur := probeDuration(pl)
+	prog, err := os.CreateTemp("", "kids-shelf-convert-*.log")
+	if err != nil || dur <= 0 {
+		if prog != nil {
+			prog.Close()
+			os.Remove(prog.Name())
+		}
+		return w.run(ctx, bin, args...)
+	}
+	progPath := prog.Name()
+	prog.Close()
+	defer os.Remove(progPath)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	snap := *pl
+	go func() {
+		defer close(done)
+		w.reportConvert(jobID, snap, progPath, dur, stop)
+	}()
+	out, err := w.run(ctx, bin, append([]string{"-nostdin", "-progress", progPath}, args...)...)
+	close(stop)
+	<-done
+	return out, err
+}
+
+// reportConvert saves the conversion's progress every progressEvery until
+// stop closes, writing only when the numbers changed.
+func (w *Worker) reportConvert(jobID string, snap payload, progPath string, dur float64, stop <-chan struct{}) {
+	start := time.Now()
+	tick := time.NewTicker(w.progressEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-tick.C:
+		}
+		us, ok := lastOutTimeUS(progPath)
+		if !ok {
+			continue
+		}
+		pct, left := convertEstimate(float64(us)/1e6, dur, time.Since(start))
+		if pct == snap.Progress && left == snap.SecondsLeft {
+			continue
+		}
+		snap.Progress, snap.SecondsLeft = pct, left
+		if err := w.q.Advance(jobID, StageConvert, snap); err != nil {
+			log.Printf("ingest: record progress of job %s: %v", jobID, err)
+		}
+	}
+}
+
+// convertEstimate turns a conversion's output time (seconds of the video
+// written so far) into whole percent of the video's duration, at most 99
+// until the stage ends, and the seconds left at the rate so far: 0 (not
+// known) until the run is long enough to tell (minEstimateRun,
+// minEstimateShare).
+func convertEstimate(doneSec, durSec float64, elapsed time.Duration) (pct float64, secondsLeft int) {
+	if durSec <= 0 || doneSec <= 0 {
+		return 0, 0
+	}
+	share := min(doneSec/durSec, 0.99)
+	pct = min(math.Floor(doneSec/durSec*100), 99)
+	if elapsed < minEstimateRun || share < minEstimateShare {
+		return pct, 0
+	}
+	left := elapsed.Seconds() * (1 - share) / share
+	return pct, max(1, int(math.Round(left)))
 }
 
 // streamArgs builds the ffmpeg prefix that opens the input and maps exactly
@@ -1262,35 +1390,50 @@ func (w *Worker) decodeCheck(ctx context.Context, path string, vIdx, aIdx int, w
 	return nil
 }
 
+// progressTail is how much of the end of a -progress file lastOutTimeUS
+// reads: ffmpeg appends a block of about 300 bytes per update, so the
+// last complete out_time_us line is always in it, and a long conversion's
+// growing file is never read whole while it runs.
+const progressTail = 8 << 10
+
 // lastOutTimeUS returns the last output time in microseconds ffmpeg reported
-// in a -progress file, and whether any was reported.
+// in a -progress file, and whether any was reported. Only complete lines
+// count: a running ffmpeg may be halfway through writing the last one.
 func lastOutTimeUS(path string) (int64, bool) {
-	b, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return 0, false
 	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return 0, false
+	}
+	off := max(0, fi.Size()-progressTail)
+	b := make([]byte, fi.Size()-off)
+	n, err := f.ReadAt(b, off)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return 0, false
+	}
+	b = b[:n]
 	key := []byte("out_time_us=")
-	idx := -1
-	for i := 0; i+len(key) <= len(b); {
-		j := bytes.Index(b[i:], key)
-		if j < 0 {
-			break
+	for {
+		idx := bytes.LastIndex(b, key)
+		if idx < 0 {
+			return 0, false
 		}
-		idx = i + j
-		i = idx + len(key)
+		val := b[idx+len(key):]
+		nl := bytes.IndexByte(val, '\n')
+		if nl < 0 {
+			b = b[:idx] // still being written: take the one before
+			continue
+		}
+		us, err := strconv.ParseInt(strings.TrimSpace(string(val[:nl])), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return us, true
 	}
-	if idx < 0 {
-		return 0, false
-	}
-	val := b[idx+len(key):]
-	if nl := bytes.IndexByte(val, '\n'); nl >= 0 {
-		val = val[:nl]
-	}
-	n, err := strconv.ParseInt(strings.TrimSpace(string(val)), 10, 64)
-	if err != nil {
-		return 0, false
-	}
-	return n, true
 }
 
 // stageThumbnail writes a JPEG preview at 10% of the video - at most 60

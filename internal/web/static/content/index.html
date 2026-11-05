@@ -14,11 +14,13 @@
 
 <section class="card" id="sec-youtube">
   <h2>Add from YouTube</h2>
-  <p class="note">Paste a video, a playlist or a channel link. The download runs on this computer in the background.</p>
+  <p class="summary hidden" id="ytsummary" role="status"></p>
+  <p class="note">Paste a video, a playlist or a channel link. A video downloads at once. For a playlist or a channel, Kids Shelf first shows what’s in it, and you choose what to get.</p>
   <form id="ytform" class="inlineform">
     <input type="text" inputmode="url" id="yturl" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false" aria-label="YouTube link">
     <button class="btn add" type="submit">Add</button>
   </form>
+  <div id="ytpending" class="jobs"></div>
   <div class="vfolder">
     <p class="note" id="vfwhere"></p>
     <div class="rowbtns" id="vfbtns">
@@ -33,6 +35,14 @@
     <p class="note hidden" id="vfhelp">For example a drive you plugged into this computer. Kids Shelf makes a “kids-shelf media” folder inside it. Videos already saved stay where they are and keep playing.</p>
   </div>
   <div id="ytjobs" class="jobs"></div>
+</section>
+
+<section class="card" id="sec-following">
+  <h2 id="following">Playlists and channels</h2>
+  <p class="note">Kids Shelf checks the ones you follow every 6 hours for new videos.</p>
+  <div id="follows" class="jobs"></div>
+  <h3 class="subhead" id="following-waiting">Waiting for your yes</h3>
+  <div id="followwaiting" class="jobs"></div>
 </section>
 
 <section class="card" id="sec-sources">
@@ -62,7 +72,8 @@
 
 <section class="card" id="sec-convert">
   <h2>Conversions</h2>
-  <p class="note">Videos are turned into a format every browser can play. This list shows the work waiting and running, and what finished in the last day. A video that could not be added can be tried again.</p>
+  <p class="summary hidden" id="ingestsummary" role="status"></p>
+  <p class="note">Videos are turned into a format every browser can play. This list shows what is being converted now, then what waits, in the order it will be done, and what finished in the last day. A video that could not be added can be tried again.</p>
   <div id="ingestjobs" class="jobs"></div>
 </section>
 
@@ -127,6 +138,17 @@
     <div class="rowbtns center">
       <button class="btn sub" id="removeok" type="button">Remove</button>
       <button class="btn" id="removeno" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="stopconfirm">
+  <div class="overlay-box" role="dialog" aria-modal="true" aria-labelledby="stoptitle">
+    <h2 id="stoptitle">Stop following?</h2>
+    <p id="stopconfirmtext" class="note"></p>
+    <div class="rowbtns center">
+      <button class="btn sub" id="stopok" type="button">Stop following</button>
+      <button class="btn" id="stopno" type="button">Cancel</button>
     </div>
   </div>
 </div>

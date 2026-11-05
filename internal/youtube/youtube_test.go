@@ -24,6 +24,14 @@ import (
 // the forced retry path.
 func newFakeEnv(t *testing.T, mode string) (m *Manager, fq *core.FakeIngestQueue, q *jobs.Queue, dataDir string) {
 	t.Helper()
+	m, fq, q, dataDir, _ = newFakeEnvStore(t, mode)
+	return m, fq, q, dataDir
+}
+
+// newFakeEnvStore is newFakeEnv that also returns the store, for the
+// follow tests (their tables live next to the queue's).
+func newFakeEnvStore(t *testing.T, mode string) (m *Manager, fq *core.FakeIngestQueue, q *jobs.Queue, dataDir string, s *store.Store) {
+	t.Helper()
 	t.Setenv("KS_FAKE_YTDLP", mode)
 	dataDir = t.TempDir()
 	installFakeYtDlp(t, dataDir, "2026.09.01")
@@ -46,7 +54,7 @@ func newFakeEnv(t *testing.T, mode string) (m *Manager, fq *core.FakeIngestQueue
 	// do not exercise the reservation, so probe a comfortably large free
 	// figure instead of the test machine's real disk.
 	m.WithReservations(disk.NewReservations(q).WithFree(func(string) (uint64, error) { return 64 << 30, nil }))
-	return m, fq, q, dataDir
+	return m, fq, q, dataDir, s
 }
 
 // installFakeYtDlp copies this test binary into
@@ -203,8 +211,8 @@ func TestPlaylistExpandsIntoOneJobPerVideo(t *testing.T) {
 	}
 	titles := map[string]string{}
 	for _, c := range fq.Calls() {
-		if c.Source.Show != "Fake Channel" {
-			t.Errorf("show = %q, want Fake Channel", c.Source.Show)
+		if c.Source.Show != "Fake Playlist" {
+			t.Errorf("show = %q, want Fake Playlist (the playlist's title)", c.Source.Show)
 		}
 		titles[c.Source.Path] = c.Source.Title
 	}

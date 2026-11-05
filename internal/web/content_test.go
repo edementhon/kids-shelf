@@ -239,6 +239,8 @@ func TestContentYouTubeLinkGating(t *testing.T) {
 	yt := youtube.NewManager(q, ingest.NewQueue(q), nil, nil, t.TempDir())
 	ts := contentTestServer(t, Deps{YouTube: yt, DataDir: t.TempDir()})
 
+	// The newest link waits last in line: queued jobs list in the order
+	// they will download.
 	queuedURL := func() string {
 		t.Helper()
 		_, body := contentTestGet(t, ts, "/api/admin/content/youtube")
@@ -251,7 +253,7 @@ func TestContentYouTubeLinkGating(t *testing.T) {
 		if len(list.Jobs) == 0 {
 			t.Fatal("no youtube jobs queued")
 		}
-		return list.Jobs[0].URL
+		return list.Jobs[len(list.Jobs)-1].URL
 	}
 
 	// youtu.be/ID is the canonical watch URL after enqueue.

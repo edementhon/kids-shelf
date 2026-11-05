@@ -290,8 +290,15 @@ $('ytform').addEventListener('submit', async ev => {
     return;
   }
   try {
-    await post('/api/admin/content/youtube', { url });
+    const d = await post('/api/admin/content/youtube', { url });
     $('yturl').value = '';
+    if (d && d.follow) {
+      toast(d.kind === 'channel'
+        ? 'Looking up the channel. A big channel takes about a minute. Then you choose what to get.'
+        : 'Looking up the playlist. Then you choose what to get.', 'ok');
+      await loadFollows();
+      return;
+    }
     toast('Added. The download starts shortly and shows in the list below.', 'ok');
     await loadYouTube();
   } catch (e) {
@@ -299,39 +306,210 @@ $('ytform').addEventListener('submit', async ev => {
   }
 });
 
-function ytProgress(job) {
-  if (!job.progress || job.state !== 'running') return '';
-  return `<div class="pbar"><i style="width:${Math.min(100, Math.max(0, job.progress))}%"></i></div>`;
+// ── job status words shared by the YouTube and conversions lists ───────────
+
+// DONE_SHOWN is how many finished rows a list shows before "Show all".
+const DONE_SHOWN = 10;
+// showAllDone remembers, per list, that the parent asked to see every
+// finished row.
+const showAllDone = { yt: false, ingest: false };
+
+function ordinal(n) {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return n + 'th';
+  return n + ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+}
+
+// inLine says where a waiting job is in its line: 'next' for the first.
+function inLine(place) {
+  if (!place) return '';
+  return place === 1 ? 'next' : ordinal(place) + ' in line';
+}
+
+// timeLeft puts an estimate in seconds into words; '' when there is none.
+function timeLeft(s) {
+  if (!s || s <= 0) return '';
+  if (s < 60) return 'less than a minute left';
+  const m = Math.round(s / 60);
+  if (m < 90) return `about ${m} min left`;
+  const h = Math.round(s / 3600);
+  return `about ${plural(h, 'hour', 'hours')} left`;
+}
+
+// working says what a running step is doing, with its percent and the
+// time left when known: 'Converting: 42%, about 6 min left'.
+function working(word, pct, secs) {
+  if (!pct) return word;
+  const left = timeLeft(secs);
+  return `${word}: ${Math.floor(pct)}%` + (left ? ', ' + left : '');
+}
+
+function pbar(pct) {
+  if (!pct) return '';
+  return `<div class="pbar"><i style="width:${Math.min(100, Math.max(0, pct))}%"></i></div>`;
+}
+
+// summaryLine joins the non-zero parts of a card's summary with dots.
+function summaryLine(el, parts) {
+  const text = parts.filter(Boolean).join(' · ');
+  el.textContent = text;
+  el.classList.toggle('hidden', !text);
+}
+
+// withDoneTail renders rows (already in the server's order, finished ones
+// last) and keeps only the newest DONE_SHOWN finished ones unless the
+// parent asked for all of them.
+function withDoneTail(list, jobs, isDone, render) {
+  const done = jobs.filter(isDone).length;
+  let shown = jobs;
+  if (!showAllDone[list] && done > DONE_SHOWN) {
+    let kept = 0;
+    shown = jobs.filter(j => !isDone(j) || ++kept <= DONE_SHOWN);
+  }
+  let more = '';
+  if (done > DONE_SHOWN) {
+    more = showAllDone[list]
+      ? `<button type="button" class="btn chip" data-showall="${list}">Show only the newest ${DONE_SHOWN} finished</button>`
+      : `<button type="button" class="btn chip" data-showall="${list}">Show all ${done} finished</button>`;
+  }
+  return shown.map(render).join('') + (more ? `<div class="rowbtns">${more}</div>` : '');
+}
+
+function toggleShowAll(b, rerender) {
+  showAllDone[b.dataset.showall] = !showAllDone[b.dataset.showall];
+  rerender();
+}
+
+// ── YouTube list ────────────────────────────────────────────────────────────
+
+// videoCounts puts a set of videos' counts into words, for a playlist row.
+function videoCounts(c) {
+  const parts = [];
+  if (c.onShelf) parts.push(`${c.onShelf} on the shelf`);
+  if (c.downloading) parts.push(`${c.downloading} downloading`);
+  if (c.converting) parts.push(`${c.converting} converting`);
+  if (c.waiting) parts.push(`${c.waiting} waiting`);
+  if (c.needsYou) parts.push(`${c.needsYou} could not finish`);
+  return `${plural(c.videos, 'video', 'videos')}: ${parts.join(', ')}`;
+}
+
+function renderYouTubeSummary(c) {
+  const el = $('ytsummary');
+  if (!c || !(c.downloading || c.converting || c.waiting || c.needsYou)) {
+    summaryLine(el, []);
+    return;
+  }
+  summaryLine(el, [
+    c.downloading && `Downloading ${c.downloading}`,
+    c.converting && `Converting ${c.converting}`,
+    c.waiting && `${c.waiting} waiting`,
+    c.onShelf && `${c.onShelf} on the shelf`,
+    c.needsYou && `${c.needsYou} could not finish`
+  ]);
+}
+
+// ytDone reports whether a YouTube row is finished (it sits in the done
+// tail of the list): the download and its conversion are over.
+function ytDone(job) {
+  if (job.list) return !(job.playlist && (job.playlist.downloading || job.playlist.converting || job.playlist.waiting));
+  return job.state === 'done' && (!job.next || job.next.state === 'done');
+}
+
+// ytStatus tells one video's story: its download, then its conversion.
+// It returns the badge class and words, the percent for the progress bar,
+// and the lines underneath.
+function ytStatus(job) {
+  const r = { cls: job.state, label: STATE_LABEL[job.state] || job.state, pct: 0, msg: job.message || '', note: '' };
+  if (job.list) {
+    const active = !ytDone(job);
+    r.cls = active ? 'running' : 'done';
+    r.label = active ? 'Working' : 'Done';
+    r.note = job.playlist ? videoCounts(job.playlist) : '';
+    return r;
+  }
+  switch (job.state) {
+    case 'queued':
+      r.label = job.place ? 'Waiting: ' + inLine(job.place) : 'Waiting';
+      return r;
+    case 'running':
+      if (job.stage === 'download') {
+        r.label = working('Downloading', job.progress, job.secondsLeft);
+        r.pct = job.progress;
+      } else if (job.stage === 'handoff') {
+        r.label = 'Downloaded';
+      } else if (!job.stage && job.videoId) {
+        // The video is known; its size is checked and space set aside.
+        r.label = 'Getting ready to download';
+      } else {
+        r.label = YT_STAGE[job.stage] || 'Working';
+      }
+      return r;
+    case 'done':
+      break;
+    default:
+      return r;
+  }
+  const n = job.next;
+  if (!n) {
+    r.label = 'Downloaded';
+    if (job.show) r.note = `It goes on the shelf in the show “${job.show}”.`;
+    return r;
+  }
+  r.cls = n.state;
+  r.msg = n.message || '';
+  switch (n.state) {
+    case 'queued':
+      r.label = 'Downloaded, waiting to convert' + (n.place ? ` (${inLine(n.place)})` : '');
+      break;
+    case 'running':
+      r.label = n.stage === 'convert' ? working('Converting', n.progress, n.secondsLeft) : (INGEST_STAGE[n.stage] || 'Working');
+      r.pct = n.stage === 'convert' ? n.progress : 0;
+      break;
+    case 'done':
+      r.label = 'On the shelf';
+      r.msg = '';
+      if (job.show) r.note = `In the show “${job.show}”.`;
+      break;
+    case 'failed':
+      r.label = 'Could not add';
+      r.note = n.hint || '';
+      break;
+    case 'paused':
+      r.label = 'Paused';
+      break;
+  }
+  return r;
 }
 
 function renderYouTube() {
   const wrap = $('ytjobs');
   const jobs = store.ytJobs;
+  renderYouTubeSummary(store.ytSummary);
   if (!jobs.length) {
     wrap.innerHTML = '<div class="empty">Nothing added yet.</div>';
     return;
   }
-  wrap.innerHTML = jobs.map(job => {
+  wrap.innerHTML = withDoneTail('yt', jobs, ytDone, job => {
     const title = job.title || job.url;
-    let label = STATE_LABEL[job.state] || job.state;
-    if (job.state === 'running' && YT_STAGE[job.stage]) label += ' · ' + YT_STAGE[job.stage];
-    if (job.state === 'done') label = 'Downloaded';
-    const retry = job.state === 'failed'
-      ? `<button class="btn mini amber" data-retry="${esc(job.id)}">Try again</button>` : '';
-    const where = job.state === 'done' && job.show
-      ? `<div class="jobnote">It goes on the shelf in the show “${esc(job.show)}”.</div>` : '';
+    const st = ytStatus(job);
+    let retry = '';
+    if (job.state === 'failed') {
+      retry = `<button class="btn mini amber" data-retry="${esc(job.id)}">Try again</button>`;
+    } else if (job.next && job.next.retry) {
+      retry = `<button class="btn mini amber" data-ingestretry="${esc(job.next.id)}">Try again</button>`;
+    }
     return `<div class="job">
         <div class="jobhead">
           <span class="jobtitle">${esc(title)}</span>
-          <span class="badge ${esc(job.state)}">${esc(label)}</span>
+          <span class="badge ${esc(st.cls)}">${esc(st.label)}</span>
           ${retry}
         </div>
         ${job.url && job.url !== title ? `<div class="jobsub">${esc(job.url)}</div>` : ''}
-        ${job.message ? `<div class="jobmsg">${esc(job.message)}</div>` : ''}
-        ${where}
-        ${ytProgress(job)}
+        ${st.msg ? `<div class="jobmsg">${esc(st.msg)}</div>` : ''}
+        ${st.note ? `<div class="jobnote">${esc(st.note)}</div>` : ''}
+        ${pbar(st.pct)}
       </div>`;
-  }).join('');
+  });
 }
 
 async function retryYouTube(btn) {
@@ -346,10 +524,25 @@ async function retryYouTube(btn) {
   }
 }
 
+// retryIngest gives a failed conversion a new try, from the conversions
+// list or from the YouTube row of the video it belongs to.
+async function retryIngest(btn) {
+  const done = busy(btn, 'Trying…');
+  try {
+    await post('/api/admin/content/ingest/retry', { id: btn.dataset.ingestretry });
+    toast('Trying again. The list shows how it is doing.', 'ok');
+    await Promise.all([loadIngest(), loadYouTube()]);
+  } catch (e) {
+    done();
+    if (!e.pin) toast(e.message, 'err');
+  }
+}
+
 async function loadYouTube() {
   try {
     const d = await api('/api/admin/content/youtube');
     store.ytJobs = d.jobs || [];
+    store.ytSummary = d.summary || null;
     store.folder = d.folder || null;
     renderYouTube();
     renderFolder();
@@ -357,6 +550,389 @@ async function loadYouTube() {
     loadFailed($('ytjobs'), e);
   }
 }
+
+// ── following playlists and channels ────────────────────────────────────────
+
+/* A pasted playlist or channel is looked up in the background, then shows
+   a preview (in the Add from YouTube card) until Start or Cancel. Followed
+   ones are listed in the Following card, with the new videos that wait for
+   the parent's yes. The lists only redraw when what they show changed, so
+   the 4-second poll never takes a choice or the focus away. */
+
+const LIMIT_WORDS = { 0: 'No limit', 10: '10 min', 20: '20 min', 30: '30 min', 60: '1 hour' };
+// followChoice keeps each preview's choices while the page polls.
+const followChoice = {};
+let followsNow = 0; // the server's clock at the last load, in ms
+let followsLocalAt = 0; // the page's clock then
+let stopping = null;
+let scrolledToWaiting = false;
+
+function defaultChoice(f) {
+  const channel = f.kind === 'channel';
+  return { take: channel ? 'newest' : 'all', limit: 0, follow: true, mode: channel ? 'ask' : 'auto' };
+}
+
+function choiceOf(f) {
+  if (!followChoice[f.id]) followChoice[f.id] = defaultChoice(f);
+  return followChoice[f.id];
+}
+
+// lengthWords puts a total length into words: 'about 14 hours', 'about 25 min'.
+function lengthWords(s) {
+  if (s < 60) return 'under a minute';
+  const m = Math.round(s / 60);
+  if (m < 90) return `about ${m} min`;
+  return `about ${plural(Math.round(s / 3600), 'hour', 'hours')}`;
+}
+
+// videoLength is one video's length: '12 min', '45 sec', '1 h 5 min'.
+function videoLength(s) {
+  if (!s) return 'length not known';
+  if (s < 60) return `${s} sec`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h` + (m % 60 ? ` ${m % 60} min` : '');
+}
+
+function sizeWords(n) {
+  return n > 0 ? 'about ' + bytes(n) : '';
+}
+
+function dayWords(d) {
+  if (!d) return '';
+  const t = new Date(d + 'T00:00:00Z');
+  if (isNaN(t)) return '';
+  return t.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
+// ago says how long ago a time was, by the server's clock.
+function ago(iso) {
+  const now = followsNow + (Date.now() - followsLocalAt);
+  const s = Math.max(0, (now - Date.parse(iso)) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 90) return plural(m, 'minute', 'minutes') + ' ago';
+  const h = Math.round(s / 3600);
+  if (h < 36) return plural(h, 'hour', 'hours') + ' ago';
+  return plural(Math.round(s / 86400), 'day', 'days') + ' ago';
+}
+
+function kindWord(f) {
+  return f.kind === 'channel' ? 'Channel' : 'Playlist';
+}
+
+function limitWords(min) {
+  return min ? `Videos longer than ${LIMIT_WORDS[min]} are skipped` : 'No length limit';
+}
+
+// setHTML redraws wrap only when its HTML changed, and keeps the focus on
+// the control the parent was using (found again by its id).
+function setHTML(wrap, html) {
+  if (wrap.dataset.html === html) return;
+  const active = document.activeElement;
+  const focusId = active && wrap.contains(active) ? active.id : '';
+  wrap.innerHTML = html;
+  wrap.dataset.html = html;
+  if (focusId && $(focusId)) $(focusId).focus();
+}
+
+function radio(name, id, value, checked, label) {
+  return `<label class="choice" for="${id}"><input type="radio" name="${name}" id="${id}" value="${esc(value)}"${checked ? ' checked' : ''}> <span>${label}</span></label>`;
+}
+
+function limitOptions(selected) {
+  return Object.keys(LIMIT_WORDS).map(Number).sort((a, b) => a - b)
+    .map(m => `<option value="${m}"${m === selected ? ' selected' : ''}>${esc(LIMIT_WORDS[m])}</option>`).join('');
+}
+
+function previewHTML(f) {
+  const p = f.preview;
+  const c = choiceOf(f);
+  const pick = (take) => (p.choices[take] || {})[c.limit] || { videos: 0, bytes: 0, tooLong: 0, unknown: 0 };
+  const facts = [plural(p.videos, 'video', 'videos')];
+  if (p.seconds) facts.push(lengthWords(p.seconds));
+  if (p.bytes) facts.push(sizeWords(p.bytes));
+  const notes = [];
+  if (p.unknown && p.unknown * 10 >= p.videos) {
+    notes.push(`${plural(p.unknown, 'video has', 'videos have')} no length on YouTube, so the real total is more.`);
+  }
+  if (p.already) notes.push(`${p.already === 1 ? '1 of them is' : p.already + ' of them are'} in Kids Shelf already. Kids Shelf doesn’t download them again.`);
+  const sz = take => { const s = sizeWords(pick(take).bytes); return s ? ` (${s})` : ''; };
+  const n = `fc-${f.id}`;
+  let takes = radio(`${n}-take`, `${n}-take-all`, 'all', c.take === 'all', `All ${plural(p.videos, 'video', 'videos')}${sz('all')}`);
+  if (f.kind === 'channel') takes += radio(`${n}-take`, `${n}-take-newest`, 'newest', c.take === 'newest', `The newest ${store.followNewest || 20}${sz('newest')}`);
+  takes += radio(`${n}-take`, `${n}-take-none`, 'none', c.take === 'none', 'None yet, only new ones');
+  const now = pick(c.take);
+  let result;
+  if (!now.videos) {
+    result = c.follow ? 'Start will download nothing now; new videos come later.' : 'Start will download nothing.';
+  } else {
+    result = `Start will download ${plural(now.videos, 'video', 'videos')} now` + (now.bytes ? ` (${sizeWords(now.bytes)})` : '') + '.';
+  }
+  if (now.tooLong) result += ` ${now.tooLong === 1 ? '1 video is' : now.tooLong + ' videos are'} too long and ${now.tooLong === 1 ? 'is' : 'are'} skipped.`;
+  const modes = c.follow ? `<fieldset class="choices"><legend>New videos</legend>
+      ${radio(`${n}-mode`, `${n}-mode-auto`, 'auto', c.mode === 'auto', 'Add them to the shelf straight away')}
+      ${radio(`${n}-mode`, `${n}-mode-ask`, 'ask', c.mode === 'ask', 'Ask me first')}
+    </fieldset>` : '';
+  return `<div class="job preview" data-follow="${esc(f.id)}">
+      <div class="jobhead">
+        <span class="jobtitle">${esc(f.name)}</span>
+        <span class="tag">${kindWord(f)}</span>
+      </div>
+      <div class="jobnote">${esc(facts.join(' · '))}</div>
+      ${notes.map(t => `<div class="jobsub">${esc(t)}</div>`).join('')}
+      <fieldset class="choices"><legend>What to get now</legend>${takes}</fieldset>
+      <label class="field" for="${n}-limit">Skip videos longer than
+        <select id="${n}-limit" data-choice="limit">${limitOptions(c.limit)}</select>
+      </label>
+      <label class="choice" for="${n}-follow"><input type="checkbox" id="${n}-follow" data-choice="follow"${c.follow ? ' checked' : ''}> <span>Also get new videos when they appear</span></label>
+      ${modes}
+      <div class="jobnote" role="status">${esc(result)}</div>
+      <div class="rowbtns">
+        <button type="button" class="btn add" data-fstart="${esc(f.id)}">Start</button>
+        <button type="button" class="btn chip" data-fcancel="${esc(f.id)}">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function pendingHTML(f) {
+  if (f.status === 'preview') return previewHTML(f);
+  const failed = !!f.message;
+  return `<div class="job" data-follow="${esc(f.id)}">
+      <div class="jobhead">
+        <span class="jobtitle">${esc(f.url)}</span>
+        <span class="badge ${failed ? 'failed' : 'running'}">${failed ? 'Couldn’t look it up' : 'Looking it up…'}</span>
+      </div>
+      ${failed ? `<div class="jobmsg">${esc(f.message)}</div>` : `<div class="jobsub">Kids Shelf is asking YouTube what’s in it. A big channel takes about a minute.</div>`}
+      <div class="rowbtns">
+        ${failed ? `<button type="button" class="btn amber" data-fcheck="${esc(f.id)}">Try again</button>` : ''}
+        <button type="button" class="btn chip" data-fcancel="${esc(f.id)}">Cancel</button>
+      </div>
+    </div>`;
+}
+
+// shelfCounts says how a source's videos are doing, from their real jobs:
+// '4 on the shelf · 2 on the way · 1 could not be added', then the
+// parent's answers.
+function shelfCounts(f) {
+  const s = f.shelf || {}, c = f.counts || {};
+  return [
+    `${s.onShelf || 0} on the shelf`,
+    s.onTheWay && `${s.onTheWay} on the way`,
+    s.failed && `${s.failed} could not be added`,
+    c.waiting && `${c.waiting} waiting for your yes`,
+    c.skipped && `${c.skipped} skipped`,
+    c.tooLong && `${c.tooLong} too long`
+  ].filter(Boolean).join(' · ');
+}
+
+// onceHTML is a source added once (not followed): no checks, no settings;
+// it leaves the list by itself when none of its videos is on the way.
+function onceHTML(f) {
+  return `<div class="job" data-follow="${esc(f.id)}">
+      <div class="jobhead">
+        <span class="jobtitle">${esc(f.name)}</span>
+        <span class="tag">${kindWord(f)}</span>
+      </div>
+      <div class="jobnote">Added once · not checked for new videos</div>
+      <div class="jobnote">${esc(shelfCounts(f))}</div>
+    </div>`;
+}
+
+function followHTML(f) {
+  if (f.status === 'once') return onceHTML(f);
+  const n = `fo-${f.id}`;
+  let checked;
+  if (f.checking) checked = 'Checking now…';
+  else if (f.checked) checked = `Checked ${ago(f.checked)}`;
+  else checked = 'Not checked yet';
+  return `<div class="job" data-follow="${esc(f.id)}">
+      <div class="jobhead">
+        <span class="jobtitle">${esc(f.name)}</span>
+        <span class="tag">${kindWord(f)}</span>
+      </div>
+      <div class="jobnote">${f.mode === 'auto' ? 'New videos go straight to the shelf' : 'New videos wait for your yes'} · ${esc(limitWords(f.maxMinutes))}</div>
+      <div class="jobnote">${esc(shelfCounts(f))}</div>
+      <div class="jobsub">${esc(checked)}</div>
+      ${f.message ? `<div class="jobmsg">The last check didn’t work. ${esc(f.message)}</div>` : ''}
+      <div class="followset">
+        <label class="field" for="${n}-mode">New videos
+          <select id="${n}-mode" data-fset="mode">
+            <option value="auto"${f.mode === 'auto' ? ' selected' : ''}>Add them to the shelf straight away</option>
+            <option value="ask"${f.mode === 'ask' ? ' selected' : ''}>Ask me first</option>
+          </select>
+        </label>
+        <label class="field" for="${n}-limit">Skip videos longer than
+          <select id="${n}-limit" data-fset="limit">${limitOptions(f.maxMinutes)}</select>
+        </label>
+      </div>
+      <div class="rowbtns">
+        <button type="button" class="btn chip" id="${n}-check" data-fcheck="${esc(f.id)}"${f.checking ? ' disabled' : ''}>Check now</button>
+        <button type="button" class="btn sub" data-fstop="${esc(f.id)}">Stop following</button>
+      </div>
+    </div>`;
+}
+
+function waitingHTML(f) {
+  const rows = f.waiting.map(v => {
+    const bits = [videoLength(v.seconds)];
+    if (v.uploaded) bits.push('uploaded ' + dayWords(v.uploaded));
+    const vid = esc(v.id);
+    return `<div class="job waitrow">
+        <div class="jobhead">
+          <span class="jobtitle">${esc(v.title)}</span>
+        </div>
+        <div class="jobsub">${esc(bits.join(' · '))}</div>
+        <div class="rowbtns">
+          <a class="btn chip linkbtn" href="https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}" target="_blank" rel="noopener">Watch on YouTube</a>
+          <button type="button" class="btn add" id="fw-${esc(f.id)}-${vid}-add" data-fadd="${esc(f.id)}" data-video="${vid}">Add</button>
+          <button type="button" class="btn chip" id="fw-${esc(f.id)}-${vid}-skip" data-fskip="${esc(f.id)}" data-video="${vid}">Skip</button>
+        </div>
+      </div>`;
+  }).join('');
+  const all = f.waiting.length > 1
+    ? `<div class="rowbtns">
+        <button type="button" class="btn add" data-fadd="${esc(f.id)}" data-video="">Add all ${f.waiting.length}</button>
+        <button type="button" class="btn chip" data-fskip="${esc(f.id)}" data-video="">Skip all ${f.waiting.length}</button>
+      </div>`
+    : '';
+  return `<div class="waitgroup">
+      <h4 class="waitfrom">From ${esc(f.name)}</h4>
+      ${all}
+      ${rows}
+    </div>`;
+}
+
+function renderFollows() {
+  const list = store.follows || [];
+  const kept = f => f.status === 'following' || f.status === 'once';
+  setHTML($('ytpending'), list.filter(f => !kept(f)).map(pendingHTML).join(''));
+  const sources = list.filter(kept);
+  const following = sources.filter(f => f.status === 'following');
+  setHTML($('follows'), sources.length
+    ? sources.map(followHTML).join('')
+    : '<div class="empty">Nothing here yet. Paste a playlist or a channel link above.</div>');
+  const waiting = following.filter(f => f.waiting && f.waiting.length);
+  setHTML($('followwaiting'), waiting.length
+    ? waiting.map(waitingHTML).join('')
+    : '<div class="empty">Nothing waits for your yes.</div>');
+}
+
+async function loadFollows() {
+  try {
+    const d = await api('/api/admin/content/youtube/follows');
+    followsNow = Date.parse(d.now) || Date.now();
+    followsLocalAt = Date.now();
+    store.follows = d.follows || [];
+    store.followNewest = d.newest;
+    for (const id of Object.keys(followChoice)) {
+      if (!store.follows.some(f => f.id === id && (f.status === 'lookup' || f.status === 'preview'))) delete followChoice[id];
+    }
+    renderFollows();
+    if (!scrolledToWaiting && location.hash === '#following-waiting') {
+      scrolledToWaiting = true;
+      $('following-waiting').scrollIntoView();
+    }
+  } catch (e) {
+    $('follows').dataset.html = ''; // redraw once it loads again
+    loadFailed($('follows'), e);
+  }
+}
+
+// followAction posts one Following action, shows its result and reloads
+// the lists it touches.
+async function followAction(btn, path, body, label, done) {
+  const back = btn ? busy(btn, label) : () => {};
+  try {
+    const d = await post('/api/admin/content/youtube/follows/' + path, body);
+    if (done) toast(typeof done === 'function' ? done(d) : done, 'ok');
+    await Promise.all([loadFollows(), loadYouTube()]);
+  } catch (e) {
+    back();
+    if (!e.pin) toast(e.message, 'err');
+  }
+}
+
+$('ytpending').addEventListener('change', ev => {
+  const box = ev.target.closest('[data-follow]');
+  if (!box) return;
+  const f = (store.follows || []).find(x => x.id === box.dataset.follow);
+  if (!f) return;
+  const c = choiceOf(f);
+  const t = ev.target;
+  if (t.name && t.name.endsWith('-take')) c.take = t.value;
+  else if (t.name && t.name.endsWith('-mode')) c.mode = t.value;
+  else if (t.dataset.choice === 'limit') c.limit = Number(t.value);
+  else if (t.dataset.choice === 'follow') c.follow = t.checked;
+  renderFollows();
+});
+
+$('ytpending').addEventListener('click', ev => {
+  const start = ev.target.closest('[data-fstart]');
+  if (start) {
+    const f = (store.follows || []).find(x => x.id === start.dataset.fstart);
+    if (!f) return;
+    const c = choiceOf(f);
+    return followAction(start, 'start', { id: f.id, take: c.take, maxMinutes: c.limit, follow: c.follow, mode: c.mode }, 'Starting…',
+      () => c.follow
+        ? `Following “${f.name}”. New videos ${c.mode === 'auto' ? 'go straight to the shelf' : 'wait for your yes'}.`
+        : 'Started. The downloads show in the list below.');
+  }
+  const cancel = ev.target.closest('[data-fcancel]');
+  if (cancel) return followAction(cancel, 'cancel', { id: cancel.dataset.fcancel }, 'Canceling…');
+  const again = ev.target.closest('[data-fcheck]');
+  if (again) return followAction(again, 'check', { id: again.dataset.fcheck }, 'Trying…');
+});
+
+$('follows').addEventListener('change', ev => {
+  const sel = ev.target.closest('[data-fset]');
+  const box = ev.target.closest('[data-follow]');
+  if (!sel || !box) return;
+  const f = (store.follows || []).find(x => x.id === box.dataset.follow);
+  if (!f) return;
+  const mode = sel.dataset.fset === 'mode' ? sel.value : f.mode;
+  const maxMinutes = sel.dataset.fset === 'limit' ? Number(sel.value) : f.maxMinutes;
+  followAction(null, 'settings', { id: f.id, mode, maxMinutes }, '', 'Saved.');
+});
+
+$('follows').addEventListener('click', ev => {
+  const check = ev.target.closest('[data-fcheck]');
+  if (check) return followAction(check, 'check', { id: check.dataset.fcheck }, 'Checking…', 'Checking now. New videos show here when it’s done.');
+  const stop = ev.target.closest('[data-fstop]');
+  if (stop) {
+    const f = (store.follows || []).find(x => x.id === stop.dataset.fstop);
+    if (!f) return;
+    stopping = f;
+    $('stopconfirmtext').textContent = `Kids Shelf stops checking “${f.name}” for new videos. The videos already on the shelf stay there.`;
+    openDialog('stopconfirm', cancelStop, 'stopno', $('follows'));
+  }
+});
+
+function cancelStop() {
+  stopping = null;
+  closeDialog();
+}
+$('stopno').addEventListener('click', cancelStop);
+$('stopok').addEventListener('click', async () => {
+  const f = stopping;
+  if (!f) return;
+  stopping = null;
+  closeDialog();
+  await followAction(null, 'stop', { id: f.id }, '', `Stopped following “${f.name}”. Its videos stay on the shelf.`);
+});
+
+$('followwaiting').addEventListener('click', ev => {
+  const add = ev.target.closest('[data-fadd]');
+  if (add) {
+    return followAction(add, 'add', { id: add.dataset.fadd, video: add.dataset.video }, 'Adding…',
+      d => `Added ${plural(d.answered, 'video', 'videos')}. ${d.answered === 1 ? 'It shows' : 'They show'} in the download list.`);
+  }
+  const skip = ev.target.closest('[data-fskip]');
+  if (skip) {
+    return followAction(skip, 'skip', { id: skip.dataset.fskip, video: skip.dataset.video }, 'Skipping…',
+      d => `Skipped ${plural(d.answered, 'video', 'videos')}. Kids Shelf won’t offer ${d.answered === 1 ? 'it' : 'them'} again.`);
+  }
+});
 
 // ── where new videos are saved ──────────────────────────────────────────────
 
@@ -421,7 +997,11 @@ $('vfdefault').addEventListener('click', async () => {
 
 $('ytjobs').addEventListener('click', ev => {
   const b = ev.target.closest('[data-retry]');
-  if (b) retryYouTube(b);
+  if (b) return retryYouTube(b);
+  const i = ev.target.closest('[data-ingestretry]');
+  if (i) return retryIngest(i);
+  const all = ev.target.closest('[data-showall]');
+  if (all) toggleShowAll(all, renderYouTube);
 });
 
 // ── sources ─────────────────────────────────────────────────────────────────
@@ -542,9 +1122,10 @@ async function loadSources() {
 
 // ── conversions ─────────────────────────────────────────────────────────────
 
-// ingestStatus says in a word or two what is happening with a conversion:
-// the running stage, 'On the shelf' once the video is published. Pause and
-// failure reasons go on their own line underneath.
+// ingestStatus says in a few words what is happening with a conversion:
+// its place in line while it waits, the running stage (with the percent
+// and the time left while it converts), 'On the shelf' once the video is
+// published. Pause and failure reasons go on their own line underneath.
 function ingestStatus(job) {
   switch (job.state) {
     case 'done':
@@ -554,20 +1135,38 @@ function ingestStatus(job) {
     case 'paused':
       return 'Paused';
     case 'running':
+      if (job.stage === 'convert') return working('Converting', job.progress, job.seconds_left);
       return INGEST_STAGE[job.stage] || 'Working';
+    case 'queued':
+      return job.place ? 'Waiting: ' + inLine(job.place) : 'Waiting';
     default:
       return STATE_LABEL[job.state] || job.state;
   }
 }
 
+function renderIngestSummary(c) {
+  const el = $('ingestsummary');
+  if (!c) {
+    summaryLine(el, []);
+    return;
+  }
+  summaryLine(el, [
+    c.converting && `Converting ${c.converting}`,
+    c.adding && `Adding ${c.adding} to the shelf`,
+    c.waiting && `${c.waiting} waiting`,
+    c.needs_you && `${c.needs_you} could not finish`
+  ]);
+}
+
 function renderIngest() {
   const wrap = $('ingestjobs');
   const jobs = store.ingestJobs;
+  renderIngestSummary(store.ingestSummary);
   if (!jobs.length) {
     wrap.innerHTML = '<div class="empty">Nothing waiting. New videos appear here.</div>';
     return;
   }
-  wrap.innerHTML = jobs.map(job => {
+  wrap.innerHTML = withDoneTail('ingest', jobs, job => job.state === 'done', job => {
     const title = job.title || job.file;
     const kind = job.source && job.source.Kind;
     // The file's place is useful for folder videos; a YouTube video's file
@@ -578,35 +1177,30 @@ function renderIngest() {
     const hint = job.hint ? `<div class="jobnote">${esc(job.hint)}</div>` : '';
     const retry = job.retry
       ? `<button class="btn mini amber" data-ingestretry="${esc(job.id)}">Try again</button>` : '';
+    const bar = job.state === 'running' && job.stage === 'convert' ? pbar(job.progress) : '';
     return `<div class="job">
         <div class="jobhead">
           <span class="jobtitle">${esc(title)}</span>
           <span class="badge ${esc(job.state)}">${esc(ingestStatus(job))}</span>
           ${retry}
         </div>
-        ${path}${detail}${hint}
+        ${path}${detail}${hint}${bar}
       </div>`;
-  }).join('');
+  });
 }
 
-$('ingestjobs').addEventListener('click', async ev => {
+$('ingestjobs').addEventListener('click', ev => {
   const b = ev.target.closest('[data-ingestretry]');
-  if (!b) return;
-  const done = busy(b, 'Trying…');
-  try {
-    await post('/api/admin/content/ingest/retry', { id: b.dataset.ingestretry });
-    toast('Trying again. This list shows how it is doing.', 'ok');
-    await loadIngest();
-  } catch (e) {
-    done();
-    if (!e.pin) toast(e.message, 'err');
-  }
+  if (b) return retryIngest(b);
+  const all = ev.target.closest('[data-showall]');
+  if (all) toggleShowAll(all, renderIngest);
 });
 
 async function loadIngest() {
   try {
     const d = await api('/api/admin/content/ingest');
     store.ingestJobs = d.jobs || [];
+    store.ingestSummary = d.summary || null;
     renderIngest();
   } catch (e) {
     loadFailed($('ingestjobs'), e);
@@ -1156,12 +1750,13 @@ async function loadAll() {
   const catalog = loadCatalogMeta().then(() => {
     if (!pinOpen) return searchCatalog(0);
   });
-  await Promise.all([loadYouTube(), loadSources(), loadIngest(), loadFixes(), loadKiwix(), loadZimFolders(), catalog]);
+  await Promise.all([loadYouTube(), loadFollows(), loadSources(), loadIngest(), loadFixes(), loadKiwix(), loadZimFolders(), catalog]);
 }
 
 function poll() {
   if (pinOpen || document.hidden) return;
   loadYouTube();
+  loadFollows();
   loadIngest();
   loadFixes();
   loadKiwix();

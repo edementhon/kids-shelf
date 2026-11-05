@@ -2,7 +2,8 @@
 // binary and hands the finished files to ingest.
 //
 // Everything long-running is a persisted job of kind "youtube" in the jobs
-// queue (internal/jobs owns that table; this package owns none). A job runs
+// queue (internal/jobs owns that table). This package owns only the tables
+// of followed playlists and channels (follow.go). A job runs
 // through the resolve, download and handoff stages; a quit, a kill or a
 // power cut at any stage resumes or cleanly restarts the work at the next
 // launch (jobs.Recover), and the handoff to ingest runs exactly once even
@@ -61,7 +62,8 @@ const tmpRoot = "ytdlp-tmp"
 // for the children a playlist expands into, the parent) fills in the video's
 // identity; the download and handoff stages append progress, the Downloaded
 // marker that lets a resumed job skip re-downloading, and the ingest job id
-// that makes the handoff exactly-once.
+// that makes the handoff exactly-once. A playlist or channel job keeps the
+// ids of its videos (Videos), so the list can say how they are doing.
 type Payload struct {
 	URL           string  `json:"url"`
 	VideoID       string  `json:"videoId,omitempty"`
@@ -70,14 +72,22 @@ type Payload struct {
 	PlaylistTitle string  `json:"playlistTitle,omitempty"`
 	Size          int64   `json:"size,omitempty"`
 	Progress      float64 `json:"progress,omitempty"`
-	Downloaded    bool    `json:"downloaded,omitempty"`
-	IngestID      string  `json:"ingestId,omitempty"`
+	// SecondsLeft is yt-dlp's own estimate of the download's time left
+	// (its ETA), 0 when it gives none.
+	SecondsLeft int      `json:"secondsLeft,omitempty"`
+	Downloaded  bool     `json:"downloaded,omitempty"`
+	IngestID    string   `json:"ingestId,omitempty"`
+	Videos      []string `json:"videos,omitempty"`
+	// Show names the shelf show for a video that came from a playlist or
+	// a channel: the playlist's title or the channel's name.
+	Show string `json:"show,omitempty"`
 }
 
-// show returns the show name an ingested episode belongs to: the uploader,
-// falling back to the playlist title, falling back to "YouTube".
+// show returns the show name an ingested episode belongs to: the
+// playlist's or channel's name it came from, else the uploader, falling
+// back to the playlist title, falling back to "YouTube".
 func (p *Payload) show() string {
-	return firstNonEmpty(p.Uploader, p.PlaylistTitle, "YouTube")
+	return firstNonEmpty(p.Show, p.Uploader, p.PlaylistTitle, "YouTube")
 }
 
 // videoInfo is one video identified by the resolve stage.
@@ -155,6 +165,11 @@ type ytResolveEntry struct {
 	IeKey    string            `json:"ie_key"`
 	URL      string            `json:"url"`
 	Entries  *[]ytResolveEntry `json:"entries"`
+	// Duration (seconds), UploadDate (YYYYMMDD) and Timestamp (unix) are
+	// what a flat listing knows of a video; any may be missing.
+	Duration   float64 `json:"duration"`
+	UploadDate string  `json:"upload_date"`
+	Timestamp  float64 `json:"timestamp"`
 }
 
 // Helpers resolves the locations of the binaries yt-dlp needs: yt-dlp
@@ -300,44 +315,67 @@ func isYouTubeURL(u *url.URL) bool {
 
 // JobView is one youtube job as the parent dashboard lists it: the video
 // title (the pasted URL until the resolve stage names the video), the job's
-// state and stage, the download progress in percent and the plain-words
-// message for paused (disk full) and failed jobs (the jobs table's error
-// column). JSON tags keep the dashboard API shape stable.
+// state and stage, the download progress in percent and the time left,
+// the plain-words message for paused (disk full) and failed jobs (the jobs
+// table's error column), a waiting job's place in line (1: next), and the
+// ingest job a downloaded video was handed to. A playlist or channel job
+// carries the ids of its videos. JSON tags keep the dashboard API shape
+// stable.
 type JobView struct {
-	ID       string    `json:"id"`
-	URL      string    `json:"url"`
-	Title    string    `json:"title"`
-	State    string    `json:"state"`
-	Stage    string    `json:"stage"`
-	Progress float64   `json:"progress"`
-	Message  string    `json:"message,omitempty"`
-	Size     int64     `json:"size,omitempty"`
-	Created  time.Time `json:"created"`
-	Updated  time.Time `json:"updated"`
+	ID          string  `json:"id"`
+	URL         string  `json:"url"`
+	Title       string  `json:"title"`
+	State       string  `json:"state"`
+	Stage       string  `json:"stage"`
+	Progress    float64 `json:"progress"`
+	SecondsLeft int     `json:"secondsLeft,omitempty"`
+	Message     string  `json:"message,omitempty"`
+	Size        int64   `json:"size,omitempty"`
+	Place       int     `json:"place,omitempty"`
+	VideoID     string  `json:"videoId,omitempty"`
+	IngestID    string  `json:"ingestId,omitempty"`
+	// List marks a playlist or channel job, done once it opened the list
+	// into one job per video.
+	List    bool      `json:"list,omitempty"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+	// Videos are a playlist or channel job's video ids; Seq is the
+	// enqueue order (higher is newer). The page needs neither.
+	Videos []string `json:"-"`
+	Seq    int64    `json:"-"`
 }
 
-// Jobs lists every youtube job, most recently enqueued first. A job whose
+// Jobs lists every youtube job in the order the parent pages show them
+// (jobs.Lineup): running first, then failed and paused, then waiting in the
+// order they will download, then finished, most recent first. A job whose
 // payload does not decode still lists with its id, state and error, so the
 // dashboard never hides a stuck job.
 func (m *Manager) Jobs() ([]JobView, error) {
-	jobs, err := m.q.List(Kind)
+	list, err := m.q.List(Kind)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]JobView, 0, len(jobs))
-	for i := range jobs {
-		j := &jobs[i]
+	place := jobs.Lineup(list)
+	out := make([]JobView, 0, len(list))
+	for i := range list {
+		j := &list[i]
 		var p Payload
 		_ = j.DecodePayload(&p)
 		title := p.Title
 		if title == "" {
 			title = p.URL
 		}
-		out = append(out, JobView{
+		v := JobView{
 			ID: j.ID, URL: p.URL, Title: title, State: j.State, Stage: j.Stage,
 			Progress: p.Progress, Message: j.Error, Size: p.Size,
-			Created: j.Created, Updated: j.Updated,
-		})
+			Place: place[j.ID], VideoID: p.VideoID, IngestID: p.IngestID,
+			Created: j.Created, Updated: j.Updated, Videos: p.Videos, Seq: j.Seq,
+			List: j.Stage == stageExpand,
+		}
+		if j.State == jobs.StateRunning && j.Stage == stageDownload {
+			v.SecondsLeft = p.SecondsLeft
+		}
+		out = append(out, v)
 	}
 	return out, nil
 }
@@ -404,7 +442,7 @@ func (m *Manager) process(ctx context.Context, job *jobs.Job) error {
 			return m.fail(job.ID, resolveFailureMessage(err))
 		}
 		if entries != nil {
-			return m.expand(ctx, job, entries)
+			return m.expand(ctx, job, &p, entries)
 		}
 		p.VideoID, p.Title, p.Uploader, p.Size = single.ID, single.Title, single.Uploader, single.Size
 		if err := m.q.Advance(job.ID, stageResolve, &p); err != nil {
@@ -619,8 +657,10 @@ func downloadDiskFull(err error) bool {
 // expand resolves a playlist or channel job: every video becomes one
 // download job, deduplicated by video id across all existing youtube jobs
 // (queued, running, paused, done or failed), so the same video in two
-// playlists downloads once. The parent job is then marked done.
-func (m *Manager) expand(ctx context.Context, job *jobs.Job, entries []videoInfo) error {
+// playlists downloads once. The parent job keeps every video id of the
+// list (the ones another job already had included) and the list's name,
+// so the page can say how its videos are doing; it is then marked done.
+func (m *Manager) expand(ctx context.Context, job *jobs.Job, p *Payload, entries []videoInfo) error {
 	if len(entries) == 0 {
 		return m.fail(job.ID, "This playlist or channel is empty, so there is nothing to download.")
 	}
@@ -628,9 +668,25 @@ func (m *Manager) expand(ctx context.Context, job *jobs.Job, entries []videoInfo
 	if err != nil {
 		return err
 	}
+	// The videos go in a show named after the playlist, or after the
+	// channel for a channel link.
+	kind, _ := ListKind(p.URL)
+	listed := make(map[string]bool, len(entries))
+	p.Videos = p.Videos[:0]
 	for _, e := range entries {
+		if e.ID != "" && !listed[e.ID] {
+			listed[e.ID] = true
+			p.Videos = append(p.Videos, e.ID)
+		}
+		if p.Title == "" {
+			p.Title = e.PlaylistTitle
+		}
 		if e.ID == "" || seen[e.ID] {
 			continue
+		}
+		show := e.PlaylistTitle
+		if kind != KindPlaylist {
+			show = firstNonEmpty(e.Uploader, e.PlaylistTitle)
 		}
 		if _, err := m.q.Enqueue(Kind, Payload{
 			URL:           watchURL(e.ID),
@@ -638,12 +694,13 @@ func (m *Manager) expand(ctx context.Context, job *jobs.Job, entries []videoInfo
 			Title:         e.Title,
 			Uploader:      e.Uploader,
 			PlaylistTitle: e.PlaylistTitle,
+			Show:          show,
 		}); err != nil {
 			return err
 		}
 		seen[e.ID] = true
 	}
-	if err := m.q.Advance(job.ID, stageExpand, nil); err != nil {
+	if err := m.q.Advance(job.ID, stageExpand, p); err != nil {
 		return err
 	}
 	return m.q.Done(job.ID)
@@ -714,11 +771,11 @@ func (m *Manager) resolve(ctx context.Context, url string) (*videoInfo, []videoI
 // extract YouTube at all without a JavaScript runtime (its error makes the
 // video look unavailable, with only a warning naming the missing runtime),
 // and the same runtime the download stage uses must drive the resolve.
-func (m *Manager) resolveJSON(ctx context.Context, bin, qjs, url string) (*ytResolve, error) {
-	stdout, stderr, err := m.runOutput(ctx, bin,
-		"--no-config", "-J", "--flat-playlist",
-		"--js-runtimes", "quickjs:"+qjs,
-		url)
+// extra arguments (a listing's --playlist-end) go before the URL.
+func (m *Manager) resolveJSON(ctx context.Context, bin, qjs, url string, extra ...string) (*ytResolve, error) {
+	args := []string{"--no-config", "-J", "--flat-playlist", "--js-runtimes", "quickjs:" + qjs}
+	args = append(args, extra...)
+	stdout, stderr, err := m.runOutput(ctx, bin, append(args, url)...)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -963,6 +1020,7 @@ func (m *Manager) runDownload(ctx context.Context, jobID string, p *Payload) err
 		}
 		last = int(pct)
 		p.Progress = pct
+		p.SecondsLeft = parseETA(line)
 		if err := m.q.Advance(jobID, stageDownload, p); err != nil {
 			m.logf("youtube: record progress of job %s: %v", jobID, err)
 		}
@@ -1191,6 +1249,22 @@ func parseProgress(line string) (float64, bool) {
 		return 0, false
 	}
 	return pct, true
+}
+
+var downloadETA = regexp.MustCompile(`\bETA\s+(?:(\d+):)?(\d+):(\d\d)\b`)
+
+// parseETA extracts the time left yt-dlp estimates on a "[download]" line
+// ("ETA 01:05" or "ETA 1:02:03"), in seconds; 0 when it gives none
+// ("ETA Unknown", or a finished file's line).
+func parseETA(line string) int {
+	m := downloadETA.FindStringSubmatch(line)
+	if m == nil {
+		return 0
+	}
+	h, _ := strconv.Atoi(m[1])
+	mins, _ := strconv.Atoi(m[2])
+	secs, _ := strconv.Atoi(m[3])
+	return h*3600 + mins*60 + secs
 }
 
 // dirEmpty reports whether dir contains no entries ("." and ".." never

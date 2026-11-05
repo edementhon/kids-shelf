@@ -77,6 +77,9 @@ type Deps struct {
 	Library *library.Library
 	Ingest  *ingest.Queue
 	YouTube *youtube.Manager
+	// Follows keeps the followed YouTube playlists and channels (nil: the
+	// Following routes answer 503).
+	Follows *youtube.Follows
 	Catalog *kiwix.Catalog
 	Kiwix   *kiwix.Manager
 	// KiwixServer serves the installed ZIMs under /kiwix/ (nil: libraries

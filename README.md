@@ -8,9 +8,11 @@ page (`/admin`); kids get their own pages with their own content.
 What it does:
 
 - **Downloads from YouTube**: paste a video, playlist or channel link on
-  the parent page and Kids Shelf downloads every video (with its bundled
+  the parent page and Kids Shelf downloads the videos (with its bundled
   yt-dlp and ffmpeg) and keeps its own copy, on any drive you choose. Kids
   never see YouTube itself. No separate downloader, Docker or server setup.
+  A followed playlist or channel brings in its new videos every 6 hours,
+  straight to the shelf or after the parent says yes.
 - **Plays your own videos**: folders on the computer, an external drive or a
   NAS share, in place; files browsers can't play get a converted copy.
 - **Daily minutes per kid**, math and spelling practice that earns extra

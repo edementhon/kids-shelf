@@ -2438,13 +2438,10 @@ func TestFailedImprovementKeepsEpisode(t *testing.T) {
 			return []byte("ffmpeg: invalid argument\n"), errors.New("exit status 1")
 		}, true},
 		{"verify", func(ctx context.Context, name string, args ...string) ([]byte, error) {
-			// Fail only the through-the-end decode pass, which writes a
-			// -progress file; the show thumbnail and the remux itself
-			// succeed.
-			for _, a := range args {
-				if a == "-progress" {
-					return nil, errors.New("exit status 1")
-				}
+			// Fail only the through-the-end decode pass; the show
+			// thumbnail and the remux itself succeed.
+			if isDecodePass(args) {
+				return nil, errors.New("exit status 1")
 			}
 			return runCombined(ctx, name, args...)
 		}, false},

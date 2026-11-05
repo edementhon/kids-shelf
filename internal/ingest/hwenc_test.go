@@ -752,10 +752,8 @@ func TestHWRedoNeverLoops(t *testing.T) {
 		// Make the decode pass fail for every output (the hardware one
 		// and the software redo), the way the existing verify-failure
 		// test does.
-		for _, a := range args {
-			if a == "-progress" {
-				return nil, errors.New("exit status 1")
-			}
+		if isDecodePass(args) {
+			return nil, errors.New("exit status 1")
 		}
 		return fake.run(ctx, name, args...)
 	}
@@ -774,6 +772,13 @@ func TestHWRedoNeverLoops(t *testing.T) {
 	if fake.hwAttempts != 1 {
 		t.Errorf("hardware attempts = %d, want exactly 1 (never a second hardware try)", fake.hwAttempts)
 	}
+}
+
+// isDecodePass reports whether args are the verify stage's through-the-end
+// decode (decodeCheck): a -progress file and the null muxer. Conversions
+// write a -progress file too, but into a real output.
+func isDecodePass(args []string) bool {
+	return contains(args, "-progress") && pair(args, "-f", "null")
 }
 
 // pair reports whether args contains the key/value pair.

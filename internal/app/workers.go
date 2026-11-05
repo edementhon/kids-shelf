@@ -3,7 +3,9 @@
 // returns or crashes. The queue-draining workers (ingest, youtube, kiwix)
 // return when the queue is empty, so they restart quickly and poll; the
 // library scan, the library folders look and the daily yt-dlp check run on
-// their own schedules.
+// their own schedules. The YouTube follows runner never returns while the
+// app runs: it sleeps until a pasted link, a Check now or the next 6-hour
+// check wakes it.
 package app
 
 import (
@@ -53,6 +55,7 @@ func workersOf(a *App) []worker {
 		ingest,
 		helpers,
 		{name: "youtube", restart: minRestart, run: a.youtube.Run},
+		{name: "youtube follows", restart: minRestart, run: a.follows.Run},
 		{name: "kiwix", restart: minRestart, run: a.kiwix.Work},
 		{name: "library scan", restart: scanInterval, run: a.scan},
 		{name: "library folders", restart: folderInterval, run: a.kiwix.ScanFolders},

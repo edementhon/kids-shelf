@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/edementhon/kids-shelf/internal/store"
@@ -178,8 +179,11 @@ type Job struct {
 	// show-phase work (0) ahead of already-visible videos' conversions
 	// (1-3); other kinds leave it at the 0 default.
 	Priority int
-	Created  time.Time
-	Updated  time.Time
+	// Seq is the enqueue order (higher is newer); Claim hands out equal
+	// priorities by it.
+	Seq     int64
+	Created time.Time
+	Updated time.Time
 }
 
 // DecodePayload unmarshals the job's JSON payload into v.
@@ -538,6 +542,81 @@ func (q *Queue) List(kind string) ([]Job, error) {
 	return out, nil
 }
 
+// Lane is a range of priorities one worker claims from with ClaimRange.
+// Each lane runs its own line: a job waits only behind the jobs of its lane.
+type Lane struct{ Min, Max int }
+
+// Groups the parent pages list jobs in, top to bottom (see Lineup).
+const (
+	GroupWorking  = iota // running now
+	GroupNeedsYou        // failed or paused: a parent has something to do
+	GroupWaiting         // queued, in the order the workers will claim them
+	GroupDone            // finished, most recent first
+)
+
+// GroupOf returns the list group of a job state.
+func GroupOf(state string) int {
+	switch state {
+	case StateRunning:
+		return GroupWorking
+	case StateFailed, StatePaused:
+		return GroupNeedsYou
+	case StateQueued:
+		return GroupWaiting
+	default:
+		return GroupDone
+	}
+}
+
+// Lineup sorts list into the order the parent pages show it: the jobs
+// running now; then failed and paused ones, newest first; then the queued
+// ones in the order the workers will claim them (priority, then seq, as
+// ClaimRange picks); then the finished ones, most recently finished first.
+// It returns each queued job's place in line by id: 1 for the job its
+// lane's worker claims next, 2 for the one after, and so on. With no lanes
+// every job of the list is in one line, the way Claim hands them out; a
+// queued job outside every lane gets no place.
+func Lineup(list []Job, lanes ...Lane) map[string]int {
+	if len(lanes) == 0 {
+		lanes = []Lane{{math.MinInt, math.MaxInt}}
+	}
+	sort.SliceStable(list, func(a, b int) bool {
+		x, y := &list[a], &list[b]
+		gx, gy := GroupOf(x.State), GroupOf(y.State)
+		if gx != gy {
+			return gx < gy
+		}
+		switch gx {
+		case GroupWorking, GroupWaiting:
+			if x.Priority != y.Priority {
+				return x.Priority < y.Priority
+			}
+			return x.Seq < y.Seq
+		case GroupDone:
+			if !x.Updated.Equal(y.Updated) {
+				return x.Updated.After(y.Updated)
+			}
+		}
+		return x.Seq > y.Seq
+	})
+	place := make(map[string]int)
+	next := make([]int, len(lanes))
+	for i := range list {
+		j := &list[i]
+		if j.State != StateQueued {
+			continue
+		}
+		for l, lane := range lanes {
+			if j.Priority >= lane.Min && j.Priority <= lane.Max {
+				next[l]++
+				place[j.ID] = next[l]
+				break
+			}
+		}
+	}
+	return place
+}
+
 // SumActiveReservedBytes returns the sum of reserved_bytes across all active
 // work jobs (state not in done, failed) plus every standalone reservation,
 // excluding jobID. It is the "already reserved" figure disk reservations
@@ -733,7 +812,7 @@ func (q *Queue) HeldReservationIDs(prefix string) ([]string, error) {
 	return ids, nil
 }
 
-const selectJob = `SELECT id, kind, stage, state, payload, reserved_bytes, attempts, error, created, updated, priority FROM jobs`
+const selectJob = `SELECT id, kind, stage, state, payload, reserved_bytes, attempts, error, created, updated, priority, seq FROM jobs`
 
 // scanner is satisfied by both *sql.Row and *sql.Rows.
 type scanner interface{ Scan(dest ...any) error }
@@ -742,7 +821,7 @@ func scanJob(s scanner) (*Job, error) {
 	var j Job
 	var payload, created, updated string
 	var reserved, priority int64
-	err := s.Scan(&j.ID, &j.Kind, &j.Stage, &j.State, &payload, &reserved, &j.Attempts, &j.Error, &created, &updated, &priority)
+	err := s.Scan(&j.ID, &j.Kind, &j.Stage, &j.State, &payload, &reserved, &j.Attempts, &j.Error, &created, &updated, &priority, &j.Seq)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound

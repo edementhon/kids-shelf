@@ -1,9 +1,11 @@
 package youtube
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -28,6 +30,10 @@ import (
 //	nospace-part - the download writes a 2.5 GiB sparse .part file, then
 //	            - fails printing "No space left on device"
 //	badresolve - resolve fails
+//	listing    - resolve prints the JSON in the file $KS_FAKE_YTDLP_LISTING,
+//	            - its entries cut to --playlist-end when given; a file
+//	            - that starts with "ERROR:" is printed to stderr and the
+//	            - run fails (a follow check that cannot list)
 //
 // A "single", "nospace-part" or "resume" invocation that finds an existing
 // .part file for the target completes it (the resume case).
@@ -79,6 +85,9 @@ func fakeResolve(mode string, args []string) int {
 		fmt.Fprintln(os.Stderr, "ERROR: [youtube] "+videoIDFromURL(lastArg(args))+": This video is not available")
 		return 1
 	}
+	if mode == "listing" {
+		return fakeListing(args)
+	}
 	switch mode {
 	case "badresolve":
 		fmt.Fprintln(os.Stderr, "ERROR: [youtube] Unsupported URL: https://example.com/nope")
@@ -112,6 +121,35 @@ func fakeResolve(mode string, args []string) int {
 	id := videoIDFromURL(lastArg(args))
 	fmt.Printf(`{"id":%q,"title":%q,"uploader":"Fake Channel","channel":"Fake Channel"}`, id, "Fake Title "+id)
 	fmt.Println()
+	return 0
+}
+
+// fakeListing serves the listing test file (see TestMain).
+func fakeListing(args []string) int {
+	b, err := os.ReadFile(os.Getenv("KS_FAKE_YTDLP_LISTING"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fake yt-dlp:", err)
+		return 1
+	}
+	if strings.HasPrefix(string(b), "ERROR:") {
+		fmt.Fprintln(os.Stderr, strings.TrimSpace(string(b)))
+		return 1
+	}
+	var listing map[string]any
+	if err := json.Unmarshal(b, &listing); err != nil {
+		fmt.Fprintln(os.Stderr, "fake yt-dlp:", err)
+		return 1
+	}
+	for i, a := range args {
+		if a == "--playlist-end" && i+1 < len(args) {
+			n, _ := strconv.Atoi(args[i+1])
+			if entries, ok := listing["entries"].([]any); ok && n < len(entries) {
+				listing["entries"] = entries[:n]
+			}
+		}
+	}
+	out, _ := json.Marshal(listing)
+	fmt.Println(string(out))
 	return 0
 }
 

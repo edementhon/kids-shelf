@@ -243,6 +243,12 @@ function renderBins() {
       : `<p class="placeholder">No shows here yet.</p>`;
   }
   $('binsempty').classList.toggle('hidden', shows > 0);
+  // New videos of followed playlists and channels that wait for a yes.
+  const waiting = STATE.youtube_waiting || 0;
+  $('ytwaitinglink').textContent = waiting === 1
+    ? '1 new video waits for your yes'
+    : `${waiting} new videos wait for your yes`;
+  $('ytwaiting').classList.toggle('hidden', waiting === 0);
 }
 
 function binOf(showID) {

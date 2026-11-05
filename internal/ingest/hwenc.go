@@ -444,17 +444,18 @@ func (w *Worker) fullEncodeArgs(enc *hwCandidate, pl *payload, out string) []str
 }
 
 // fullConvert runs an ActionFull re-encode with the process's chosen
-// encoder. A hardware run that fails - anything but a full disk, which
-// pauses the job - falls back to libx264 in the same stage, once per job,
-// and counts toward the process-wide cutoff; a job that already retried
-// (or whose output failed verify earlier) goes straight to software. A
-// hardware output that reached the -fs cap was cut short by ffmpeg (its
-// encoder overshot the bitrate the reservation assumes), so it counts as
-// a failed hardware run too.
-func (w *Worker) fullConvert(ctx context.Context, pl *payload, tmp string) ([]byte, error) {
+// encoder, reporting its progress like every conversion (runConvert). A
+// hardware run that fails - anything but a full disk, which pauses the
+// job - falls back to libx264 in the same stage, once per job, and counts
+// toward the process-wide cutoff; a job that already retried (or whose
+// output failed verify earlier) goes straight to software. A hardware
+// output that reached the -fs cap was cut short by ffmpeg (its encoder
+// overshot the bitrate the reservation assumes), so it counts as a failed
+// hardware run too.
+func (w *Worker) fullConvert(ctx context.Context, jobID string, pl *payload, tmp string) ([]byte, error) {
 	enc := w.chooseEncoder(ctx)
 	if enc != nil && !pl.HwRetried {
-		out, err := w.run(ctx, enc.bin, w.fullEncodeArgs(enc, pl, tmp)...)
+		out, err := w.runConvert(ctx, jobID, pl, enc.bin, w.fullEncodeArgs(enc, pl, tmp)...)
 		switch {
 		case err != nil && isDiskFullErr(err, out):
 			return out, err
@@ -467,7 +468,7 @@ func (w *Worker) fullConvert(ctx context.Context, pl *payload, tmp string) ([]by
 		w.hw.noteFailure()
 		pl.HwRetried = true
 	}
-	return w.run(ctx, w.dir.FFmpeg, w.fullEncodeArgs(nil, pl, tmp)...)
+	return w.runConvert(ctx, jobID, pl, w.dir.FFmpeg, w.fullEncodeArgs(nil, pl, tmp)...)
 }
 
 // reachedCap reports whether the file at path has reached limit bytes, the

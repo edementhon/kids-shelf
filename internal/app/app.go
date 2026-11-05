@@ -67,6 +67,7 @@ var allMigrations = func() []store.Migration {
 	ms = append(ms, library.Migrations...)
 	ms = append(ms, practice.Migrations()...)
 	ms = append(ms, kiwix.Migrations...)
+	ms = append(ms, youtube.Migrations...)
 	ms = append(ms, update.Migrations...)
 	ms = append(ms, appMigrations...) // last: may read every package's tables
 	return ms
@@ -90,10 +91,13 @@ type App struct {
 	helperSet string
 	ytdlp     *youtube.Updater
 	youtube   *youtube.Manager
-	catalog   *kiwix.Catalog
-	kiwix     *kiwix.Manager
-	kiwixSrv  *kiwix.Server
-	prac      *practice.Service
+	// follows keeps the followed YouTube playlists and channels; its
+	// runner (workers.go) does the lookups and the 6-hour checks.
+	follows  *youtube.Follows
+	catalog  *kiwix.Catalog
+	kiwix    *kiwix.Manager
+	kiwixSrv *kiwix.Server
+	prac     *practice.Service
 
 	dataDir  string
 	mediaDir string
@@ -469,6 +473,10 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 		QuickJSPath:    qjsPath,
 		FFmpegLocation: ffmpegDir,
 	}, updater, dataDir).WithLog(logf)
+	follows, err := youtube.NewFollows(st, yt)
+	if err != nil {
+		return fail("youtube follows", err)
+	}
 
 	catalog := kiwix.NewCatalog("", nil)
 	kiwixMgr, err := kiwix.NewManager(st, queue, disk.NewReservations(queue), filepath.Join(mediaDir, "libraries"))
@@ -537,6 +545,7 @@ func Open(ctx context.Context, cfg Config) (*App, error) {
 	a.helpers = helpers
 	a.ytdlp = updater
 	a.youtube = yt
+	a.follows = follows
 	a.catalog = catalog
 	a.kiwix = kiwixMgr
 	a.kiwixSrv = kiwixSrv
@@ -567,6 +576,7 @@ func (a *App) Deps() web.Deps {
 		Library:  a.library,
 		Ingest:   a.ingestQ,
 		YouTube:  a.youtube,
+		Follows:  a.follows,
 		Catalog:  a.catalog,
 		Kiwix:    a.kiwix,
 		Practice: a.prac,

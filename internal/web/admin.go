@@ -734,6 +734,9 @@ type adminState struct {
 	Bins           adminBins     `json:"bins"`
 	Settings       adminSettings `json:"settings"`
 	Updates        adminUpdate   `json:"updates"`
+	// YouTubeWaiting counts the new videos of followed playlists and
+	// channels that wait for the parent's yes.
+	YouTubeWaiting int `json:"youtube_waiting"`
 }
 
 // adminStateData assembles everything the dashboard renders in one fetch, the
@@ -819,6 +822,12 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 		default:
 			st.Bins.Fun = append(st.Bins.Fun, card)
 		}
+	}
+
+	// New videos of followed playlists and channels that wait for a yes.
+	// A failed count only hides the line; the rest of the page still loads.
+	if f := s.deps.Follows; f != nil {
+		st.YouTubeWaiting, _ = f.Waiting()
 	}
 
 	// Settings.

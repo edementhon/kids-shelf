@@ -216,8 +216,9 @@ number address after a restart), connect that device again the same way.
 On the parent page, click **Add videos & libraries**:
 
 - **Add from YouTube**: paste a link to a video, a playlist or a whole channel and click **Add**.
-  Kids Shelf downloads every video and keeps its own copy, so the kids never see YouTube itself:
-  no suggestions, no comments, no ads. You don't need any other downloader.
+  Kids Shelf downloads the videos and keeps its own copy, so the kids never see YouTube itself:
+  no suggestions, no comments, no ads. You don't need any other downloader. A video downloads at
+  once; for a playlist or a channel you first see what's in it (see below).
 - **Add a folder or NAS share**: type the path to a folder of videos and click **Add folder**.
   Each folder inside it becomes a show (for example `Kids/Bluey/` and `Kids/Octonauts/`), and
   videos lying loose in it form a show named after the folder. Kids Shelf tells you how many
@@ -226,6 +227,43 @@ On the parent page, click **Add videos & libraries**:
   drive or NAS is unplugged, its row says so.
 - **Offline libraries**: search for a library (Wikipedia, Vikidia, PhET science simulations and
   others) and click **Download**.
+
+### Following downloads and conversions
+
+The YouTube list and the **Conversions** list each start with a line that sums up the work, for
+example **Downloading 1 · 27 waiting · 12 on the shelf**. What is working now comes first, then
+anything that needs you (a **Try again** button, or a reason), then what waits, in the order it
+will run: **Waiting: next**, **Waiting: 3rd in line**. Videos download one at a time. A running
+conversion shows how far it got and, once it can tell, about how long is left. Each YouTube video
+tells its whole story on its row: downloading, **Downloaded, waiting to convert**, converting,
+then **On the shelf** with its show. Finished rows come last; the newest 10 show, and **Show
+all** lists the rest.
+
+### Following playlists and channels
+
+Paste a playlist or a channel link and Kids Shelf looks it up first; the page stays usable and
+the row says **Looking it up…** (a big channel takes about a minute). Then it shows what's in it:
+how many videos, how long they last together, about how much space they take, and how many are
+in Kids Shelf already. Nothing downloads until you press **Start**.
+
+- **What to get now**: all the videos, **The newest 20** (channels only), or **None yet, only new
+  ones**. The videos you leave out now are never offered later.
+- **Skip videos longer than**: no limit, 10, 20 or 30 minutes, or an hour. A video whose length
+  YouTube doesn't give is never skipped.
+- **Also get new videos when they appear**: Kids Shelf checks the playlist or the channel every
+  6 hours and gets what is new. Pick **Add them to the shelf straight away** for a source you
+  trust, or **Ask me first**: then new videos wait under **Waiting for your yes**, with **Watch on
+  YouTube** to look first, and **Add** or **Skip**. A skipped video is never offered again. When
+  videos wait, the parent page says so in the Bins card. Without this, Kids Shelf gets what you
+  chose once and doesn't check again.
+
+The videos of a playlist go in a show named after the playlist; a channel's go in a show named
+after the channel. For a channel, Kids Shelf follows its Videos tab, not its Shorts or live
+streams. Under **Playlists and channels** each one says how many of its videos are on the shelf
+and how many are on the way. There you can change your choices, press **Check now**, or **Stop
+following**: the videos already on the shelf stay. If a check fails (no internet, or the playlist
+went private), the row says why and Kids Shelf tries again at the next check. A playlist or
+channel you added once stays in the list until its videos are on the shelf.
 
 ### Where new videos are saved
 
