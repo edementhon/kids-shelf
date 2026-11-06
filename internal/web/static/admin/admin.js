@@ -118,6 +118,8 @@ function renderAll() {
   renderUpdates();
   $('budgetswitch').checked = STATE.budgets_on;
   $('budgetlabel').textContent = 'Limit minutes: ' + (STATE.budgets_on ? 'on' : 'off');
+  $('togetherswitch').checked = STATE.watch_together;
+  $('togetherlabel').textContent = 'Watch together: ' + (STATE.watch_together ? 'on' : 'off');
   $('statusline').textContent = STATE.budgets_on
     ? ''
     : 'Minute limits are off. Kids can watch as much as they like; nothing is counted.';
@@ -850,6 +852,14 @@ document.addEventListener('change', async e => {
     try {
       await api('/api/admin/settings/budgets', { method: 'POST', body: JSON.stringify({ on: e.target.checked }) });
       msg(e.target.checked ? 'Minute limits are on.' : 'Minute limits are off. Kids can watch as much as they like.');
+      await load();
+    } catch (err) { e.target.checked = !e.target.checked; }
+    return;
+  }
+  if (e.target.id === 'togetherswitch') {
+    try {
+      await api('/api/admin/settings/watch-together', { method: 'POST', body: JSON.stringify({ on: e.target.checked }) });
+      msg(e.target.checked ? 'Watch together is on: the button shows on Who\u2019s watching.' : 'Watch together is off: the button is gone from Who\u2019s watching.');
       await load();
     } catch (err) { e.target.checked = !e.target.checked; }
     return;

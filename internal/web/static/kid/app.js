@@ -139,7 +139,6 @@ function resetShelf() {
   $('q').hidden = true;
   $('places').hidden = true;
   $('sub').hidden = true;
-  $('together-btn').hidden = true;
   $('app').textContent = '';
   const band = $('ep-band');
   if (band) band.remove();
@@ -158,7 +157,7 @@ async function showWho(notice) {
     if (!r.ok) { whoDown(r.status === 503); return; }
     const d = await r.json();
     whoMsg(notice || '', false);
-    renderPicker(d.kids || []);
+    renderPicker(d.kids || [], d.watchTogether !== false);
   } catch (e) {
     whoDown(false);
   }
@@ -186,7 +185,9 @@ function whoDown(starting) {
   state.retryTimer = setTimeout(init, RETRY_MS);
 }
 
-function renderPicker(kids) {
+// renderPicker draws Who's watching. together is the household's Watch
+// together switch: off, there is no grown-up tile and no keypad link to it.
+function renderPicker(kids, together) {
   const pick = $('pick');
   const more = $('pick-more');
   pick.textContent = '';
@@ -204,7 +205,11 @@ function renderPicker(kids) {
   for (const k of kids) {
     pick.appendChild(tile(k.animal, k.name, (b) => openPin('kid', k.id, k.name, b)));
   }
-  pick.appendChild(tile('👪', 'Watch together', (b) => openPin('grownup', null, '', b)));
+  if (together) pick.appendChild(tile('👪', 'Watch together', (b) => openPin('grownup', null, '', b)));
+  $('pin-alt').dataset.off = together ? '' : '1';
+  $('who-hint').textContent = together
+    ? 'Each kid has their own PIN. A grown-up can pick too, and then watching together is free!'
+    : 'Each kid has their own PIN.';
   // Places, not people: their own row under the people.
   more.appendChild(tile('🔢', 'Math Practice', () => { location.href = '/practice'; }));
   more.appendChild(tile('📚', 'Libraries', () => { location.href = '/libraries'; }));
@@ -274,7 +279,7 @@ function openPin(kind, kidId, name, opener) {
   setPinMsg(defaultPinMsg(), false);
   // The grown-up keypad has no "Watch together" link to itself; Back
   // returns to Who's watching from either keypad.
-  $('pin-alt').hidden = kind === 'grownup';
+  $('pin-alt').hidden = kind === 'grownup' || $('pin-alt').dataset.off === '1';
   if (kind === 'grownup') checkGrownupPin();
   $('pinscreen').hidden = false;
   $('pin-box').classList.remove('shake');
@@ -495,6 +500,7 @@ async function enterShelf() {
   renderHeader();
   await Promise.all([loadShows(), loadBalance(), loadRecent(), loadKeepWatching()]);
   if (state.gone) { sessionEnded(); return; }
+  renderHeader(); // the out-of-minutes line depends on the shows, too
   render();
   await restorePlace();
   greet();
@@ -505,7 +511,7 @@ function greet() {
   if (state.me.grownup) {
     toast('Watching together with a grown-up. Free! 💛');
   } else if (noMinutes()) {
-    toast('Hi ' + state.me.name + '! No minutes left today. Free shows still work!');
+    toast('Hi ' + state.me.name + '! No minutes left today.' + (hasFreeShows() ? ' Free shows still work!' : ''));
   } else {
     toast('Hi ' + state.me.name + '! Pick something to watch.');
   }
@@ -543,6 +549,12 @@ async function loadBalance() {
 // noMinutes is true once the balance has loaded and nothing is left.
 function noMinutes() {
   return state.balance.known && state.balance.total <= 0;
+}
+
+// hasFreeShows is true when the Free bin holds a show with episodes, the
+// only case where "Free shows still work" points somewhere.
+function hasFreeShows() {
+  return state.shows.some((s) => s.bin === 'free' && s.episodes > 0);
 }
 
 async function loadRecent() {
@@ -583,11 +595,12 @@ function renderHeader() {
     // balance, and a kid must never read "-2 min left".
     const mins = Math.max(0, Math.floor(state.balance.total));
     who.textContent = (state.me.name || '') + ' · ⏳ ' + mins + ' min left';
-    sub.textContent = noneLeft ? 'No minutes left today. Free shows still work!' : 'Pick something to watch';
+    sub.textContent = noneLeft
+      ? 'No minutes left today.' + (hasFreeShows() ? ' Free shows still work!' : '')
+      : 'Pick something to watch';
   }
   sub.classList.toggle('none-left', noneLeft);
   sub.hidden = false;
-  $('together-btn').hidden = !noneLeft;
   t.appendChild(who);
   const lock = el('button', 'lock-btn', state.me.grownup ? '🔒 End watching together' : '🔒 Not you?');
   lock.type = 'button';
@@ -980,9 +993,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('pin-grownup').addEventListener('click', () => openPin('grownup'));
   document.getElementById('pin-back').addEventListener('click', closePin);
-  // Out of minutes on the shelf: the grown-up keypad opens right here, and
-  // Back returns to the shelf.
-  document.getElementById('together-btn').addEventListener('click', (ev) => openPin('grownup', null, '', ev.currentTarget));
   document.getElementById('who-retry').addEventListener('click', (ev) => {
     ev.currentTarget.disabled = true;
     ev.currentTarget.textContent = 'Trying\u2026';

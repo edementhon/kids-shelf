@@ -508,7 +508,10 @@ func TestFollowFailedCheckKeepsState(t *testing.T) {
 	if v := e.view(id); v.Message != msgListMissing || v.Counts.Added != 1 {
 		t.Errorf("without yt-dlp: message %q counts %+v", v.Message, v.Counts)
 	}
-	installFakeYtDlp(t, e.m.dataDir, "2026.09.01")
+	// A new version, so the test never rewrites the binary the earlier
+	// checks ran: Linux refuses to open a file for writing while any
+	// process still has it mapped for execution ("text file busy").
+	installFakeYtDlp(t, e.m.dataDir, "2026.09.02")
 	e.clock = e.clock.Add(CheckEvery)
 	e.serve("Sunny Science", "Starry Lab", fakeVid{"sun-one", "One", 60})
 	e.step()

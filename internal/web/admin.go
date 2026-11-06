@@ -243,6 +243,7 @@ func init() {
 		m.HandleFunc("POST /api/admin/settings/counter", s.handleAdminCounter)
 		m.HandleFunc("POST /api/admin/settings/default", s.handleAdminDefaultMinutes)
 		m.HandleFunc("POST /api/admin/settings/budgets", s.handleAdminBudgets)
+		m.HandleFunc("POST /api/admin/settings/watch-together", s.handleAdminWatchTogether)
 		m.HandleFunc("POST /api/admin/settings/safari", s.handleAdminSafariScreens)
 		m.HandleFunc("POST /api/admin/settings/hwencode", s.handleAdminHWEncode)
 		m.HandleFunc("POST /api/admin/settings/games", s.handleAdminGames)
@@ -729,6 +730,7 @@ type adminState struct {
 	Kids           []adminKid    `json:"kids"`
 	DefaultMinutes float64       `json:"default_minutes"`
 	BudgetsOn      bool          `json:"budgets_on"`
+	WatchTogether  bool          `json:"watch_together"`
 	Games          adminGames    `json:"games"`
 	WatchLog       []adminWatch  `json:"watch_log"`
 	Bins           adminBins     `json:"bins"`
@@ -754,6 +756,10 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 		return st, err
 	}
 	st.BudgetsOn, err = b.BudgetsOn(ctx)
+	if err != nil {
+		return st, err
+	}
+	st.WatchTogether, err = b.WatchTogether(ctx)
 	if err != nil {
 		return st, err
 	}
@@ -1469,6 +1475,35 @@ func (s *Server) handleAdminBudgets(w http.ResponseWriter, r *http.Request) {
 	if err := b.SetBudgetsOn(r.Context(), req.On); err != nil {
 		writeError(w, http.StatusInternalServerError, msgSaveFailed)
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleAdminWatchTogether sets the household "Watch together" switch: off
+// takes the tile off Who's watching, refuses new watch-together sessions
+// and ends the ones running now.
+func (s *Server) handleAdminWatchTogether(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPIN(w, r) {
+		return
+	}
+	b := s.deps.Budget
+	if b == nil {
+		writeError(w, http.StatusServiceUnavailable, msgAdminServiceDown)
+		return
+	}
+	var req struct {
+		On bool `json:"on"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "That didn't look right. Try again.")
+		return
+	}
+	if err := b.SetWatchTogether(r.Context(), req.On); err != nil {
+		writeError(w, http.StatusInternalServerError, msgSaveFailed)
+		return
+	}
+	if !req.On {
+		kidSessions.dropGrownups()
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

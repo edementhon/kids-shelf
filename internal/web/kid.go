@@ -133,6 +133,18 @@ func (l *sessionLedger) drop(token string) {
 	delete(l.sessions, token)
 }
 
+// dropGrownups ends every watch-together session, for a household that just
+// switched Watch together off.
+func (l *sessionLedger) dropGrownups() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for token, s := range l.sessions {
+		if s.grownup {
+			delete(l.sessions, token)
+		}
+	}
+}
+
 // newSessionToken returns a fresh 128-bit random token, hex-encoded.
 func newSessionToken() (string, error) {
 	var b [16]byte
@@ -248,7 +260,9 @@ func (s *Server) handleKidIndex(w http.ResponseWriter, r *http.Request) {
 // the "Next episode" button on the end screen ("" when there is none).
 // Pending episodes are skipped: the button must never lead into a
 // "getting ready" panel. Issue/Fix tell the player why the episode does
-// not play yet (see the 409 player contract).
+// not play yet (see the 409 player contract). FreeShows says whether the
+// Free bin holds any episode, so Time's up only points at free shows that
+// exist.
 type watchData struct {
 	Episode   string `json:"Episode"`
 	Title     string `json:"Title"`
@@ -257,6 +271,7 @@ type watchData struct {
 	NextTitle string `json:"NextTitle"`
 	Issue     string `json:"Issue"`
 	Fix       string `json:"Fix"`
+	FreeShows bool   `json:"FreeShows"`
 }
 
 // playerPage is the player template; each request substitutes __KS_DATA__.
@@ -308,10 +323,15 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	freeShows := false
+	if shows, err := s.deps.Library.ListShows(r.Context()); err == nil {
+		freeShows = hasFreeShow(shows)
+	}
 	data, err := json.Marshal(watchData{
 		Episode: string(rec.ID), Title: rec.Title, Free: free,
 		Next: nextID, NextTitle: nextTitle,
 		Issue: rec.Issue, Fix: rec.Fix,
+		FreeShows: freeShows,
 	})
 	if err != nil {
 		writeError(w, 500, "Something went wrong. Try again.")
@@ -551,9 +571,18 @@ func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 // with it is free and unmetered. It accepts the parent PIN. Wrong tries
 // feed the watch-together throttle (per client IP). When no parent PIN has
 // been set at all, the keypad is told in plain words instead of being told
-// its PIN was wrong.
+// its PIN was wrong. A household that switched Watch together off gets no
+// session at all, whatever the PIN.
 func (s *Server) handleWatchTogether(w http.ResponseWriter, r *http.Request) {
 	if !s.requireBudget(w) {
+		return
+	}
+	if on, err := s.deps.Budget.WatchTogether(r.Context()); err != nil {
+		log.Printf("kid: read watch together: %v", err)
+		writeError(w, http.StatusInternalServerError, "Something went wrong. Try again.")
+		return
+	} else if !on {
+		writeError(w, http.StatusForbidden, "Watch together is switched off on the parent page.")
 		return
 	}
 	var req struct {
@@ -655,8 +684,9 @@ type episodeJSON struct {
 	Fix         string  `json:"fix"`   // "" when the fix is final; "pending" or "failed"
 }
 
-// handleKids lists the kid profiles for the picker. Names are not secrets
-// on a family LAN, exactly as the legacy portal's ticket list was open.
+// handleKids lists the kid profiles for the picker, and whether the picker
+// offers Watch together. Names are not secrets on a family LAN, exactly as
+// the legacy portal's ticket list was open.
 func (s *Server) handleKids(w http.ResponseWriter, r *http.Request) {
 	if !s.requireBudget(w) {
 		return
@@ -667,11 +697,17 @@ func (s *Server) handleKids(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "Something went wrong. Try again.")
 		return
 	}
+	together, err := s.deps.Budget.WatchTogether(r.Context())
+	if err != nil {
+		log.Printf("kid: read watch together: %v", err)
+		writeError(w, 500, "Something went wrong. Try again.")
+		return
+	}
 	out := make([]kidJSON, 0, len(kids))
 	for _, k := range kids {
 		out = append(out, kidJSON{ID: string(k.ID), Name: k.Name, Animal: k.Animal})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"kids": out})
+	writeJSON(w, http.StatusOK, map[string]any{"kids": out, "watchTogether": together})
 }
 
 // posterURL renders a show's poster episode id as the /thumbs/ URL the shelf
@@ -713,6 +749,16 @@ func (s *Server) showBins(ctx context.Context) (map[string]string, error) {
 		m[string(sh.ID)] = sh.Bin
 	}
 	return m, nil
+}
+
+// hasFreeShow reports whether any show in the Free bin has an episode.
+func hasFreeShow(shows []library.Show) bool {
+	for _, sh := range shows {
+		if sh.Bin == library.BinFree && sh.Episodes > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // round2 rounds minutes to two decimals so the JSON never leaks float noise.

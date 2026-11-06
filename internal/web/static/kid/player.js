@@ -209,9 +209,11 @@ function stopWith(title, msg) {
   openPanel('chunk');
 }
 
+// cutOff ends the page at Time's up. It points at free shows only when the
+// Free bin has some.
 function cutOff() {
   if (cut) return;
-  stopWith('🕐 Time\u2019s up!', 'You used all your minutes for today. Shows with 💛 Free still work. Or ask a grown-up to watch with you.');
+  stopWith('🕐 Time\u2019s up!', 'You used all your minutes for today.' + (KS.FreeShows ? ' Shows with 💛 Free still work.' : ''));
 }
 
 // The server forgot who is watching (it restarted, or the kid was locked

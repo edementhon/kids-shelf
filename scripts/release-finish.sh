@@ -21,7 +21,9 @@
 #
 # Fails (non-zero) without publishing when SHA256SUMS.sig does not verify
 # against the pinned public key, when SHA256SUMS does not name a
-# vMAJOR.MINOR.PATCH version, or when listed files are missing.
+# vMAJOR.MINOR.PATCH version, when listed files are missing, or when
+# CHANGELOG.md has no section for the version (it is the top of the
+# release notes).
 set -euo pipefail
 
 log() { printf 'release-finish: %s\n' "$*"; }
@@ -85,23 +87,40 @@ while IFS=' ' read -r _SUM _NAME; do
 	[ -f "$OUT/$_NAME" ] || die "SHA256SUMS lists $_NAME but $OUT/$_NAME is missing"
 done < <(grep -v '^version:' "$OUT/SHA256SUMS")
 
-# --- publish (optional) ------------------------------------------------------
-if [ "${KS_PUBLISH:-0}" = "1" ]; then
-	command -v gh >/dev/null 2>&1 || die "KS_PUBLISH=1 needs gh; run 'gh auth login' on this host first"
-	KS_RELEASE_REPO="${KS_RELEASE_REPO:-edementhon/kids-shelf}"
-	TITLE="Kids Shelf $VERSION"
-	log "creating the draft GitHub release \"$TITLE\" in $KS_RELEASE_REPO"
-	# Parents land on the release page from the parent guide, so the notes
-	# say which zip is theirs. Passing --title and --notes also keeps gh
-	# from asking questions; the release is a normal one (not a prerelease):
-	# the updater and releases/latest skip prereleases.
-	NOTES="Download the zip for your computer, then follow the parent guide: https://github.com/$KS_RELEASE_REPO/blob/main/docs/parent-guide.md
+# --- release notes -----------------------------------------------------------
+# The version's CHANGELOG.md section ("## vX.Y.Z" up to the next "## ")
+# is the summary at the top of the notes; parents read it before
+# updating, so a release without one is refused.
+# Leading blank lines are dropped; $(...) drops the trailing ones.
+SUMMARY="$(awk -v v="## $VERSION" '
+	$0 == v || index($0, v " ") == 1 { f = 1; next }
+	f && /^## / { exit }
+	f { print }
+' "$REPO_ROOT/CHANGELOG.md" 2>/dev/null | sed '/./,$!d')"
+[ -n "$SUMMARY" ] || die "CHANGELOG.md has no \"## $VERSION\" section; write the release summary there first"
+KS_RELEASE_REPO="${KS_RELEASE_REPO:-edementhon/kids-shelf}"
+# Parents land on the release page from the parent guide, so after the
+# summary the notes say which zip is theirs.
+NOTES="$SUMMARY
+
+## Download
+
+Download the zip for your computer, then follow the parent guide: https://github.com/$KS_RELEASE_REPO/blob/main/docs/parent-guide.md
 
 - Windows PC: kids-shelf_windows_amd64.zip
 - Mac (Apple chip or Intel): kids-shelf_darwin_universal.zip
 - Linux PC: kids-shelf_linux_amd64.zip; Raspberry Pi and other ARM computers: kids-shelf_linux_arm64.zip
 
 Already installed? Kids Shelf updates itself."
+
+# --- publish (optional) ------------------------------------------------------
+if [ "${KS_PUBLISH:-0}" = "1" ]; then
+	command -v gh >/dev/null 2>&1 || die "KS_PUBLISH=1 needs gh; run 'gh auth login' on this host first"
+	TITLE="Kids Shelf $VERSION"
+	log "creating the draft GitHub release \"$TITLE\" in $KS_RELEASE_REPO"
+	# Passing --title and --notes keeps gh from asking questions; the
+	# release is a normal one (not a prerelease): the updater and
+	# releases/latest skip prereleases.
 	# The tag goes on the commit the binaries were built from (release.sh
 	# writes SOURCE_COMMIT), so a docs commit pushed after the build cannot
 	# move it. The commit must already be pushed.
@@ -119,7 +138,8 @@ Already installed? Kids Shelf updates itself."
 		"$OUT"/kids-shelf_*.zip "$OUT/SHA256SUMS" "$OUT/SHA256SUMS.sig" "$HELPER_SOURCES"
 	log "draft created: https://github.com/$KS_RELEASE_REPO/releases (review and publish it there)"
 else
-	log "KS_PUBLISH unset: signature verified, nothing published"
+	log "KS_PUBLISH unset: signature verified, nothing published; the notes would read:"
+	printf '%s\n' "$NOTES" | sed 's/^/release-finish:   /'
 fi
 
 log "done"

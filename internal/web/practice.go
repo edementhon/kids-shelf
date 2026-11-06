@@ -1,6 +1,6 @@
 // Package web, practice area. Serves the ported mathfacts pages on
 // practice.Service: the "who's practicing" home, math and check-up rounds,
-// spelling rounds with pre-generated clips and the 13-boss arena. Pages are
+// spelling rounds with pre-generated clips and the 17-boss arena. Pages are
 // server-rendered shells over plain JS/CSS embedded from static/practice;
 // every answer is graded by the service, and earned minutes go to the
 // budget counter through practice's Crediter. JSON lives under

@@ -10,8 +10,8 @@ import (
 	"github.com/edementhon/kids-shelf/internal/core"
 )
 
-// Boss is one of the 13 sequential arena fights. The roster is copied from
-// the legacy boss_page.py.
+// Boss is one of the 17 sequential arena fights. The roster is the legacy
+// boss_page.py's 13 plus a ÷ boss after each times-table boss.
 type Boss struct {
 	ID           string
 	Name         string
@@ -27,10 +27,14 @@ var Bosses = []Boss{
 	{ID: "adder", Name: "Plus-Bot", Emoji: "🤖", Topic: "add", Desc: "Addition facts"},
 	{ID: "minustaur", Name: "Minustaur", Emoji: "🐂", Topic: "sub", Desc: "Subtraction facts"},
 	{ID: "times3", Name: "Trax", Emoji: "🐉", Topic: "mul3", Desc: "The ×3 dragon"},
+	{ID: "div3", Name: "Snippy", Emoji: "🦀", Topic: "div3", Desc: "The ÷3 crab"},
 	{ID: "golem", Name: "Rocky Golem", Emoji: "🗿", Topic: "mul4", Desc: "The ×4 boulder beast"},
+	{ID: "div4", Name: "Gnawbert", Emoji: "🦫", Topic: "div4", Desc: "The ÷4 beaver"},
 	{ID: "diver", Name: "Splitzo", Emoji: "🐙", Topic: "div", Desc: "Division facts"},
 	{ID: "buzzle", Name: "Buzzle", Emoji: "🐝", Topic: "mul6", Desc: "The ×6 bumblebee"},
+	{ID: "div6", Name: "Prickles", Emoji: "🦔", Topic: "div6", Desc: "The ÷6 hedgehog"},
 	{ID: "times7", Name: "Lucky", Emoji: "🦄", Topic: "mul7", Desc: "The ×7 unicorn"},
+	{ID: "div7", Name: "Finnegan", Emoji: "🦈", Topic: "div7", Desc: "The ÷7 shark"},
 	{ID: "alienfish", Name: "Alien Fish", Emoji: "🐟", Topic: "fish", Desc: "Its tail whacks you: 3 misses and you're out!", Lethal: true, PlayerHearts: 3},
 	{ID: "ogre", Name: "Doom Ogre", Emoji: "👹", Topic: "ogre", Desc: "Subtraction + division gauntlet"},
 	{ID: "tofu", Name: "Giant Tofu", Emoji: "🧊", Topic: "tofu", Desc: "Big 2-digit sums and differences"},
@@ -88,7 +92,9 @@ func bossByID(id string) *Boss {
 // bossQuestion draws one question for a boss topic, exactly as the legacy
 // boss_question did: ×-bosses always draw the other factor from the full
 // 1-10 tables (the boss IS the stretch), so every themed fight has at
-// least 10 unique questions. Must be called with s.mu held (uses s.rng).
+// least 10 unique questions. The ÷-bosses mirror them: the boss's number
+// is the divisor and the answer runs 1-10. Must be called with s.mu held
+// (uses s.rng).
 func (s *Service) bossQuestion(topic string) Question {
 	switch topic {
 	case "add":
@@ -103,6 +109,9 @@ func (s *Service) bossQuestion(topic string) Question {
 	case "mul3", "mul4", "mul6", "mul7":
 		t := map[string]int{"mul3": 3, "mul4": 4, "mul6": 6, "mul7": 7}[topic]
 		return Question{A: t, B: 1 + s.rng.IntN(10), Op: "x"}
+	case "div3", "div4", "div6", "div7":
+		t := map[string]int{"div3": 3, "div4": 4, "div6": 6, "div7": 7}[topic]
+		return Question{A: t * (1 + s.rng.IntN(10)), B: t, Op: "/"}
 	case "div":
 		b := 1 + s.rng.IntN(10)
 		q := 1 + s.rng.IntN(10)

@@ -14,22 +14,6 @@ body {
 h1 { font-size: 2em; margin: 0 0 4px; }
 .sub { color: #5f5f5f; margin-bottom: 16px; font-size: 1.05em; }
 .sub.none-left { color: #8a4b00; font-weight: 600; }
-.together-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 52px;
-  margin: -6px 0 16px;
-  padding: 10px 22px;
-  border: none;
-  border-radius: 26px;
-  background: #2a7a4b;
-  color: #fff;
-  font-size: 1.1em;
-  font-weight: bold;
-  cursor: pointer;
-}
-
 /* A thick ring shows where the keyboard is, readable from the couch on the
    Pi's TV; a tap or click shows none. */
 :focus-visible { outline: 4px solid #1f6fd1; outline-offset: 3px; }

@@ -1208,6 +1208,45 @@ func TestAdminSafariScreens(t *testing.T) {
 	}
 }
 
+// TestAdminWatchTogether: the Watch together switch starts on; off, the
+// picker is told to hide the tile, the parent PIN no longer starts a
+// watch-together session and a session already running ends; on again, it
+// works as before.
+func TestAdminWatchTogether(t *testing.T) {
+	ts, _, _ := newTestAdmin(t)
+	kid := newClient() // a kid screen: its own cookies, no parent session
+	together := func() (int, bool) {
+		t.Helper()
+		resp, _ := sendReq(t, kid, http.MethodPost, ts.URL+"/api/kid/watch-together", map[string]any{"pin": testParentPIN})
+		_, kids := sendReq(t, kid, http.MethodGet, ts.URL+"/api/kids", nil)
+		return resp.StatusCode, kids["watchTogether"] == true
+	}
+	if on := state(t, ts)["watch_together"]; on != true {
+		t.Errorf("watch_together = %v, want the default true", on)
+	}
+	if code, shown := together(); code != http.StatusOK || !shown {
+		t.Fatalf("switch on: watch-together %d, tile shown %v; want 200, true", code, shown)
+	}
+	if resp, _ := post(t, ts.URL+"/api/admin/settings/watch-together", map[string]any{"on": false}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("watch together off: status %d, want 200", resp.StatusCode)
+	}
+	if resp, _ := sendReq(t, kid, http.MethodGet, ts.URL+"/api/kid/me", nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("running watch-together after switching off: /api/kid/me %d, want 401", resp.StatusCode)
+	}
+	if code, shown := together(); code != http.StatusForbidden || shown {
+		t.Errorf("switch off: watch-together %d, tile shown %v; want 403, false", code, shown)
+	}
+	if on := state(t, ts)["watch_together"]; on != false {
+		t.Errorf("watch_together = %v after switching off, want false", on)
+	}
+	if resp, _ := post(t, ts.URL+"/api/admin/settings/watch-together", map[string]any{"on": true}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("watch together on: status %d, want 200", resp.StatusCode)
+	}
+	if code, shown := together(); code != http.StatusOK || !shown {
+		t.Errorf("switch on again: watch-together %d, tile shown %v; want 200, true", code, shown)
+	}
+}
+
 // TestAdminHWEncode: the admin state carries the household "use the
 // graphics chip" setting and the encoder name, and the settings checkbox
 // endpoint toggles the setting.

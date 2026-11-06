@@ -159,6 +159,15 @@ ALTER TABLE household ADD COLUMN games_day INTEGER NOT NULL DEFAULT 2;`,
 	Version: 6,
 	SQL: `
 ALTER TABLE household ADD COLUMN video_folder TEXT NOT NULL DEFAULT '';`,
+}, {
+	// watch_together is the household's "Watch together" switch, default
+	// on: while it is on, Who's watching offers a Watch together tile that
+	// takes the parent PIN and plays everything free; off, the tile is gone
+	// and the server refuses watch-together sessions.
+	Owner:   "budget",
+	Version: 7,
+	SQL: `
+ALTER TABLE household ADD COLUMN watch_together INTEGER NOT NULL DEFAULT 1;`,
 }}
 
 // Budget owns the kid profiles and their screen-time accounts, backed by the
@@ -615,6 +624,37 @@ func (b *Budget) HWEncode(ctx context.Context) (bool, error) {
 	}
 	if err != nil {
 		return false, fmt.Errorf("budget: read hardware encode: %w", err)
+	}
+	return v != 0, nil
+}
+
+// SetWatchTogether switches the household's "Watch together" setting: on,
+// a grown-up can start a free watch-together session with the parent PIN;
+// off, Who's watching shows no Watch together tile and the server refuses
+// new sessions. Default is on.
+func (b *Budget) SetWatchTogether(ctx context.Context, on bool) error {
+	onInt := 0
+	if on {
+		onInt = 1
+	}
+	if _, err := b.store.DB().ExecContext(ctx,
+		`UPDATE household SET watch_together = ? WHERE id = 1`, onInt); err != nil {
+		return fmt.Errorf("budget: set watch together: %w", err)
+	}
+	return nil
+}
+
+// WatchTogether reports whether the household's "Watch together" setting
+// is on.
+func (b *Budget) WatchTogether(ctx context.Context) (bool, error) {
+	var v int
+	err := b.store.DB().QueryRowContext(ctx,
+		`SELECT watch_together FROM household WHERE id = 1`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil // default on
+	}
+	if err != nil {
+		return false, fmt.Errorf("budget: read watch together: %w", err)
 	}
 	return v != 0, nil
 }

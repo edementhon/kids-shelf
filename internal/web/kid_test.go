@@ -1346,26 +1346,7 @@ func TestWatchNextSkipsPending(t *testing.T) {
 
 	nextOf := func(id string) (string, string) {
 		t.Helper()
-		req, _ := http.NewRequest("GET", e.ts.URL+"/watch/"+id, nil)
-		resp, err := e.client.Do(req)
-		if err != nil {
-			t.Fatalf("GET watch %s: %v", id, err)
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("watch %s: status %d", id, resp.StatusCode)
-		}
-		idx := strings.Index(string(body), "window.KS = ")
-		if idx < 0 {
-			t.Fatalf("watch %s has no embedded KS data", id)
-		}
-		start := idx + len("window.KS = ")
-		end := strings.Index(string(body)[start:], ";")
-		var wd watchData
-		if err := json.Unmarshal([]byte(string(body)[start:start+end]), &wd); err != nil {
-			t.Fatalf("decode watch data: %v", err)
-		}
+		wd := e.watchPage(id)
 		return wd.Next, wd.NextTitle
 	}
 	// ep-1's next is ep-3: the pending ep-2 is skipped.
@@ -1375,6 +1356,48 @@ func TestWatchNextSkipsPending(t *testing.T) {
 	// The last episode has no next.
 	if next, title := nextOf("ep-3"); next != "" || title != "" {
 		t.Errorf("ep-3 next = %q/%q, want empty", next, title)
+	}
+}
+
+// watchPage loads the player page for episode id and decodes the data it
+// embeds.
+func (e *kidEnv) watchPage(id string) watchData {
+	e.t.Helper()
+	req, _ := http.NewRequest("GET", e.ts.URL+"/watch/"+id, nil)
+	resp, err := e.client.Do(req)
+	if err != nil {
+		e.t.Fatalf("GET watch %s: %v", id, err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		e.t.Fatalf("watch %s: status %d", id, resp.StatusCode)
+	}
+	idx := strings.Index(string(body), "window.KS = ")
+	if idx < 0 {
+		e.t.Fatalf("watch %s has no embedded KS data", id)
+	}
+	start := idx + len("window.KS = ")
+	end := strings.Index(string(body)[start:], ";")
+	var wd watchData
+	if err := json.Unmarshal([]byte(string(body)[start:start+end]), &wd); err != nil {
+		e.t.Fatalf("decode watch data: %v", err)
+	}
+	return wd
+}
+
+// TestWatchFreeShows: the player learns whether the Free bin holds any
+// episode, so Time's up never points a kid at free shows that do not exist.
+func TestWatchFreeShows(t *testing.T) {
+	e := newKidEnv(t)
+	e.publishShow("s-fun", "Fun Show", library.BinFun, "fun-1", "Fun one", 600)
+	e.unlockAda()
+	if e.watchPage("fun-1").FreeShows {
+		t.Error("FreeShows = true with no Free show, want false")
+	}
+	e.publishShow("s-free", "Free Show", library.BinFree, "free-1", "Free one", 600)
+	if !e.watchPage("fun-1").FreeShows {
+		t.Error("FreeShows = false with a Free show on the shelf, want true")
 	}
 }
 

@@ -1,7 +1,7 @@
 // Package practice ports the legacy mathfacts app to the kids-shelf
 // database: fact pools with weighted sampling toward weak facts, unlock
 // ladders and times-table promotions, check-ups with server-side milestone
-// evaluation, a 13-boss arena and spelling rounds over pre-generated clips.
+// evaluation, a 17-boss arena and spelling rounds over pre-generated clips.
 //
 // It owns every practice_* table through Migrations (PLAN.md section 1a) and
 // reaches the rest of the system only through core.Crediter: earned minutes

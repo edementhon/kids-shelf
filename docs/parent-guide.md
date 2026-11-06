@@ -160,7 +160,8 @@ If other devices cannot connect, your firewall may be blocking Kids Shelf's two 
    take a kid below zero: the debt comes out of tomorrow's minutes.
 3. **Watch together** uses the same parent PIN. The kids' **Watch together** (free watching with a
    grown-up) asks for the PIN you made in step 1. Watching together ends after two hours, or when
-   you press **End watching together**.
+   you press **End watching together**. To take the Watch together button away, switch off
+   **Watch together** in the **Minutes** card.
 
 ### Minutes page for your phone
 

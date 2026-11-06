@@ -8,8 +8,8 @@ import (
 )
 
 func TestBossRoster(t *testing.T) {
-	if len(Bosses) != 13 {
-		t.Fatalf("bosses = %d, want 13", len(Bosses))
+	if len(Bosses) != 17 {
+		t.Fatalf("bosses = %d, want 17", len(Bosses))
 	}
 	seen := map[string]bool{}
 	byID := map[string]Boss{}
@@ -23,8 +23,8 @@ func TestBossRoster(t *testing.T) {
 			t.Errorf("boss %d incomplete: %+v", i, b)
 		}
 	}
-	if Bosses[0].ID != "adder" || Bosses[12].ID != "wyrm" {
-		t.Errorf("roster order broken: first=%s last=%s", Bosses[0].ID, Bosses[12].ID)
+	if Bosses[0].ID != "adder" || Bosses[len(Bosses)-1].ID != "wyrm" {
+		t.Errorf("roster order broken: first=%s last=%s", Bosses[0].ID, Bosses[len(Bosses)-1].ID)
 	}
 	if !byID["alienfish"].Lethal || byID["alienfish"].PlayerHearts != 3 {
 		t.Errorf("alienfish = %+v, want lethal with 3 hearts", byID["alienfish"])
@@ -66,6 +66,13 @@ func TestBossQuestionRanges(t *testing.T) {
 		}
 		if q := draw("div"); q.Op != "/" || !in(q.B, 1, 10) || q.A%q.B != 0 || !in(q.A/q.B, 1, 10) {
 			t.Errorf("div = %+v", q)
+		}
+		for _, d := range []string{"div3", "div4", "div6", "div7"} {
+			q := draw(d)
+			wantB := map[string]int{"div3": 3, "div4": 4, "div6": 6, "div7": 7}[d]
+			if q.Op != "/" || q.B != wantB || q.A%q.B != 0 || !in(q.A/q.B, 1, 10) {
+				t.Errorf("%s = %+v", d, q)
+			}
 		}
 		for _, topic := range []string{"ogre", "wyrm", "fish", "cave", "mixed"} {
 			q := draw(topic)
@@ -241,7 +248,7 @@ func TestBossFightVictoryAndOnceOnlyCoins(t *testing.T) {
 func TestBossLethalKillAndRefill(t *testing.T) {
 	e := newEnv(t, 32)
 	kid := "k1"
-	prior := []string{"adder", "minustaur", "times3", "golem", "diver", "buzzle", "times7"}
+	prior := []string{"adder", "minustaur", "times3", "div3", "golem", "div4", "diver", "buzzle", "div6", "times7", "div7"}
 	if err := e.svc.ImportBosses(ctx(), core.KidID(kid), core.BossState{
 		Defeated: prior, HP: map[string]int{}, PHP: map[string]int{},
 	}); err != nil {
@@ -291,7 +298,7 @@ func TestBossLethalKillAndRefill(t *testing.T) {
 		t.Fatalf("post-kill answer = %+v", msg)
 	}
 	bs, _ := e.svc.BossState(kid)
-	if len(bs.Defeated) != 7 {
+	if len(bs.Defeated) != len(prior) {
 		t.Fatalf("killed boss should not be defeated: %v", bs.Defeated)
 	}
 }
@@ -353,7 +360,39 @@ func TestBossOrder(t *testing.T) {
 	if st.Boss != nil {
 		t.Errorf("boss = %+v, want nil after clearing the arena", st.Boss)
 	}
-	if len(st.Defeated) != 13 {
-		t.Errorf("defeated = %d, want 13", len(st.Defeated))
+	if len(st.Defeated) != len(Bosses) {
+		t.Errorf("defeated = %d, want %d", len(st.Defeated), len(Bosses))
+	}
+}
+
+// TestNewBossesWaitForVeterans: a kid who cleared the 13 legacy bosses
+// before the ÷ bosses existed finds the arena open again, starting with
+// the first new one, instead of a cleared arena.
+func TestNewBossesWaitForVeterans(t *testing.T) {
+	e := newEnv(t, 35)
+	kid := "k1"
+	legacy := []string{"adder", "minustaur", "times3", "golem", "diver", "buzzle", "times7",
+		"alienfish", "ogre", "tofu", "cavebeast", "mixed", "wyrm"}
+	if err := e.svc.ImportBosses(ctx(), core.KidID(kid), core.BossState{
+		Defeated: legacy, HP: map[string]int{}, PHP: map[string]int{},
+	}); err != nil {
+		t.Fatalf("ImportBosses: %v", err)
+	}
+	for _, want := range []string{"div3", "div4", "div6", "div7"} {
+		f, qs, err := e.svc.BossRound(kid)
+		if err != nil {
+			t.Fatalf("BossRound: %v", err)
+		}
+		if f.Boss == nil || f.Boss.ID != want {
+			t.Fatalf("boss = %+v, want %s", f.Boss, want)
+		}
+		for _, q := range qs {
+			if _, err := e.svc.BossAnswer(ctx(), kid, q.A, q.B, q.Op, AnswerOf(q.A, q.B, q.Op)); err != nil {
+				t.Fatalf("BossAnswer: %v", err)
+			}
+		}
+	}
+	if _, _, err := e.svc.BossRound(kid); !errors.Is(err, ErrNoBoss) {
+		t.Fatalf("BossRound after the new bosses = %v, want ErrNoBoss", err)
 	}
 }
