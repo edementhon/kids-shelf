@@ -25,11 +25,12 @@
     <p class="note" id="vfwhere"></p>
     <div class="rowbtns" id="vfbtns">
       <button type="button" class="btn chip" id="vfchange">Change where videos are saved</button>
-      <button type="button" class="btn chip hidden" id="vfdefault">Use the standard folder</button>
+      <button type="button" class="btn chip vfdefault hidden">Use the standard folder</button>
     </div>
     <form id="vfform" class="inlineform hidden">
       <input type="text" id="vfpath" placeholder="Path to the folder, e.g. __KS_OS_DRIVE_PATH__" autocomplete="off" spellcheck="false" aria-label="Path to the folder for new videos">
       <button class="btn add" type="submit">Save</button>
+      <button class="btn vfdefault hidden" type="button">Use the standard folder</button>
       <button class="btn" type="button" id="vfcancel">Cancel</button>
     </form>
     <p class="note hidden" id="vfhelp">For example a drive you plugged into this computer. Kids Shelf makes a “kids-shelf media” folder inside it. Videos already saved stay where they are and keep playing.</p>

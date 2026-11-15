@@ -200,6 +200,7 @@ const (
 	msgResetOnComputer    = "Reset the PIN on the computer Kids Shelf runs on."
 	msgWrongPIN           = "That PIN is not right. Try again."
 	msgNoSuchKid          = "No such kid."
+	msgNoSuchAnimal       = "Pick one of the animals on the list."
 	msgNoSuchShow         = "That show was not found."
 	msgKidNameExists      = "A kid with that name already exists."
 	msgNegativeMinutes    = "Minutes cannot be negative."
@@ -229,6 +230,7 @@ func init() {
 		m.HandleFunc("POST /api/admin/firewall/allow", s.handleAdminFirewallAllow)
 		m.HandleFunc("POST /api/admin/kids", s.handleAdminCreateKid)
 		m.HandleFunc("POST /api/admin/kids/{id}/rename", s.handleAdminRenameKid)
+		m.HandleFunc("POST /api/admin/kids/{id}/animal", s.handleAdminKidAnimal)
 		m.HandleFunc("POST /api/admin/kids/{id}/pin", s.handleAdminKidPIN)
 		m.HandleFunc("POST /api/admin/kids/{id}/minutes", s.handleAdminKidMinutes)
 		m.HandleFunc("DELETE /api/admin/kids/{id}", s.handleAdminRemoveKid)
@@ -475,6 +477,8 @@ func adminErrStatus(err error) int {
 	switch {
 	case errors.Is(err, budget.ErrNoSuchKid):
 		return http.StatusNotFound
+	case errors.As(err, new(*budget.KidAnimalTakenError)):
+		return http.StatusConflict
 	case errors.As(err, new(*budget.KidNameTakenError)):
 		return http.StatusConflict
 	case errors.Is(err, library.ErrNotFound):
@@ -491,6 +495,13 @@ func adminErrStatus(err error) int {
 func plainAdminError(err error) string {
 	if have, ok := takenKidName(err); ok {
 		return msgKidCalled(have)
+	}
+	var animal *budget.KidAnimalTakenError
+	if errors.As(err, &animal) {
+		return animal.Name + " is " + animal.Animal + " already. Pick another animal."
+	}
+	if errors.Is(err, budget.ErrNoSuchAnimal) {
+		return msgNoSuchAnimal
 	}
 	switch {
 	case errors.Is(err, budget.ErrNoSuchKid):
@@ -657,12 +668,13 @@ func (s *Server) handleAdminStatic(w http.ResponseWriter, r *http.Request) {
 // ─── state ─────────────────────────────────────────────────────────────────
 
 type adminKid struct {
-	ID    string  `json:"id"`
-	Name  string  `json:"name"`
-	Today float64 `json:"today"`
-	Saved float64 `json:"saved"`
-	Daily float64 `json:"daily"`
-	Games float64 `json:"games"` // game minutes; 0 while they are off
+	ID     string  `json:"id"`
+	Name   string  `json:"name"`
+	Animal string  `json:"animal"`
+	Today  float64 `json:"today"`
+	Saved  float64 `json:"saved"`
+	Daily  float64 `json:"daily"`
+	Games  float64 `json:"games"` // game minutes; 0 while they are off
 }
 
 // adminGames is the household's game-minutes setup: Day is 0 (Sunday) to 6
@@ -727,7 +739,9 @@ type adminUpdate struct {
 }
 
 type adminState struct {
-	Kids           []adminKid    `json:"kids"`
+	Kids []adminKid `json:"kids"`
+	// Animals is every animal a kid can be, for the "Change animal" list.
+	Animals        []string      `json:"animals"`
 	DefaultMinutes float64       `json:"default_minutes"`
 	BudgetsOn      bool          `json:"budgets_on"`
 	WatchTogether  bool          `json:"watch_together"`
@@ -770,7 +784,7 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 	st.Games = adminGames{On: gs.On, Weekly: gs.Weekly, Day: int(gs.Day),
 		Next: b.NextGamesTopUp(gs.Day).Format("2006-01-02")}
 	// Lists encode as [] (not null) so a fresh install's page can iterate them.
-	st.Kids, st.WatchLog = []adminKid{}, []adminWatch{}
+	st.Kids, st.WatchLog, st.Animals = []adminKid{}, []adminWatch{}, budget.Animals
 	kidNames := make(map[string]string, len(kids))
 	for _, k := range kids {
 		kidNames[string(k.ID)] = k.Name
@@ -783,7 +797,7 @@ func (s *Server) adminStateData(ctx context.Context, r *http.Request) (adminStat
 			return st, err
 		}
 		kid := adminKid{
-			ID: string(k.ID), Name: k.Name,
+			ID: string(k.ID), Name: k.Name, Animal: k.Animal,
 			Today: today, Saved: saved, Daily: daily,
 		}
 		if gs.On {
@@ -1073,6 +1087,31 @@ func (s *Server) handleAdminRenameKid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := b.RenameKid(r.Context(), core.KidID(r.PathValue("id")), name); err != nil {
+		serviceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleAdminKidAnimal changes the kid's animal to one on the list that no
+// sibling has.
+func (s *Server) handleAdminKidAnimal(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPIN(w, r) {
+		return
+	}
+	b := s.deps.Budget
+	if b == nil {
+		writeError(w, http.StatusServiceUnavailable, msgAdminServiceDown)
+		return
+	}
+	var req struct {
+		Animal string `json:"animal"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "That didn't look right. Try again.")
+		return
+	}
+	if err := b.SetKidAnimal(r.Context(), core.KidID(r.PathValue("id")), req.Animal); err != nil {
 		serviceError(w, err)
 		return
 	}

@@ -187,7 +187,7 @@ function renderKids() {
     return `
     <div class="kid" data-id="${esc(k.id)}">
       <div class="kidhead">
-        <span class="kidname">${n}</span>
+        <span class="kidname"><span aria-hidden="true">${esc(k.animal)}</span> ${n}</span>
         <button class="mini" data-act="kidmenu" data-id="${esc(k.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Options for ${n}">⋯</button>
       </div>
       <div class="bal">
@@ -464,6 +464,46 @@ function closeConnect() {
     ? connectOpener : $('connect-open');
   connectOpener = null;
   back.focus();
+}
+
+/* ── change a kid's animal ────────────────────────────────────────────── */
+/* The list comes from the server; an animal a sibling has is shown but
+   cannot be picked, so two kids never share a picture. */
+let animalKid = null;
+function openAnimals(kid) {
+  animalKid = kid.id;
+  $('animaltitle').textContent = 'Pick an animal for ' + kid.name;
+  const whose = {};
+  STATE.kids.forEach(k => { if (k.id !== kid.id) whose[k.animal] = k.name; });
+  $('animals').innerHTML = STATE.animals.map(a => {
+    const taken = whose[a] ? esc(whose[a]) + ' has this one' : '';
+    return `<button type="button" data-animal="${esc(a)}" aria-pressed="${a === kid.animal}"`
+      + (taken ? ` disabled title="${taken}" aria-label="${esc(a)} ${taken}"` : '') + `>${esc(a)}</button>`;
+  }).join('');
+  $('animaltaken').classList.toggle('hidden', !Object.keys(whose).length);
+  $('animaloverlay').classList.remove('hidden');
+  $('animalbox').focus();
+}
+
+function closeAnimals() {
+  if ($('animaloverlay').classList.contains('hidden')) return;
+  $('animaloverlay').classList.add('hidden');
+  const back = animalKid && document.querySelector(`.kid[data-id="${CSS.escape(animalKid)}"] [data-act="kidmenu"]`);
+  animalKid = null;
+  if (back) back.focus();
+}
+
+async function pickAnimal(animal) {
+  const id = animalKid;
+  const kid = STATE.kids.find(k => k.id === id);
+  if (!kid || animal === kid.animal) { closeAnimals(); return; }
+  try {
+    await api('/api/admin/kids/' + encodeURIComponent(id) + '/animal', { method: 'POST', body: JSON.stringify({ animal }) });
+    msg(kid.name + ' is ' + animal + ' now.');
+  } catch (e) { /* message already shown */ }
+  // The list is drawn again either way: a refusal means it was out of date.
+  try { await load(); } catch (e) { /* the lock is showing */ }
+  closeAnimals();
 }
 
 async function pollConnect(run) {
@@ -754,6 +794,7 @@ async function onAction(act, t) {
     case 'kidmenu':
       popupMenu(t, [
         { act: 'renamemenu', id, label: '✏️ Rename ' + (kid ? kid.name : '') },
+        { act: 'animalmenu', id, label: (kid ? kid.animal : '🐾') + ' Change animal' },
         { act: 'pinmenu', id, label: '🔑 Change PIN' },
         { act: 'removemenu', id, label: '🗑️ Remove kid', danger: true },
       ]);
@@ -770,6 +811,10 @@ async function onAction(act, t) {
       } catch (e) { /* message already shown */ }
       break;
     }
+    case 'animalmenu':
+      hideMenu(true);
+      if (kid) openAnimals(kid);
+      break;
     case 'pinmenu': {
       hideMenu(true);
       const pin = prompt('New 4-digit PIN for ' + (kid ? kid.name : 'this kid') + ':');
@@ -971,6 +1016,17 @@ $('connectoverlay').addEventListener('click', e => {
   if (e.target === e.currentTarget && connectDownOnBackdrop) closeConnect();
   connectDownOnBackdrop = false;
 });
+$('animal-cancel').addEventListener('click', closeAnimals);
+$('animals').addEventListener('click', e => {
+  const b = e.target.closest('button[data-animal]');
+  if (b) pickAnimal(b.dataset.animal);
+});
+let animalDownOnBackdrop = false;
+$('animaloverlay').addEventListener('pointerdown', e => { animalDownOnBackdrop = e.target === e.currentTarget; });
+$('animaloverlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget && animalDownOnBackdrop) closeAnimals();
+  animalDownOnBackdrop = false;
+});
 $('msgclose').addEventListener('click', hideMsg);
 $('msgaction').addEventListener('click', () => { if (msgAction) msgAction(); });
 $('stoppedclose').addEventListener('click', () => $('stopped').classList.add('hidden'));
@@ -980,6 +1036,7 @@ document.addEventListener('keydown', e => {
   if (!s.classList.contains('hidden')) {
     if (!s.dataset.final) s.classList.add('hidden');
   } else if ($('pinoverlay').classList.contains('hidden') && $('setupoverlay').classList.contains('hidden')) {
+    closeAnimals();
     closeConnect();
   }
 });

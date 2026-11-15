@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -29,8 +30,9 @@ type Kid struct {
 // Animals is every animal a kid can be, in slot order. The server gives each
 // kid one when the kid is created (pickAnimal) and stores it with the kid,
 // so the shelf, the practice pages and every screen show the same animal,
-// and adding or removing a sibling changes nobody's. The first eight are the
-// earlier list, which migration 4 used to seed the kids that already existed.
+// and adding or removing a sibling changes nobody's. A parent can change it
+// (SetKidAnimal). The first eight are the earlier list, which migration 4
+// used to seed the kids that already existed.
 var Animals = []string{"🦊", "🐺", "🐰", "🐻", "🦁", "🐧", "🦄", "🐨", "🐼", "🐯", "🐸", "🐵",
 	"🐶", "🐱", "🐮", "🐷", "🐙", "🐢", "🦉", "🐳", "🦒", "🐘", "🦓", "🐬"}
 
@@ -291,6 +293,56 @@ func (b *Budget) RenameKid(ctx context.Context, id core.KidID, name string) erro
 	n, err := res.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("budget: rename kid: %w", err)
+	}
+	if n == 0 {
+		return ErrNoSuchKid
+	}
+	return tx.Commit()
+}
+
+// ErrNoSuchAnimal reports an animal that is not one of Animals.
+var ErrNoSuchAnimal = errors.New("budget: not one of the kid animals")
+
+// KidAnimalTakenError reports that another kid already is the animal. Name
+// is that kid's name, so the page can say whose it is.
+type KidAnimalTakenError struct {
+	Animal string
+	Name   string
+}
+
+func (e *KidAnimalTakenError) Error() string {
+	return fmt.Sprintf("budget: %s is already %q's animal", e.Animal, e.Name)
+}
+
+// SetKidAnimal changes the kid's animal to another of Animals
+// (ErrNoSuchAnimal otherwise). An animal a sibling holds is refused with
+// *KidAnimalTakenError: a kid who cannot read yet finds their own tile by
+// its animal, so two kids never share one by a parent's choice.
+func (b *Budget) SetKidAnimal(ctx context.Context, id core.KidID, animal string) error {
+	if !slices.Contains(Animals, animal) {
+		return ErrNoSuchAnimal
+	}
+	tx, err := b.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var holder string
+	err = tx.QueryRow(`SELECT name FROM kids WHERE animal = ? AND id != ? ORDER BY name LIMIT 1`,
+		animal, string(id)).Scan(&holder)
+	if err == nil {
+		return &KidAnimalTakenError{Animal: animal, Name: holder}
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("budget: check kid animals: %w", err)
+	}
+	res, err := tx.Exec(`UPDATE kids SET animal = ? WHERE id = ?`, animal, string(id))
+	if err != nil {
+		return fmt.Errorf("budget: set kid animal: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("budget: set kid animal: %w", err)
 	}
 	if n == 0 {
 		return ErrNoSuchKid

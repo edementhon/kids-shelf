@@ -157,7 +157,9 @@ If other devices cannot connect, your firewall may be blocking Kids Shelf's two 
    **Lock this page** (top of the parent page), until you change the PIN, or until you reset the
    PIN on the computer.
 2. **Add your kids**, each with their own PIN, and set their daily minutes. The minus buttons can
-   take a kid below zero: the debt comes out of tomorrow's minutes.
+   take a kid below zero: the debt comes out of tomorrow's minutes. Kids Shelf gives each kid an
+   animal, the picture on their button. To change it, or the name or the PIN, press **⋯** on the
+   kid's card. Two kids cannot have the same animal.
 3. **Watch together** uses the same parent PIN. The kids' **Watch together** (free watching with a
    grown-up) asks for the PIN you made in step 1. Watching together ends after two hours, or when
    you press **End watching together**. To take the Watch together button away, switch off
@@ -277,9 +279,10 @@ click **Save**. Kids Shelf makes its own `kids-shelf media` folder there. Videos
 stay where they are and keep playing; offline libraries stay in the first folder.
 
 If that drive is unplugged, new downloads wait and the page says the folder isn't there right
-now; plug it back in and they continue by themselves within a few minutes. **Use the standard
-folder** goes back to the Videos folder. Removing Kids Shelf never deletes the folder on that
-drive; delete it yourself if you no longer want those videos.
+now; plug it back in and they continue by themselves within a few minutes. To go back to the
+Videos folder, press **Use the standard folder**: it is beside **Change where videos are saved**,
+and again beside **Save** once you have pressed that. Removing Kids Shelf never deletes the
+folder on that drive; delete it yourself if you no longer want those videos.
 
 ### Library files you already have
 

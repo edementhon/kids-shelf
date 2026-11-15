@@ -2,6 +2,14 @@
 
 Each release's section here becomes the top of its GitHub release notes (scripts/release-finish.sh copies it there and refuses to publish a version without one). Keep each paragraph and list item on one line: GitHub release notes turn every line break into a visible one.
 
+## v0.3.12
+
+**Change a kid's animal.** Press ⋯ on a kid's card on the parent page and choose **Change animal** to pick the picture on that kid's button. Each kid keeps their own: an animal a brother or sister has cannot be picked. The kids' cards on the parent page now show the animal too.
+
+**Smaller fixes**
+
+- **Use the standard folder** is now also beside Save after you press **Change where videos are saved**, so going back from a folder you chose is easier to find.
+
 ## v0.3.11
 
 **Follow a YouTube playlist or channel.** Paste a playlist or channel link and Kids Shelf looks it up first: how many videos it has, how long they run and about how much space they need. Nothing downloads until you press Start. You choose what to get now (all of it, a channel's newest 20, or nothing yet), can skip videos longer than 10, 20 or 30 minutes or an hour, and can have Kids Shelf check for new videos every 6 hours. New videos go straight to the shelf, or wait for your yes with a link to watch them on YouTube first. A playlist's videos now go in one show named after the playlist.

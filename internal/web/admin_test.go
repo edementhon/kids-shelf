@@ -329,6 +329,32 @@ func TestAdminKidsCRUD(t *testing.T) {
 	}
 	kidByName(t, state(t, ts), "Alex H.")
 
+	// Change the animal: one from the list no sibling has.
+	st = state(t, ts)
+	alexWas, samIs := kidByName(t, st, "Alex H.")["animal"].(string), kidByName(t, st, "Sam")["animal"].(string)
+	pick := ""
+	for _, a := range st["animals"].([]any) {
+		if a != alexWas && a != samIs {
+			pick = a.(string)
+			break
+		}
+	}
+	if resp, _ := post(t, ts.URL+"/api/admin/kids/"+id+"/animal", map[string]any{"animal": pick}); resp.StatusCode != http.StatusOK {
+		t.Errorf("change animal to %s: status %d, want 200", pick, resp.StatusCode)
+	}
+	if got := kidByName(t, state(t, ts), "Alex H.")["animal"]; got != pick {
+		t.Errorf("animal after the change = %v, want %s", got, pick)
+	}
+	if resp, out := post(t, ts.URL+"/api/admin/kids/"+id+"/animal", map[string]any{"animal": samIs}); resp.StatusCode != http.StatusConflict || out["error"] != "Sam is "+samIs+" already. Pick another animal." {
+		t.Errorf("change animal to Sam's: status %d %v, want 409 and whose it is", resp.StatusCode, out)
+	}
+	if resp, out := post(t, ts.URL+"/api/admin/kids/"+id+"/animal", map[string]any{"animal": "🍕"}); resp.StatusCode != http.StatusBadRequest || out["error"] != "Pick one of the animals on the list." {
+		t.Errorf("change animal to one not on the list: status %d %v, want 400", resp.StatusCode, out)
+	}
+	if got := kidByName(t, state(t, ts), "Alex H.")["animal"]; got != pick {
+		t.Errorf("animal after two refusals = %v, want %s still", got, pick)
+	}
+
 	// Change the PIN.
 	if resp, _ := post(t, ts.URL+"/api/admin/kids/"+id+"/pin", map[string]any{"pin": "7777"}); resp.StatusCode != http.StatusOK {
 		t.Errorf("change pin: status %d, want 200", resp.StatusCode)

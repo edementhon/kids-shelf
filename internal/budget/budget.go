@@ -123,7 +123,8 @@ ALTER TABLE household ADD COLUMN safari_screens INTEGER NOT NULL DEFAULT 1;`,
 ALTER TABLE household ADD COLUMN hw_encode INTEGER NOT NULL DEFAULT 1;`,
 }, {
 	// animal is the kid's picture on the shelf and in practice, chosen
-	// once by the server and never changed (see Animals). Existing kids
+	// by the server when the kid is made (see Animals; a parent can
+	// change it, SetKidAnimal). Existing kids
 	// keep the animal the earlier rule showed them: the kid at position i
 	// in name order (ListKids' order) had the i%8th of the first eight
 	// animals. The list is spelled out here, not taken from Animals, so

@@ -254,6 +254,10 @@ button.textbtn {
 }
 .setupform label { display: block; text-align: left; font-weight: 600; margin-top: 10px; }
 .setupform input { margin: 6px 0 0; }
+/* Change a kid's animal: big tap targets, the kid's own one ringed. */
+.animals { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 8px; margin: 14px 0; }
+.animals button { font-size: 1.7rem; min-height: 48px; padding: 4px; background: var(--chip); }
+.animals button[aria-pressed="true"] { outline: 3px solid var(--blue); outline-offset: -3px; }
 /* Connect a tablet: a tall step, so the backdrop scrolls on a short or
    narrow screen instead of cutting the box off. */
 #connectoverlay { padding: 12px 0; }

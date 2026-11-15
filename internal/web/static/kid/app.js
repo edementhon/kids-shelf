@@ -200,8 +200,8 @@ function renderPicker(kids, together) {
     $('pick-places').hidden = true;
     return;
   }
-  // The server chooses each kid's animal once and stores it, so every
-  // screen and the practice pages show the same one.
+  // The server stores each kid's animal (its own pick, or the one a
+  // parent chose), so every screen and the practice pages show the same one.
   for (const k of kids) {
     pick.appendChild(tile(k.animal, k.name, (b) => openPin('kid', k.id, k.name, b)));
   }

@@ -126,6 +126,66 @@ func TestRenameKid(t *testing.T) {
 	}
 }
 
+// TestSetKidAnimal: a parent's choice replaces the animal the server picked
+// and stays; a sibling's animal, an emoji off the list and an unknown kid
+// are refused and change nothing.
+func TestSetKidAnimal(t *testing.T) {
+	b, _ := newTestBudget(t, at(nowOct26))
+	alex := mustCreateKid(t, b, "alex", "1111")
+	sam := mustCreateKid(t, b, "sam", "2222")
+	animalOf := func(id core.KidID) string {
+		t.Helper()
+		kids, err := b.ListKids(ctx)
+		if err != nil {
+			t.Fatalf("ListKids: %v", err)
+		}
+		for _, k := range kids {
+			if k.ID == id {
+				return k.Animal
+			}
+		}
+		t.Fatalf("kid %s not listed", id)
+		return ""
+	}
+	samIs := animalOf(sam)
+	var free []string // animals neither kid has
+	for _, a := range Animals {
+		if a != samIs && a != animalOf(alex) {
+			free = append(free, a)
+		}
+	}
+	pick := free[0]
+	if err := b.SetKidAnimal(ctx, alex, pick); err != nil {
+		t.Fatalf("SetKidAnimal: %v", err)
+	}
+	var taken *KidAnimalTakenError
+	if err := b.SetKidAnimal(ctx, alex, samIs); !errors.As(err, &taken) || taken.Name != "sam" {
+		t.Errorf("SetKidAnimal onto sam's: err = %v, want KidAnimalTakenError for sam", err)
+	}
+	if err := b.SetKidAnimal(ctx, alex, "🍕"); !errors.Is(err, ErrNoSuchAnimal) {
+		t.Errorf("SetKidAnimal(off the list): err = %v, want ErrNoSuchAnimal", err)
+	}
+	if err := b.SetKidAnimal(ctx, ghostID, free[1]); !errors.Is(err, ErrNoSuchKid) {
+		t.Errorf("SetKidAnimal(unknown kid): err = %v, want ErrNoSuchKid", err)
+	}
+	if got := animalOf(alex); got != pick {
+		t.Errorf("alex's animal = %s, want %s", got, pick)
+	}
+	if got := animalOf(sam); got != samIs {
+		t.Errorf("sam's animal = %s, want %s unchanged", got, samIs)
+	}
+	// Keeping the same animal is fine, and a freed one can be taken.
+	if err := b.SetKidAnimal(ctx, alex, pick); err != nil {
+		t.Errorf("SetKidAnimal to the kid's own animal: %v", err)
+	}
+	if err := b.RemoveKid(ctx, sam); err != nil {
+		t.Fatalf("RemoveKid: %v", err)
+	}
+	if err := b.SetKidAnimal(ctx, alex, samIs); err != nil {
+		t.Errorf("SetKidAnimal to a removed kid's animal: %v", err)
+	}
+}
+
 // TestAddKidRefusesTakenName: the parent page's add refuses a name that is
 // already a kid's, in any letter case (Unicode too), and never touches the
 // existing kid's PIN; CreateKid stays idempotent for migrate.

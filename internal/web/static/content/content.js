@@ -946,7 +946,9 @@ function renderFolder() {
     ? `New videos are saved in <b>${esc(f.path)}</b>, but that folder isn’t there right now. Plug in its drive: downloads wait until it’s back.`
     : `New videos are saved in <b>${esc(f.path)}</b>${esc(free)}. That’s where downloads go, and the copies Kids Shelf makes of videos that don’t play everywhere.`;
   $('vfwhere').classList.toggle('err', !!f.missing);
-  $('vfdefault').classList.toggle('hidden', !f.chosen);
+  // Offered beside Change and again in the form Change opens, where a
+  // parent who wants the old folder back looks first.
+  document.querySelectorAll('.vfdefault').forEach(b => b.classList.toggle('hidden', !f.chosen));
 }
 
 function showFolderForm(open) {
@@ -986,14 +988,15 @@ $('vfform').addEventListener('submit', async ev => {
   }
 });
 
-$('vfdefault').addEventListener('click', async () => {
+document.querySelectorAll('.vfdefault').forEach(b => b.addEventListener('click', async () => {
   try {
     const f = await saveFolder('');
+    showFolderForm(false);
     toast(`New videos are saved in ${f.path} again. Videos already saved stay where they are.`, 'ok');
   } catch (e) {
     if (!e.pin) toast(e.message, 'err');
   }
-});
+}));
 
 $('ytjobs').addEventListener('click', ev => {
   const b = ev.target.closest('[data-retry]');
